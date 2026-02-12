@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.0] - 2026-02-12
+
+### Added
+- **Self-contained Pi operation** - Pi no longer depends on Mac for YouTube auth or code updates
+- **YouTube auth config** - New `ytdl_cookies_from_browser` and `ytdl_po_token` fields in `picast.toml`, threaded through all yt-dlp and mpv calls
+- **Auto-update system** - Daily check against GitHub `main` branch at 4 AM with systemd timer, automatic `pip install` + service restart
+- **`picast-update` script** - Manual update trigger, installed to `~/.local/bin/`
+- **Update status in health endpoint** - `/api/health` now includes last update log line
+- **Deployment docs** - New `docs/deployment.md` covering auto-update and rsync coexistence
+
+### Changed
+- `install-pi.sh` now installs Chromium and sets `ytdl_cookies_from_browser = "chromium"` by default
+- `install-pi.sh` adds sudoers entry for passwordless `systemctl restart picast`
+- YouTube auth is now Pi-local (Chromium cookies or PO token) instead of Mac cookie export
+
+### Removed
+- Mac cookie export workflow from `docs/pi-network.md`
+
 ## [0.5.0] - 2026-02-12
 
 ### Added

@@ -69,7 +69,7 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
 
     # Source registry
     sources = SourceRegistry()
-    sources.register(YouTubeSource(config.ytdl_format))
+    sources.register(YouTubeSource(config.ytdl_format, config=config))
     sources.register(LocalSource())
     sources.register(TwitchSource())
 
@@ -78,7 +78,7 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     for name, host, port in (devices or []):
         device_registry.add_from_config(name, host, port)
 
-    player = Player(mpv, queue, config.ytdl_format, config.ytdl_format_live, library=library)
+    player = Player(mpv, queue, config.ytdl_format, config.ytdl_format_live, library=library, config=config)
 
     # Start the player loop
     player.start()
@@ -400,14 +400,25 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
 
     @app.route("/api/health")
     def health():
-        return jsonify({
+        resp = {
             "status": "ok",
             "version": _get_version(),
             "player_running": player.is_running,
             "mpv_connected": mpv.connected,
             "queue_pending": len(queue.get_pending()),
             "queue_total": len(queue.get_all()),
-        })
+        }
+        # Include last auto-update status if available
+        update_log = os.path.join(config.data_dir, "update.log")
+        if os.path.exists(update_log):
+            try:
+                with open(update_log) as f:
+                    lines = f.readlines()
+                    if lines:
+                        resp["last_update"] = lines[-1].strip()
+            except OSError:
+                pass
+        return jsonify(resp)
 
     # --- Library Endpoints ---
 

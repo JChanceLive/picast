@@ -21,7 +21,7 @@ warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 err() { echo -e "  ${RED}✗${NC} $1"; }
 step() { echo -e "\n${YELLOW}[$1/$TOTAL_STEPS] $2${NC}"; }
 
-TOTAL_STEPS=7
+TOTAL_STEPS=8
 PICAST_VERSION="${PICAST_VERSION:-}"
 PICAST_EXTRAS="${PICAST_EXTRAS:-}"
 PICAST_SKIP_SERVICE="${PICAST_SKIP_SERVICE:-0}"
@@ -75,7 +75,7 @@ step 2 "Installing system dependencies..."
 
 if command -v apt &> /dev/null; then
     sudo apt update -qq
-    sudo apt install -y -qq mpv socat python3-pip python3-venv
+    sudo apt install -y -qq mpv socat python3-pip python3-venv chromium-browser
     log "System packages installed"
 elif command -v dnf &> /dev/null; then
     sudo dnf install -y mpv socat python3-pip
@@ -158,6 +158,7 @@ host = "0.0.0.0"
 port = 5050
 mpv_socket = "/tmp/mpv-socket"
 ytdl_format = "$YTDL_FMT"
+ytdl_cookies_from_browser = "chromium"
 
 # Uncomment to enable Telegram bot
 # [telegram]
@@ -224,6 +225,103 @@ SYSTEMD
     log "picast.service enabled and started"
 fi
 
+# --- Step 8: Install auto-update system ---
+step 8 "Setting up auto-update..."
+
+# Create update script
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/picast-update << 'UPDATE_SCRIPT'
+#!/bin/bash
+# PiCast Auto-Updater - checks GitHub for new versions daily
+
+LOG="$HOME/.picast/update.log"
+mkdir -p "$(dirname "$LOG")"
+
+log_msg() {
+    echo "$(date -u '+%Y-%m-%d %H:%M:%S UTC') $1" >> "$LOG"
+}
+
+log_msg "Update check started"
+
+# Get installed version
+INSTALLED=$(python3 -c "from picast.__about__ import __version__; print(__version__)" 2>/dev/null || echo "unknown")
+log_msg "Installed: $INSTALLED"
+
+# Get latest version from GitHub
+LATEST=$(curl -sSf "https://raw.githubusercontent.com/JChanceLive/picast/main/src/picast/__about__.py" 2>/dev/null | grep -oP '(?<=__version__ = ")[^"]+')
+if [ -z "$LATEST" ]; then
+    log_msg "ERROR: Could not fetch latest version from GitHub"
+    exit 1
+fi
+log_msg "Latest: $LATEST"
+
+if [ "$INSTALLED" = "$LATEST" ]; then
+    log_msg "Already up to date ($INSTALLED)"
+else
+    log_msg "Updating $INSTALLED -> $LATEST"
+    if pip3 install --user --break-system-packages "git+https://github.com/JChanceLive/picast.git@main" 2>>"$LOG"; then
+        log_msg "PiCast updated to $LATEST"
+    else
+        log_msg "ERROR: pip install failed"
+        exit 1
+    fi
+
+    # Restart service
+    sudo systemctl restart picast
+    log_msg "Service restarted"
+fi
+
+# Opportunistically upgrade yt-dlp
+pip3 install --user --break-system-packages --upgrade yt-dlp >>/dev/null 2>&1 && log_msg "yt-dlp upgraded" || true
+
+log_msg "Update check complete"
+UPDATE_SCRIPT
+chmod +x ~/.local/bin/picast-update
+log "Update script installed at ~/.local/bin/picast-update"
+
+if [ "$PICAST_SKIP_SERVICE" != "1" ]; then
+    # Sudoers entry for passwordless picast restart
+    SUDOERS_FILE="/etc/sudoers.d/picast-update"
+    sudo tee "$SUDOERS_FILE" > /dev/null << SUDOERS
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl restart picast
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl stop picast
+$INSTALL_USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl start picast
+SUDOERS
+    sudo chmod 0440 "$SUDOERS_FILE"
+    log "Sudoers entry for passwordless restart"
+
+    # Systemd timer for daily updates
+    sudo tee /etc/systemd/system/picast-update.service > /dev/null << SYSTEMD
+[Unit]
+Description=PiCast Auto-Updater
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=$INSTALL_USER
+ExecStart=/home/$INSTALL_USER/.local/bin/picast-update
+SYSTEMD
+
+    sudo tee /etc/systemd/system/picast-update.timer > /dev/null << SYSTEMD
+[Unit]
+Description=PiCast Daily Update Check
+
+[Timer]
+OnCalendar=*-*-* 04:00:00
+RandomizedDelaySec=1800
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+SYSTEMD
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable picast-update.timer
+    sudo systemctl start picast-update.timer
+    log "Daily update timer enabled (4 AM + jitter)"
+fi
+
 # --- Done ---
 HOSTNAME=$(hostname 2>/dev/null || echo "picast")
 echo -e "\n${GREEN}"
@@ -246,8 +344,15 @@ echo "  On your Mac:"
 echo "    pip install picast"
 echo "    picast  # Opens TUI dashboard"
 echo ""
-echo -e "  ${YELLOW}YouTube Setup Required:${NC}"
-echo "    YouTube needs a PO token for server-side playback."
+echo "  Auto-Update:"
+echo "    Checks GitHub daily at 4 AM"
+echo "    Manual: picast-update"
+echo "    Log: ~/.picast/update.log"
+echo ""
+echo -e "  ${YELLOW}YouTube Setup (one-time):${NC}"
+echo "    1. Open Chromium on the Pi desktop"
+echo "    2. Go to youtube.com and sign in"
+echo "    3. Restart: sudo systemctl restart picast"
 echo "    See: https://github.com/JChanceLive/picast/blob/main/docs/youtube-setup.md"
 echo -e "${NC}"
 

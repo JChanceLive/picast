@@ -4,6 +4,7 @@ import os
 
 import pytest
 
+from picast.config import ServerConfig
 from picast.server.sources.base import SourceHandler, SourceItem, SourceRegistry
 from picast.server.sources.local import MEDIA_EXTENSIONS, LocalSource
 from picast.server.sources.twitch import TwitchSource
@@ -155,6 +156,65 @@ class TestYouTubeSource:
         assert title == "Test PL"
         assert len(items) == 1
         assert items[0][0] == "https://www.youtube.com/watch?v=abc123"
+
+
+    def test_auth_args_no_config(self):
+        """No config means no auth args."""
+        yt = YouTubeSource()
+        assert yt._auth_args() == []
+
+    def test_auth_args_with_cookies(self):
+        """Config with cookies_from_browser produces correct args."""
+        config = ServerConfig(ytdl_cookies_from_browser="chromium")
+        yt = YouTubeSource(config=config)
+        assert yt._auth_args() == ["--cookies-from-browser=chromium"]
+
+    def test_auth_args_with_po_token(self):
+        config = ServerConfig(ytdl_po_token="abc123")
+        yt = YouTubeSource(config=config)
+        args = yt._auth_args()
+        assert "--extractor-args" in args
+        assert "po_token=abc123" in args[1]
+
+    def test_extract_playlist_includes_auth(self, monkeypatch):
+        """Auth args are passed to yt-dlp in extract_playlist."""
+        import subprocess
+
+        captured_cmd = []
+
+        def mock_run(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0,
+                stdout="PL\thttps://www.youtube.com/watch?v=x\tVid\n",
+                stderr="",
+            )
+
+        config = ServerConfig(ytdl_cookies_from_browser="chromium")
+        yt = YouTubeSource(config=config)
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        yt.extract_playlist("https://www.youtube.com/playlist?list=PLtest")
+        assert "--cookies-from-browser=chromium" in captured_cmd
+
+    def test_get_metadata_includes_auth(self, monkeypatch):
+        """Auth args are passed to yt-dlp in get_metadata."""
+        import subprocess
+
+        captured_cmd = []
+
+        def mock_run(cmd, **kwargs):
+            captured_cmd.extend(cmd)
+            return subprocess.CompletedProcess(
+                args=cmd, returncode=0,
+                stdout="Title\t120\thttps://img.youtube.com/vi/x/default.jpg",
+                stderr="",
+            )
+
+        config = ServerConfig(ytdl_cookies_from_browser="chromium")
+        yt = YouTubeSource(config=config)
+        monkeypatch.setattr(subprocess, "run", mock_run)
+        yt.get_metadata("https://www.youtube.com/watch?v=abc")
+        assert "--cookies-from-browser=chromium" in captured_cmd
 
 
 class TestLocalSource:

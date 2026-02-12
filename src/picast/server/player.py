@@ -97,12 +97,14 @@ class Player:
         ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]",
         ytdl_format_live: str = "bestvideo[height<=480][vcodec^=avc]+bestaudio/best[height<=480]",
         library: "Library | None" = None,
+        config: "ServerConfig | None" = None,
     ):
         self.mpv = mpv
         self.queue = queue
         self.ytdl_format = ytdl_format
         self.ytdl_format_live = ytdl_format_live
         self.library = library
+        self._config = config
         self._thread: threading.Thread | None = None
         self._running = False
         self._mpv_process: subprocess.Popen | None = None
@@ -230,11 +232,19 @@ class Player:
         is_live = item.source_type == "twitch"
         fmt = self.ytdl_format_live if is_live else self.ytdl_format
 
+        # Build ytdl-raw-options with auth if configured
+        raw_opts = "js-runtimes=deno,remote-components=ejs:github"
+        if self._config:
+            from picast.config import ytdl_raw_options_auth
+            auth_opt = ytdl_raw_options_auth(self._config)
+            if auth_opt:
+                raw_opts += f",{auth_opt}"
+
         cmd = [
             "mpv",
             f"--input-ipc-server={self.mpv.socket_path}",
             f"--ytdl-format={fmt}",
-            "--ytdl-raw-options=js-runtimes=deno,remote-components=ejs:github",
+            f"--ytdl-raw-options={raw_opts}",
             "--hwdec=auto",
             "--cache=yes",
             "--demuxer-max-bytes=50MiB",
@@ -387,8 +397,12 @@ class Player:
     def _get_title(self, url: str) -> str:
         """Get video title via yt-dlp."""
         try:
+            auth = []
+            if self._config:
+                from picast.config import ytdl_auth_args
+                auth = ytdl_auth_args(self._config)
             result = subprocess.run(
-                ["yt-dlp", "--get-title", "--no-warnings", url],
+                ["yt-dlp", "--get-title", "--no-warnings", *auth, url],
                 capture_output=True,
                 text=True,
                 timeout=30,

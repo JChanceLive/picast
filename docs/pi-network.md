@@ -84,17 +84,12 @@ PiCast includes a PWA manifest for app-like experience on mobile:
 2. Tap Share > "Add to Home Screen"
 3. PiCast appears as a standalone app (no browser chrome)
 
-## Cookie Refresh
+## YouTube Authentication
 
-YouTube requires cookie authentication. When videos stop playing:
+YouTube auth is handled locally on the Pi. See [youtube-setup.md](youtube-setup.md) for details.
 
-**On Mac:**
+If videos stop playing, open Chromium on the Pi desktop and verify you're still signed in to YouTube, then restart PiCast:
+
 ```bash
-yt-dlp --cookies-from-browser chrome --cookies /tmp/youtube-cookies.txt --skip-download "https://www.youtube.com"
-scp /tmp/youtube-cookies.txt jopi@10.0.0.25:/home/jopi/.config/yt-dlp/cookies.txt
-```
-
-**Then restart PiCast:**
-```bash
-ssh jopi@10.0.0.25 "sudo systemctl restart picast"
+sudo systemctl restart picast
 ```

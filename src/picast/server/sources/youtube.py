@@ -1,5 +1,7 @@
 """YouTube source handler."""
 
+from __future__ import annotations
+
 import logging
 import subprocess
 from urllib.parse import parse_qs, urlparse
@@ -14,8 +16,20 @@ class YouTubeSource(SourceHandler):
 
     source_type = "youtube"
 
-    def __init__(self, ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]"):
+    def __init__(
+        self,
+        ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]",
+        config: "ServerConfig | None" = None,
+    ):
         self.ytdl_format = ytdl_format
+        self._config = config
+
+    def _auth_args(self) -> list[str]:
+        """Get yt-dlp auth arguments from config."""
+        if self._config:
+            from picast.config import ytdl_auth_args
+            return ytdl_auth_args(self._config)
+        return []
 
     def matches(self, url: str) -> bool:
         return any(domain in url for domain in [
@@ -43,6 +57,7 @@ class YouTubeSource(SourceHandler):
                     "--flat-playlist",
                     "--no-warnings",
                     "--print", "%(playlist_title)s\t%(url)s\t%(title)s",
+                    *self._auth_args(),
                     url,
                 ],
                 capture_output=True,
@@ -82,6 +97,7 @@ class YouTubeSource(SourceHandler):
                     "--no-warnings",
                     "--no-download",
                     "--print", "%(title)s\t%(duration)s\t%(thumbnail)s",
+                    *self._auth_args(),
                     url,
                 ],
                 capture_output=True,

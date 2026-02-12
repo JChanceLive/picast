@@ -39,6 +39,8 @@ class ServerConfig:
     db_file: str = ""
     ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]"
     ytdl_format_live: str = "bestvideo[height<=480][vcodec^=avc]+bestaudio/best[height<=480]"
+    ytdl_cookies_from_browser: str = ""  # e.g. "chromium"
+    ytdl_po_token: str = ""              # PO token for headless setups
     data_dir: str = ""
 
     def __post_init__(self):
@@ -104,6 +106,8 @@ def _parse_config(data: dict) -> Config:
             db_file=s.get("db_file", config.server.db_file),
             ytdl_format=s.get("ytdl_format", config.server.ytdl_format),
             ytdl_format_live=s.get("ytdl_format_live", config.server.ytdl_format_live),
+            ytdl_cookies_from_browser=s.get("ytdl_cookies_from_browser", config.server.ytdl_cookies_from_browser),
+            ytdl_po_token=s.get("ytdl_po_token", config.server.ytdl_po_token),
             data_dir=s.get("data_dir", config.server.data_dir),
         )
 
@@ -125,3 +129,28 @@ def _parse_config(data: dict) -> Config:
             ))
 
     return config
+
+
+def ytdl_auth_args(config: ServerConfig) -> list[str]:
+    """Build yt-dlp auth arguments from config.
+
+    Priority: cookies_from_browser > po_token > no auth.
+    """
+    if config.ytdl_cookies_from_browser:
+        return [f"--cookies-from-browser={config.ytdl_cookies_from_browser}"]
+    if config.ytdl_po_token:
+        return ["--extractor-args", f"youtube:player-client=web;po_token={config.ytdl_po_token}"]
+    return []
+
+
+def ytdl_raw_options_auth(config: ServerConfig) -> str:
+    """Build mpv --ytdl-raw-options auth string from config.
+
+    Returns a comma-separated string suitable for appending to existing
+    ytdl-raw-options. Empty string if no auth configured.
+    """
+    if config.ytdl_cookies_from_browser:
+        return f"cookies-from-browser={config.ytdl_cookies_from_browser}"
+    if config.ytdl_po_token:
+        return f"extractor-args=youtube:player-client=web;po_token={config.ytdl_po_token}"
+    return ""
