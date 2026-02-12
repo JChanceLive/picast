@@ -13,13 +13,14 @@ ACCENT = (99, 179, 237)    # Blue
 ACCENT2 = (129, 230, 169)  # Green
 WHITE = (240, 240, 245)
 DIM = (140, 140, 160)
-ORANGE = (251, 191, 36)
+
 
 def get_hostname():
     try:
         return socket.gethostname()
     except Exception:
         return "picast"
+
 
 def get_ip():
     try:
@@ -31,11 +32,10 @@ def get_ip():
     except Exception:
         return "10.0.0.25"
 
+
 def load_font(size):
-    """Try to load a good font, fall back to default."""
     paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
     ]
@@ -45,6 +45,7 @@ def load_font(size):
         except (IOError, OSError):
             continue
     return ImageFont.load_default()
+
 
 def load_bold_font(size):
     paths = [
@@ -59,6 +60,7 @@ def load_bold_font(size):
             continue
     return load_font(size)
 
+
 def load_mono_font(size):
     paths = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
@@ -72,38 +74,37 @@ def load_mono_font(size):
             continue
     return load_font(size)
 
-def rounded_rect(draw, xy, radius, fill):
-    x0, y0, x1, y1 = xy
-    draw.rounded_rectangle(xy, radius=radius, fill=fill)
 
-def draw_section(draw, x, y, w, title, lines, fonts):
-    """Draw a card section with title and content lines."""
-    title_font, body_font, mono_font = fonts
-    padding = 24
-    line_height = 32
+def draw_section(draw, x, y, w, title, lines, title_font, body_font, mono_font,
+                 label_w=140):
+    """Draw a card with title and content lines. Returns card height."""
+    pad = 16
+    line_h = 22
+    title_h = 28
 
-    # Calculate card height
-    card_h = padding + 40 + (len(lines) * line_height) + padding
+    card_h = pad + title_h + 8 + (len(lines) * line_h) + pad
 
     # Card background
-    rounded_rect(draw, (x, y, x + w, y + card_h), 16, CARD_BG)
+    draw.rounded_rectangle((x, y, x + w, y + card_h), radius=12, fill=CARD_BG)
 
     # Title
-    draw.text((x + padding, y + padding), title, fill=ACCENT, font=title_font)
+    draw.text((x + pad, y + pad), title, fill=ACCENT, font=title_font)
 
     # Lines
-    cy = y + padding + 44
+    cy = y + pad + title_h + 8
     for line in lines:
         if isinstance(line, tuple):
-            # (label, value) pair
             label, value = line
-            draw.text((x + padding, cy), label, fill=DIM, font=body_font)
-            draw.text((x + padding + 220, cy), value, fill=WHITE, font=mono_font)
+            draw.text((x + pad, cy), label, fill=DIM, font=body_font)
+            draw.text((x + pad + label_w, cy), value, fill=WHITE, font=mono_font)
+        elif line == "":
+            pass  # blank spacer
         else:
-            draw.text((x + padding, cy), line, fill=WHITE, font=body_font)
-        cy += line_height
+            draw.text((x + pad, cy), line, fill=WHITE, font=body_font)
+        cy += line_h
 
     return card_h
+
 
 def main():
     ip = get_ip()
@@ -112,149 +113,184 @@ def main():
     img = Image.new("RGB", (WIDTH, HEIGHT), BG)
     draw = ImageDraw.Draw(img)
 
-    # Fonts
-    title_huge = load_bold_font(64)
-    title_font = load_bold_font(24)
-    body_font = load_font(20)
-    mono_font = load_mono_font(20)
-    subtitle_font = load_font(22)
-    small_font = load_font(16)
-    fonts = (title_font, body_font, mono_font)
+    # Fonts - smaller sizes to fit everything
+    title_huge = load_bold_font(48)
+    section_font = load_bold_font(15)
+    body_font = load_font(14)
+    mono_font = load_mono_font(13)
+    subtitle_font = load_font(16)
+    small_font = load_font(12)
+    ver_font = load_bold_font(18)
 
     # --- Header ---
-    # Decorative top bar
-    draw.rectangle((0, 0, WIDTH, 4), fill=ACCENT)
+    draw.rectangle((0, 0, WIDTH, 3), fill=ACCENT)
 
-    # Title
-    draw.text((80, 50), "PiCast", fill=WHITE, font=title_huge)
-    draw.text((80, 125), "YouTube Queue Player for Raspberry Pi", fill=DIM, font=subtitle_font)
+    draw.text((60, 30), "PiCast", fill=WHITE, font=title_huge)
+    draw.text((60, 85), "YouTube Queue Player for Raspberry Pi", fill=DIM, font=subtitle_font)
 
     # Version badge
-    ver_text = "v0.6.0"
-    draw.rounded_rectangle((340, 62, 460, 98), radius=12, fill=ACCENT)
-    draw.text((358, 66), ver_text, fill=BG, font=title_font)
+    draw.rounded_rectangle((260, 40, 365, 68), radius=10, fill=ACCENT)
+    draw.text((275, 43), "v0.6.0", fill=BG, font=ver_font)
 
     # Status indicator
-    draw.ellipse((WIDTH - 200, 70, WIDTH - 184, 86), fill=ACCENT2)
-    draw.text((WIDTH - 175, 65), "RUNNING", fill=ACCENT2, font=title_font)
+    draw.ellipse((WIDTH - 160, 48, WIDTH - 146, 62), fill=ACCENT2)
+    draw.text((WIDTH - 140, 43), "RUNNING", fill=ACCENT2, font=ver_font)
 
-    # --- Left Column ---
-    left_x = 80
-    col_w = 520
-    cy = 190
+    # --- Column layout: 3 columns ---
+    gap = 20
+    col_w = (WIDTH - 60 - 60 - gap * 2) // 3  # ~580 each
+    col1_x = 60
+    col2_x = col1_x + col_w + gap
+    col3_x = col2_x + col_w + gap
+    top_y = 120
 
-    # What is PiCast?
-    h = draw_section(draw, left_x, cy, col_w, "WHAT IS PICAST?", [
-        "A media queue player that turns",
-        "your Raspberry Pi into a dedicated",
-        "YouTube/Twitch streaming device.",
-        "",
-        "Queue videos from any device,",
-        "plays continuously on your TV.",
-    ], fonts)
-    cy += h + 24
+    # ============ COLUMN 1 ============
+    cy = top_y
 
-    # Web UI
-    h = draw_section(draw, left_x, cy, col_w, "WEB UI", [
-        ("URL", f"http://{ip}:5050"),
-        ("Local", f"http://{hostname}.local:5050"),
-        "",
-        "Open from any phone, tablet,",
-        "or computer on your network.",
-    ], fonts)
-    cy += h + 24
+    h = draw_section(draw, col1_x, cy, col_w,
+        "WHAT IS PICAST?", [
+            "A media queue player that turns your",
+            "Raspberry Pi into a dedicated YouTube",
+            "and Twitch streaming device.",
+            "",
+            "Queue videos from any device on your",
+            "network. Plays continuously on your TV.",
+        ], section_font, body_font, mono_font)
+    cy += h + 14
 
-    # Quick Commands
-    h = draw_section(draw, left_x, cy, col_w, "QUICK COMMANDS (SSH)", [
-        ("Status", "sudo systemctl status picast"),
-        ("Restart", "sudo systemctl restart picast"),
-        ("Logs", "journalctl -u picast -f"),
-        ("Update", "picast-update"),
-        ("Config", "~/.config/picast/picast.toml"),
-    ], fonts)
+    h = draw_section(draw, col1_x, cy, col_w,
+        "WEB UI", [
+            ("URL", f"http://{ip}:5050"),
+            ("Local", f"http://{hostname}.local:5050"),
+            "",
+            "Open from any phone, tablet, or",
+            "computer on your local network.",
+        ], section_font, body_font, mono_font, label_w=80)
+    cy += h + 14
 
-    # --- Right Column ---
-    right_x = 660
-    col_w = 520
-    cy = 190
+    h = draw_section(draw, col1_x, cy, col_w,
+        "SSH COMMANDS", [
+            ("Status", "sudo systemctl status picast"),
+            ("Restart", "sudo systemctl restart picast"),
+            ("Logs", "journalctl -u picast -f"),
+            ("Update", "picast-update"),
+            ("Config", "~/.config/picast/picast.toml"),
+            ("Data", "~/.picast/picast.db"),
+        ], section_font, body_font, mono_font, label_w=80)
+    cy += h + 14
 
-    # Tech Stack
-    h = draw_section(draw, right_x, cy, col_w, "TECH STACK", [
-        ("Server", "Python + Flask"),
-        ("Player", "mpv (hardware-accelerated)"),
-        ("Database", "SQLite (queue + library)"),
-        ("YouTube", "yt-dlp + deno (auto PO token)"),
-        ("Service", "systemd (auto-start on boot)"),
-        ("Updates", "Daily auto-update from GitHub"),
-    ], fonts)
-    cy += h + 24
+    h = draw_section(draw, col1_x, cy, col_w,
+        "NETWORK", [
+            ("IP", ip),
+            ("Hostname", f"{hostname}.local"),
+            ("Port", "5050"),
+            ("SSH", f"ssh jopi@{ip}"),
+        ], section_font, body_font, mono_font, label_w=100)
 
-    # How It Works
-    h = draw_section(draw, right_x, cy, col_w, "HOW IT WORKS", [
-        "1. Open Web UI from any device",
-        "2. Paste YouTube/Twitch URLs",
-        "3. Videos queue and auto-play",
-        "4. Control playback from Web UI",
-        "",
-        "No account needed. No app install.",
-        "Works on any browser.",
-    ], fonts)
-    cy += h + 24
+    # ============ COLUMN 2 ============
+    cy = top_y
 
-    # Network Info
-    h = draw_section(draw, right_x, cy, col_w, "NETWORK", [
-        ("IP Address", ip),
-        ("Hostname", f"{hostname}.local"),
-        ("API Port", "5050"),
-        ("SSH", f"ssh jopi@{ip}"),
-    ], fonts)
+    h = draw_section(draw, col2_x, cy, col_w,
+        "TECH STACK", [
+            ("Server", "Python + Flask"),
+            ("Player", "mpv (hardware-accelerated)"),
+            ("Database", "SQLite (queue + library)"),
+            ("YouTube", "yt-dlp + deno (auto PO token)"),
+            ("Service", "systemd (auto-start on boot)"),
+            ("Updates", "Daily auto-update from GitHub"),
+        ], section_font, body_font, mono_font, label_w=100)
+    cy += h + 14
 
-    # --- Far Right Column ---
-    far_right_x = 1240
-    col_w = 600
-    cy = 190
+    h = draw_section(draw, col2_x, cy, col_w,
+        "HOW IT WORKS", [
+            "1. Open the Web UI from any device",
+            "2. Paste a YouTube or Twitch URL",
+            "3. Videos queue up and auto-play on TV",
+            "4. Control playback from the Web UI",
+            "",
+            "No account needed. No app to install.",
+            "Works on any browser on your network.",
+        ], section_font, body_font, mono_font)
+    cy += h + 14
 
-    # API Endpoints
-    h = draw_section(draw, far_right_x, cy, col_w, "API ENDPOINTS", [
-        ("Health", f"GET  /api/health"),
-        ("Status", f"GET  /api/status"),
-        ("Queue", f"GET  /api/queue"),
-        ("Add", f"POST /api/queue  {'{'}\"url\": \"...\"{'}'}"),
-        ("Play/Pause", f"POST /api/player/toggle"),
-        ("Skip", f"POST /api/player/skip"),
-        ("Volume", f"POST /api/player/volume"),
-    ], fonts)
-    cy += h + 24
+    h = draw_section(draw, col2_x, cy, col_w,
+        "FEATURES", [
+            "Queue management (add, reorder, replay)",
+            "YouTube, Twitch, and local file support",
+            "Playback history and library tracking",
+            "Collections (saved playlists)",
+            "Sleep timer (stop after current or N min)",
+            "Telegram bot remote control (optional)",
+            "TUI client for Mac terminal",
+            "Multi-device discovery (mDNS)",
+        ], section_font, body_font, mono_font)
+    cy += h + 14
 
-    # Features
-    h = draw_section(draw, far_right_x, cy, col_w, "FEATURES", [
-        "Queue management (add, reorder, replay)",
-        "YouTube, Twitch, and local files",
-        "Playback history + library",
-        "Collections (saved playlists)",
-        "Sleep timer (stop after current/mins)",
-        "Telegram bot (optional)",
-        "TUI client for Mac terminal",
-    ], fonts)
-    cy += h + 24
+    h = draw_section(draw, col2_x, cy, col_w,
+        "AUTO-UPDATE", [
+            "Checks GitHub daily at 4 AM (+jitter).",
+            "Also upgrades yt-dlp automatically.",
+            ("Manual", "picast-update"),
+            ("Log", "~/.picast/update.log"),
+        ], section_font, body_font, mono_font, label_w=80)
 
-    # Auto-Update
-    h = draw_section(draw, far_right_x, cy, col_w, "AUTO-UPDATE", [
-        "Checks GitHub daily at 4 AM.",
-        "Also upgrades yt-dlp automatically.",
-        ("Manual", "picast-update"),
-        ("Log", "~/.picast/update.log"),
-    ], fonts)
+    # ============ COLUMN 3 ============
+    cy = top_y
+
+    h = draw_section(draw, col3_x, cy, col_w,
+        "API ENDPOINTS", [
+            ("GET", "/api/health"),
+            ("GET", "/api/status"),
+            ("GET", "/api/queue"),
+            ("POST", "/api/queue         {\"url\": \"...\"}"),
+            ("POST", "/api/player/toggle"),
+            ("POST", "/api/player/skip"),
+            ("POST", "/api/player/volume  {\"level\": 80}"),
+            ("POST", "/api/player/seek    {\"position\": 120}"),
+            ("POST", "/api/player/speed   {\"speed\": 1.5}"),
+            ("GET", "/api/library/browse"),
+            ("GET", "/api/library/search?q=..."),
+            ("GET", "/api/playlists"),
+        ], section_font, body_font, mono_font, label_w=60)
+    cy += h + 14
+
+    h = draw_section(draw, col3_x, cy, col_w,
+        "WEB PAGES", [
+            ("Queue", f"http://{ip}:5050/"),
+            ("History", f"http://{ip}:5050/history"),
+            ("Collections", f"http://{ip}:5050/collections"),
+        ], section_font, body_font, mono_font, label_w=110)
+    cy += h + 14
+
+    h = draw_section(draw, col3_x, cy, col_w,
+        "QUICK START FROM MAC", [
+            "pip install picast",
+            "picast              # TUI dashboard",
+            "picast status       # Check Pi status",
+            f"curl http://{ip}:5050/api/health",
+        ], section_font, body_font, mono_font)
+    cy += h + 14
+
+    h = draw_section(draw, col3_x, cy, col_w,
+        "TROUBLESHOOTING", [
+            "No video?  Check journalctl -u picast -f",
+            "No audio?  Verify HDMI audio in mpv.conf",
+            "Blocked?   yt-dlp auto-generates PO tokens",
+            "Stale?     Run: picast-update",
+            "Crashed?   sudo systemctl restart picast",
+        ], section_font, body_font, mono_font)
 
     # --- Footer ---
-    draw.rectangle((0, HEIGHT - 40, WIDTH, HEIGHT), fill=CARD_BG)
-    draw.text((80, HEIGHT - 34), f"github.com/JChanceLive/picast", fill=DIM, font=small_font)
-    draw.text((WIDTH - 400, HEIGHT - 34), f"Generated by PiCast install  |  {hostname}  |  {ip}", fill=DIM, font=small_font)
+    draw.rectangle((0, HEIGHT - 30, WIDTH, HEIGHT), fill=CARD_BG)
+    draw.text((60, HEIGHT - 24), "github.com/JChanceLive/picast", fill=DIM, font=small_font)
+    draw.text((WIDTH - 300, HEIGHT - 24),
+              f"{hostname}  |  {ip}  |  port 5050", fill=DIM, font=small_font)
 
     # Save
     output = "/home/jopi/.picast/wallpaper.png"
-    img.save(output, "PNG")
+    img.save(output, "PNG", optimize=True)
     print(f"Wallpaper saved to {output}")
+
 
 if __name__ == "__main__":
     main()
