@@ -234,7 +234,7 @@ class Player:
             "mpv",
             f"--input-ipc-server={self.mpv.socket_path}",
             f"--ytdl-format={fmt}",
-            "--ytdl-raw-options=js-runtimes=deno,remote-components=ejs:github,cookies=/home/jopi/.config/yt-dlp/cookies.txt",
+            "--ytdl-raw-options=js-runtimes=deno,remote-components=ejs:github",
             "--hwdec=auto",
             "--cache=yes",
             "--demuxer-max-bytes=50MiB",
