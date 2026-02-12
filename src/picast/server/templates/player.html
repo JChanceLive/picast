@@ -190,10 +190,13 @@ function updateQueue(items) {
             <button onclick="moveItem(${item.id},1)" class="qi-circle qi-move" title="Move down"${isLast ? ' disabled' : ''}>\u25BC</button>
         </span>` : '';
         const vidIdHtml = videoId ? `<span class="qi-video-id">${videoId}</span>` : '';
+        const thumbUrl = ytThumb(item.url);
+        const thumbHtml = thumbUrl ? `<img class="qi-thumb" src="${thumbUrl}" alt="">` : '';
         return `<div class="${cls}">
             ${replayBtn}
             ${moveCol}
             <span class="qi-status">${statusIcons[item.status] || ''}</span>
+            ${thumbHtml}
             <div class="qi-info">
                 <div class="qi-info-top">
                     <span class="qi-source">${tags[item.source_type] || ''}</span>

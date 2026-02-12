@@ -415,12 +415,21 @@ body {
     display: flex;
     align-items: center;
     gap: 0.4rem;
-    padding: 0.4rem 0.75rem;
+    padding: 0.5rem 0.75rem;
     background: var(--surface);
     border-radius: var(--radius);
     margin-bottom: 0.25rem;
     font-size: 0.9rem;
     border: 1px solid transparent;
+    min-height: 52px;
+}
+
+.qi-thumb {
+    width: 56px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
 }
 
 .queue-item.playing {
