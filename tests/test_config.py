@@ -8,11 +8,23 @@ from picast.config import (
 )
 
 
-class TestServerConfigAuth:
+class TestServerConfigDefaults:
     def test_default_auth_fields(self):
         config = ServerConfig()
         assert config.ytdl_cookies_from_browser == ""
         assert config.ytdl_po_token == ""
+
+    def test_default_hwdec(self):
+        config = ServerConfig()
+        assert config.mpv_hwdec == "auto"
+
+    def test_parse_hwdec(self):
+        data = {"server": {"mpv_hwdec": "v4l2m2m-copy"}}
+        config = _parse_config(data)
+        assert config.server.mpv_hwdec == "v4l2m2m-copy"
+
+
+class TestServerConfigAuth:
 
     def test_parse_cookies_from_browser(self):
         data = {"server": {"ytdl_cookies_from_browser": "chromium"}}

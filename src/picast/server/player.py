@@ -107,8 +107,8 @@ class Player:
             "+bestaudio/best[height<=720]"
         ),
         ytdl_format_live: str = (
-            "bestvideo[height<=480][vcodec^=avc]"
-            "+bestaudio/best[height<=480]"
+            "best[height<=480][vcodec^=avc]"
+            "/best[height<=480]"
         ),
         library: "Library | None" = None,
         config: "ServerConfig | None" = None,
@@ -300,18 +300,32 @@ class Player:
             if auth_opt:
                 raw_opts += f",{auth_opt}"
 
+        hwdec = self._config.mpv_hwdec if self._config else "auto"
+
         cmd = [
             "mpv",
             f"--input-ipc-server={self.mpv.socket_path}",
             f"--ytdl-format={fmt}",
             f"--ytdl-raw-options={raw_opts}",
-            "--hwdec=auto",
+            f"--hwdec={hwdec}",
             "--cache=yes",
             "--demuxer-max-bytes=50MiB",
             "--log-file=/tmp/mpv-debug.log",
             "--fullscreen",
             "--no-terminal",
         ]
+
+        # Live stream optimizations (Twitch, etc.)
+        if is_live:
+            cmd.extend([
+                "--profile=low-latency",
+                "--cache-secs=10",
+                "--demuxer-readahead-secs=5",
+                "--demuxer-lavf-o=live_start_index=-1,fflags=+discardcorrupt",
+                "--vd-lavc-threads=4",
+                "--framedrop=decoder+vo",
+                "--audio-stream-silence",
+            ])
 
         # Add HDMI audio device if detected
         if self._audio_device:

@@ -38,10 +38,11 @@ class ServerConfig:
     mpv_socket: str = "/tmp/mpv-socket"
     db_file: str = ""
     ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]"
-    ytdl_format_live: str = "bestvideo[height<=480][vcodec^=avc]+bestaudio/best[height<=480]"
+    ytdl_format_live: str = "best[height<=480][vcodec^=avc]/best[height<=480]"
     ytdl_cookies_from_browser: str = ""  # e.g. "chromium"
     ytdl_po_token: str = ""              # PO token for headless setups
     data_dir: str = ""
+    mpv_hwdec: str = "auto"              # mpv hardware decoding (Pi: v4l2m2m)
     osd_enabled: bool = True             # Show OSD text on TV via mpv
     osd_duration_ms: int = 2500          # OSD display duration in ms
     db_backup_interval_hours: int = 6    # SQLite backup interval (0 = disabled)
@@ -114,6 +115,7 @@ def _parse_config(data: dict) -> Config:
             ),
             ytdl_po_token=s.get("ytdl_po_token", config.server.ytdl_po_token),
             data_dir=s.get("data_dir", config.server.data_dir),
+            mpv_hwdec=s.get("mpv_hwdec", config.server.mpv_hwdec),
             osd_enabled=s.get("osd_enabled", config.server.osd_enabled),
             osd_duration_ms=s.get("osd_duration_ms", config.server.osd_duration_ms),
             db_backup_interval_hours=s.get(
