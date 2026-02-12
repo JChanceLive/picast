@@ -9,6 +9,7 @@ ported from the original bash player.
 
 import logging
 import os
+import signal
 import subprocess
 import threading
 import time
@@ -107,6 +108,7 @@ class Player:
         self._mpv_process: subprocess.Popen | None = None
         self._current_item: QueueItem | None = None
         self._skip_requested = False
+        self._stop_requested = False
 
         # Sleep timer state (ephemeral, resets on restart)
         self._stop_after_current: bool = False
@@ -128,7 +130,7 @@ class Player:
         """Start the player processing loop."""
         if self._running:
             return
-        self._cleanup_stale_socket()
+        self._cleanup_stale_mpv()
         self.queue.reset_stale_playing()
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="player-loop")
@@ -144,28 +146,43 @@ class Player:
             self._thread = None
         logger.info("Player stopped")
 
-    def _cleanup_stale_socket(self):
-        """Remove stale mpv socket if no mpv process is running.
+    def _cleanup_stale_mpv(self):
+        """Kill any orphaned mpv processes and remove stale socket.
 
-        Prevents connection failures when picast-server restarts while mpv
-        was running (leaves orphaned socket file).
+        When picast-server restarts while mpv is playing, the old mpv becomes
+        an orphan that holds the display and IPC socket. This method kills ALL
+        mpv processes (since we're about to start fresh) and removes the socket.
         """
         socket_path = self.mpv.socket_path
-        if not os.path.exists(socket_path):
-            return
 
-        # Check if any mpv process is running
+        # Kill any existing mpv processes - they're orphans from a previous server
         try:
             result = subprocess.run(
                 ["pgrep", "-x", "mpv"],
-                capture_output=True, timeout=5,
+                capture_output=True, text=True, timeout=5,
             )
-            if result.returncode != 0:
-                # No mpv running but socket exists - stale
-                os.remove(socket_path)
-                logger.info("Cleaned up stale mpv socket: %s", socket_path)
+            if result.returncode == 0:
+                pids = result.stdout.strip().split("\n")
+                for pid in pids:
+                    pid = pid.strip()
+                    if pid:
+                        try:
+                            os.kill(int(pid), signal.SIGTERM)
+                            logger.info("Killed orphaned mpv process: %s", pid)
+                        except (ProcessLookupError, ValueError):
+                            pass
+                # Give them a moment to die
+                time.sleep(1)
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
             pass
+
+        # Remove stale socket
+        if os.path.exists(socket_path):
+            try:
+                os.remove(socket_path)
+                logger.info("Removed stale mpv socket: %s", socket_path)
+            except OSError:
+                pass
 
     def _loop(self):
         """Main player loop."""
@@ -183,6 +200,11 @@ class Player:
                 time.sleep(2)
                 continue
 
+            # If stop was requested, don't pick up next item
+            if self._stop_requested:
+                time.sleep(2)
+                continue
+
             next_item = self.queue.get_next()
             if next_item is None:
                 time.sleep(2)
@@ -194,13 +216,11 @@ class Player:
         """Play a single queue item with cascade protection."""
         logger.info("Playing: %s (%s)", item.url, item.source_type)
 
-        # Clean up stale socket before starting
-        self._cleanup_stale_socket()
-
         # Mark as playing before we start
         self.queue.mark_playing(item.id)
         self._current_item = item
         self._skip_requested = False
+        self._stop_requested = False
 
         # Resolve title via yt-dlp if we don't have one
         if not item.title and item.source_type == "youtube":
@@ -260,7 +280,11 @@ class Player:
             # Cascade protection logic
             cascade_action = self._check_cascade(exit_code, play_duration, item)
 
-            if cascade_action == "retry":
+            if self._stop_requested:
+                # Stop requested: re-mark as pending so it replays next time
+                self.queue.mark_pending(item.id)
+                logger.info("Stop requested - item %d returned to pending", item.id)
+            elif cascade_action == "retry":
                 # Don't mark as played - will retry on next loop
                 pass
             elif self._skip_requested:
@@ -268,8 +292,8 @@ class Player:
             else:
                 self.queue.mark_played(item.id)
 
-            # Auto-save to library (only for real plays)
-            if cascade_action != "retry" and self.library:
+            # Auto-save to library (only for real plays, not stop/retry)
+            if not self._stop_requested and cascade_action != "retry" and self.library:
                 try:
                     self.library.record_play(
                         url=item.url,
@@ -293,6 +317,12 @@ class Player:
             "retry" - Failed quickly, will retry (item NOT marked played)
             "skip" - Too many failures, skip and back off
         """
+        # Skip cascade checks if user requested stop/skip
+        if self._stop_requested or self._skip_requested:
+            self._consecutive_failures = 0
+            self._rapid_successes = 0
+            return "ok"
+
         if duration >= MIN_PLAY_SECONDS and exit_code == 0:
             # Normal successful play
             self._consecutive_failures = 0
@@ -385,6 +415,8 @@ class Player:
 
         Adds the URL to the front of the queue and skips the current video.
         """
+        # Clear stop state so new playback can start
+        self._stop_requested = False
         item = self.queue.add(url, title)
         # Move it to the front by reordering
         pending = self.queue.get_pending()
@@ -395,15 +427,17 @@ class Player:
             self.skip()
 
     def stop_playback(self):
-        """Stop playback without advancing the queue."""
-        if self._current_item:
-            # Mark current as pending again so it replays
-            current_id = self._current_item.id
-            self._kill_mpv()
-            # Re-mark as pending (it was set to played in _play_item's finally)
-            # We handle this by not marking as played when stop is used
-            # Actually, we need a flag for this
-            # For now, skip will work - user can re-add if needed
+        """Stop playback and pause the queue (don't advance to next item).
+
+        The current item is returned to pending status so it replays when
+        playback is resumed via play_now() or resume_playback().
+        """
+        self._stop_requested = True
+        self._kill_mpv()
+
+    def resume_playback(self):
+        """Resume queue processing after stop_playback()."""
+        self._stop_requested = False
 
     def set_stop_after_current(self, enabled: bool):
         """Toggle stop-after-current-video mode."""
@@ -433,6 +467,7 @@ class Player:
         """Get combined player + mpv status."""
         status = self.mpv.get_status()
         status["player_running"] = self._running
+        status["stopped"] = self._stop_requested
 
         if self._current_item:
             status["queue_item_id"] = self._current_item.id

@@ -195,6 +195,12 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         player.stop_playback()
         return jsonify({"ok": True})
 
+    @app.route("/api/resume-queue", methods=["POST"])
+    def resume_queue():
+        """Resume queue processing after stop."""
+        player.resume_playback()
+        return jsonify({"ok": True})
+
     @app.route("/api/seek", methods=["POST"])
     def seek():
         data = request.get_json(silent=True) or {}
