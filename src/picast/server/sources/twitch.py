@@ -24,6 +24,19 @@ class TwitchSource(SourceHandler):
     def matches(self, url: str) -> bool:
         return "twitch.tv" in url
 
+    def validate(self, url: str) -> tuple[bool, str]:
+        """Validate Twitch URL format."""
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        if "twitch.tv" not in host:
+            return False, f"Not a Twitch URL: {host}"
+        # Must have a channel or VOD path
+        path = parsed.path.strip("/")
+        if not path:
+            return False, "Twitch URL must include a channel or VOD path"
+        return True, ""
+
     def get_metadata(self, url: str) -> SourceItem | None:
         """Get stream info via streamlink."""
         if not self._streamlink_available:

@@ -3,7 +3,6 @@
 Uses Flask test client - no actual mpv or network needed.
 """
 
-import pytest
 
 
 class TestHealthEndpoint:
@@ -34,6 +33,23 @@ class TestQueueEndpoints:
     def test_add_requires_url(self, client):
         resp = client.post("/api/queue/add", json={})
         assert resp.status_code == 400
+
+    def test_add_rejects_invalid_youtube_url(self, client):
+        resp = client.post(
+            "/api/queue/add",
+            json={"url": "https://www.youtube.com/"},
+        )
+        assert resp.status_code == 400
+        data = resp.get_json()
+        assert "error" in data
+        assert "video ID" in data["error"]
+
+    def test_add_accepts_valid_youtube_url(self, client):
+        resp = client.post(
+            "/api/queue/add",
+            json={"url": "https://www.youtube.com/watch?v=test123"},
+        )
+        assert resp.status_code == 201
 
     def test_get_queue(self, client):
         client.post("/api/queue/add", json={"url": "https://www.youtube.com/watch?v=a"})
@@ -104,7 +120,7 @@ class TestQueueEndpoints:
     def test_replay_moves_to_end(self, client):
         """Replayed item should appear after other pending items."""
         r1 = client.post("/api/queue/add", json={"url": "https://www.youtube.com/watch?v=a"})
-        r2 = client.post("/api/queue/add", json={"url": "https://www.youtube.com/watch?v=b"})
+        client.post("/api/queue/add", json={"url": "https://www.youtube.com/watch?v=b"})
         id1 = r1.get_json()["id"]
         client.application.queue.mark_played(id1)
         client.post("/api/queue/replay", json={"id": id1})
@@ -129,7 +145,10 @@ class TestImportPlaylistEndpoint:
         def mock_run(*args, **kwargs):
             return subprocess.CompletedProcess(
                 args=args[0], returncode=0,
-                stdout="My PL\thttps://www.youtube.com/watch?v=x\tVid 1\nMy PL\thttps://www.youtube.com/watch?v=y\tVid 2\n",
+                stdout=(
+                    "My PL\thttps://www.youtube.com/watch?v=x\tVid 1\n"
+                    "My PL\thttps://www.youtube.com/watch?v=y\tVid 2\n"
+                ),
                 stderr="",
             )
 
@@ -164,7 +183,10 @@ class TestImportPlaylistToCollection:
         assert resp.status_code == 400
 
     def test_import_to_collection_rejects_non_playlist(self, client):
-        resp = client.post("/api/playlists/import-playlist", json={"url": "https://www.youtube.com/watch?v=abc"})
+        resp = client.post(
+            "/api/playlists/import-playlist",
+            json={"url": "https://www.youtube.com/watch?v=abc"},
+        )
         assert resp.status_code == 400
 
     def test_import_to_collection_success(self, client, monkeypatch):
@@ -174,7 +196,10 @@ class TestImportPlaylistToCollection:
         def mock_run(*args, **kwargs):
             return subprocess.CompletedProcess(
                 args=args[0], returncode=0,
-                stdout="Cool Playlist\thttps://www.youtube.com/watch?v=a\tVid A\nCool Playlist\thttps://www.youtube.com/watch?v=b\tVid B\n",
+                stdout=(
+                    "Cool Playlist\thttps://www.youtube.com/watch?v=a\tVid A\n"
+                    "Cool Playlist\thttps://www.youtube.com/watch?v=b\tVid B\n"
+                ),
                 stderr="",
             )
 

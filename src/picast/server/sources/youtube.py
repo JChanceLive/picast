@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import logging
 import subprocess
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 from picast.server.sources.base import SourceHandler, SourceItem
+
+if TYPE_CHECKING:
+    from picast.config import ServerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +22,10 @@ class YouTubeSource(SourceHandler):
 
     def __init__(
         self,
-        ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]",
+        ytdl_format: str = (
+            "bestvideo[height<=720][fps<=30][vcodec^=avc]"
+            "+bestaudio/best[height<=720]"
+        ),
         config: "ServerConfig | None" = None,
     ):
         self.ytdl_format = ytdl_format
@@ -35,6 +42,40 @@ class YouTubeSource(SourceHandler):
         return any(domain in url for domain in [
             "youtube.com", "youtu.be", "youtube-nocookie.com",
         ])
+
+    def validate(self, url: str) -> tuple[bool, str]:
+        """Validate YouTube URL format."""
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+
+        if "youtu.be" in host:
+            # Short URL: must have a path (video ID)
+            video_id = parsed.path.lstrip("/")
+            if not video_id:
+                return False, "YouTube short URL missing video ID"
+            return True, ""
+
+        if "youtube.com" in host or "youtube-nocookie.com" in host:
+            params = parse_qs(parsed.query)
+            # Playlist URL
+            if "list" in params:
+                return True, ""
+            # Watch URL
+            if parsed.path == "/watch" and "v" in params:
+                return True, ""
+            # Shorts, live, embed
+            if any(
+                parsed.path.startswith(p)
+                for p in ("/shorts/", "/live/", "/embed/")
+            ):
+                return True, ""
+            return (
+                False,
+                "YouTube URL must include a video ID (?v=...) "
+                "or be a playlist, short, or live URL",
+            )
+
+        return False, f"Not a recognized YouTube domain: {host}"
 
     def is_playlist(self, url: str) -> bool:
         """Detect if a URL contains a playlist (has list= parameter)."""

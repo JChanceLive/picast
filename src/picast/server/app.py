@@ -250,6 +250,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         url = data.get("url", "")
         if not url:
             return jsonify({"error": "url required"}), 400
+        # Validate URL before queueing
+        valid, error = sources.validate_url(url)
+        if not valid:
+            return jsonify({"error": error}), 400
         title = data.get("title", "")
         # Use source registry for better detection
         if not title:
@@ -486,7 +490,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         sort = request.args.get("sort", "recent")
         limit = int(request.args.get("limit", 50))
         offset = int(request.args.get("offset", 0))
-        items = library.browse(source_type=source, favorites_only=fav, sort=sort, limit=limit, offset=offset)
+        items = library.browse(
+            source_type=source, favorites_only=fav,
+            sort=sort, limit=limit, offset=offset,
+        )
         return jsonify(items)
 
     @app.route("/api/library/search")

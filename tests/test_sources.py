@@ -1,11 +1,9 @@
 """Tests for source handlers."""
 
-import os
 
-import pytest
 
 from picast.config import ServerConfig
-from picast.server.sources.base import SourceHandler, SourceItem, SourceRegistry
+from picast.server.sources.base import SourceItem, SourceRegistry
 from picast.server.sources.local import MEDIA_EXTENSIONS, LocalSource
 from picast.server.sources.twitch import TwitchSource
 from picast.server.sources.youtube import YouTubeSource
@@ -80,8 +78,12 @@ class TestYouTubeSource:
 
     def test_is_playlist_with_list_param(self):
         yt = YouTubeSource()
-        assert yt.is_playlist("https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf") is True
-        assert yt.is_playlist("https://www.youtube.com/watch?v=abc&list=PLrAXtmErZgOei") is True
+        assert yt.is_playlist(
+            "https://www.youtube.com/playlist?list=PLrAXtmErZgOeiKm4sgNOknGvNjby9efdf"
+        ) is True
+        assert yt.is_playlist(
+            "https://www.youtube.com/watch?v=abc&list=PLrAXtmErZgOei"
+        ) is True
 
     def test_is_playlist_without_list_param(self):
         yt = YouTubeSource()
@@ -101,7 +103,10 @@ class TestYouTubeSource:
             result = subprocess.CompletedProcess(
                 args=args[0],
                 returncode=0,
-                stdout="My Playlist\thttps://www.youtube.com/watch?v=aaa\tFirst Video\nMy Playlist\thttps://www.youtube.com/watch?v=bbb\tSecond Video\n",
+                stdout=(
+                    "My Playlist\thttps://www.youtube.com/watch?v=aaa\tFirst Video\n"
+                    "My Playlist\thttps://www.youtube.com/watch?v=bbb\tSecond Video\n"
+                ),
                 stderr="",
             )
             return result
@@ -132,7 +137,9 @@ class TestYouTubeSource:
         import subprocess
 
         def mock_run(*args, **kwargs):
-            return subprocess.CompletedProcess(args=args[0], returncode=1, stdout="", stderr="ERROR")
+            return subprocess.CompletedProcess(
+                args=args[0], returncode=1, stdout="", stderr="ERROR",
+            )
 
         yt = YouTubeSource()
         monkeypatch.setattr(subprocess, "run", mock_run)
@@ -315,6 +322,121 @@ class TestTwitchSource:
         assert meta is not None
         assert "testchannel" in meta.title
         assert meta.source_type == "twitch"
+
+
+class TestYouTubeValidation:
+    def test_valid_watch_url(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+        assert valid is True
+        assert err == ""
+
+    def test_valid_short_url(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate("https://youtu.be/dQw4w9WgXcQ")
+        assert valid is True
+
+    def test_valid_playlist_url(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate(
+            "https://www.youtube.com/playlist?list=PLtest123"
+        )
+        assert valid is True
+
+    def test_valid_shorts_url(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate("https://www.youtube.com/shorts/abc123")
+        assert valid is True
+
+    def test_valid_live_url(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate("https://www.youtube.com/live/abc123")
+        assert valid is True
+
+    def test_invalid_youtube_no_video_id(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate("https://www.youtube.com/")
+        assert valid is False
+        assert "video ID" in err
+
+    def test_invalid_short_url_empty(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate("https://youtu.be/")
+        assert valid is False
+        assert "video ID" in err
+
+    def test_invalid_youtube_just_channel(self):
+        yt = YouTubeSource()
+        valid, err = yt.validate("https://www.youtube.com/channel/UCxyz")
+        assert valid is False
+
+
+class TestTwitchValidation:
+    def test_valid_channel(self):
+        tw = TwitchSource()
+        valid, err = tw.validate("https://www.twitch.tv/ninja")
+        assert valid is True
+        assert err == ""
+
+    def test_invalid_empty_path(self):
+        tw = TwitchSource()
+        valid, err = tw.validate("https://www.twitch.tv/")
+        assert valid is False
+        assert "channel" in err
+
+
+class TestLocalValidation:
+    def test_valid_file(self, tmp_path):
+        f = tmp_path / "video.mp4"
+        f.touch()
+        local = LocalSource()
+        valid, err = local.validate(str(f))
+        assert valid is True
+
+    def test_invalid_file_not_found(self):
+        local = LocalSource()
+        valid, err = local.validate("/nonexistent/file.mp4")
+        assert valid is False
+        assert "not found" in err
+
+    def test_valid_file_uri(self, tmp_path):
+        f = tmp_path / "video.mp4"
+        f.touch()
+        local = LocalSource()
+        valid, err = local.validate(f"file://{f}")
+        assert valid is True
+
+
+class TestRegistryValidation:
+    def test_valid_youtube_url(self):
+        reg = SourceRegistry()
+        reg.register(YouTubeSource())
+        valid, err = reg.validate_url(
+            "https://www.youtube.com/watch?v=abc"
+        )
+        assert valid is True
+
+    def test_invalid_youtube_url(self):
+        reg = SourceRegistry()
+        reg.register(YouTubeSource())
+        valid, err = reg.validate_url("https://www.youtube.com/")
+        assert valid is False
+
+    def test_generic_url_valid(self):
+        reg = SourceRegistry()
+        valid, err = reg.validate_url("https://example.com/video.mp4")
+        assert valid is True
+
+    def test_generic_url_bad_scheme(self):
+        reg = SourceRegistry()
+        valid, err = reg.validate_url("ftp://example.com/video.mp4")
+        assert valid is False
+        assert "scheme" in err
+
+    def test_generic_url_empty(self):
+        reg = SourceRegistry()
+        valid, err = reg.validate_url("://")
+        assert valid is False
 
 
 class TestSourceItem:

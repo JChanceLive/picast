@@ -36,6 +36,14 @@ class SourceHandler:
         """Return True if this handler can handle the given URL."""
         return False
 
+    def validate(self, url: str) -> tuple[bool, str]:
+        """Validate a URL before queueing.
+
+        Returns (valid, error_message). If valid is True, error_message
+        is empty. Override in subclasses for source-specific checks.
+        """
+        return True, ""
+
     def get_metadata(self, url: str) -> SourceItem | None:
         """Get metadata for a URL (title, duration, etc.)."""
         return None
@@ -87,6 +95,28 @@ class SourceRegistry:
         if handler:
             return handler.get_metadata(url)
         return None
+
+    def validate_url(self, url: str) -> tuple[bool, str]:
+        """Validate a URL using the appropriate handler.
+
+        Returns (valid, error_message).
+        """
+        handler = self.get_handler_for_url(url)
+        if handler:
+            return handler.validate(url)
+        # No handler matched — apply generic validation
+        from urllib.parse import urlparse
+        try:
+            parsed = urlparse(url)
+            if parsed.scheme not in ("http", "https", "file", ""):
+                return False, f"Unsupported URL scheme: {parsed.scheme}"
+            if parsed.scheme and not parsed.netloc:
+                return False, "URL has no host"
+            if not parsed.scheme and not parsed.netloc:
+                return False, "URL has no scheme or host"
+        except Exception:
+            return False, "Could not parse URL"
+        return True, ""
 
     def list_sources(self) -> list[str]:
         """List registered source types."""

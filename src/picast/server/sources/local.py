@@ -64,6 +64,13 @@ class LocalSource(SourceHandler):
         _, ext = os.path.splitext(url.lower())
         return ext in MEDIA_EXTENSIONS
 
+    def validate(self, url: str) -> tuple[bool, str]:
+        """Validate local file exists."""
+        path = url.replace("file://", "") if url.startswith("file://") else url
+        if not os.path.exists(path):
+            return False, f"File not found: {path}"
+        return True, ""
+
     def get_metadata(self, url: str) -> SourceItem | None:
         path = url.replace("file://", "") if url.startswith("file://") else url
         if not os.path.exists(path):

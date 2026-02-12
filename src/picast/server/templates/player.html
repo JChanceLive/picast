@@ -334,9 +334,13 @@ function addUrl(e) {
         btn.textContent = 'Adding...';
         api('queue/add', {url})
             .then(r => {
-                input.value = '';
-                showToast('Added to queue');
-                poll();
+                if (r.error) {
+                    showToast(r.error);
+                } else {
+                    input.value = '';
+                    showToast('Added to queue');
+                    poll();
+                }
             })
             .catch(() => showToast('Failed to add'))
             .finally(() => {
