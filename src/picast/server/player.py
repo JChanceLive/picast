@@ -27,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 # Cascade protection thresholds
 MIN_PLAY_SECONDS = 5       # Under this = "didn't really play"
-MAX_RAPID_FAILURES = 3     # After this many rapid failures, skip and back off
-FAILURE_BACKOFF = 30       # Seconds to wait after max failures
+MAX_RAPID_FAILURES = 3     # After this many rapid failures, mark failed
+FAILURE_BACKOFF = [1, 5, 30]  # Exponential backoff delays per retry attempt
 
 
 def detect_wayland() -> str | None:
@@ -98,6 +98,7 @@ class Player:
         ytdl_format_live: str = "bestvideo[height<=480][vcodec^=avc]+bestaudio/best[height<=480]",
         library: "Library | None" = None,
         config: "ServerConfig | None" = None,
+        event_bus: "EventBus | None" = None,
     ):
         self.mpv = mpv
         self.queue = queue
@@ -105,6 +106,7 @@ class Player:
         self.ytdl_format_live = ytdl_format_live
         self.library = library
         self._config = config
+        self.event_bus = event_bus
         self._thread: threading.Thread | None = None
         self._running = False
         self._mpv_process: subprocess.Popen | None = None
@@ -214,6 +216,19 @@ class Player:
 
             self._play_item(next_item)
 
+    def _emit(self, event_type: str, title: str = "", detail: str = "",
+              queue_item_id: int | None = None):
+        """Emit an event if event bus is available."""
+        if self.event_bus:
+            self.event_bus.emit(event_type, title, detail, queue_item_id)
+
+    def _show_osd(self, text: str):
+        """Show text on TV screen via mpv OSD if enabled."""
+        if self._config and not self._config.osd_enabled:
+            return
+        duration = self._config.osd_duration_ms if self._config else 2500
+        self.mpv.show_text(text, duration)
+
     def _play_item(self, item: QueueItem):
         """Play a single queue item with cascade protection."""
         logger.info("Playing: %s (%s)", item.url, item.source_type)
@@ -227,6 +242,11 @@ class Player:
         # Resolve title via yt-dlp if we don't have one
         if not item.title and item.source_type == "youtube":
             item.title = self._get_title(item.url)
+
+        display_title = item.title or item.url
+
+        # Emit loading event + OSD
+        self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
         # Build mpv command - use lower quality for live streams
         is_live = item.source_type == "twitch"
@@ -282,14 +302,20 @@ class Player:
             time.sleep(1)
             self.mpv.connect()
 
+            # Now playing OSD
+            self._show_osd(f"Now Playing: {display_title}")
+            self._emit("playback", f"Now Playing: {display_title}", item.url, item.id)
+
             # Wait for mpv to exit
             self._mpv_process.wait()
             exit_code = self._mpv_process.returncode
 
         except FileNotFoundError:
             logger.error("mpv not found. Install it: sudo apt install mpv")
+            exit_code = -1
         except OSError as e:
             logger.error("Failed to start mpv: %s", e)
+            exit_code = -1
         finally:
             play_duration = time.monotonic() - start_time
             self.mpv.disconnect()
@@ -305,13 +331,18 @@ class Player:
             elif cascade_action == "retry":
                 # Don't mark as played - will retry on next loop
                 pass
+            elif cascade_action == "failed":
+                # Permanently failed after max retries
+                pass
             elif self._skip_requested:
                 self.queue.mark_skipped(item.id)
             else:
                 self.queue.mark_played(item.id)
+                self._emit("playback", f"Completed: {display_title}", item.url, item.id)
 
-            # Auto-save to library (only for real plays, not stop/retry)
-            if not self._stop_requested and cascade_action != "retry" and self.library:
+            # Auto-save to library (only for real plays, not stop/retry/failed)
+            if (not self._stop_requested and cascade_action not in ("retry", "failed")
+                    and self.library):
                 try:
                     self.library.record_play(
                         url=item.url,

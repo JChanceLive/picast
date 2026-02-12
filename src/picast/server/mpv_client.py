@@ -226,6 +226,17 @@ class MPVClient:
         speed = max(0.25, min(4.0, speed))
         return self.set_property("speed", speed)
 
+    def show_text(self, text: str, duration_ms: int = 2500) -> bool:
+        """Show text on screen via mpv OSD.
+
+        Uses mpv's show-text command to display a brief message overlay.
+        Returns False if mpv is not connected.
+        """
+        if not self.connected and not self.connect():
+            return False
+        resp = self.command("show-text", text, str(duration_ms))
+        return resp is not None and resp.get("error") == "success"
+
     def quit(self) -> bool:
         """Tell mpv to exit."""
         resp = self.command("quit")

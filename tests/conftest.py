@@ -5,6 +5,7 @@ import pytest
 from picast.config import ServerConfig
 from picast.server.app import create_app
 from picast.server.database import Database
+from picast.server.events import EventBus
 from picast.server.library import Library
 from picast.server.queue_manager import QueueManager
 
@@ -25,6 +26,12 @@ def lib(db):
 def queue(db):
     """Create a QueueManager instance backed by the test database."""
     return QueueManager(db)
+
+
+@pytest.fixture
+def event_bus(db):
+    """Create an EventBus instance backed by the test database."""
+    return EventBus(db)
 
 
 @pytest.fixture

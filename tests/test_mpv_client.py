@@ -55,3 +55,14 @@ class TestMPVClient:
         client = MPVClient("/tmp/nonexistent-test-socket")
         client.set_speed(0.1)
         client.set_speed(10.0)
+
+    def test_show_text_when_disconnected(self):
+        client = MPVClient("/tmp/nonexistent-test-socket")
+        result = client.show_text("Hello")
+        assert result is False
+
+    def test_show_text_returns_bool(self):
+        client = MPVClient("/tmp/nonexistent-test-socket")
+        result = client.show_text("Test", duration_ms=1000)
+        assert isinstance(result, bool)
+        assert result is False

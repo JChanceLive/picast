@@ -170,3 +170,107 @@ class TestQueueManager:
 
     def test_replay_nonexistent(self, queue):
         assert queue.replay(999) is False
+
+
+class TestErrorTracking:
+    """Tests for error tracking methods."""
+
+    def test_increment_error(self, queue):
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        count = queue.increment_error(item.id, "mpv exited with code 2")
+        assert count == 1
+        # Check error stored
+        items = queue.get_all()
+        assert items[0].error_count == 1
+        assert items[0].last_error == "mpv exited with code 2"
+
+    def test_increment_error_multiple(self, queue):
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        queue.increment_error(item.id, "error 1")
+        queue.increment_error(item.id, "error 2")
+        count = queue.increment_error(item.id, "error 3")
+        assert count == 3
+        items = queue.get_all()
+        assert items[0].last_error == "error 3"
+
+    def test_mark_failed(self, queue):
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        assert queue.mark_failed(item.id) is True
+        items = queue.get_all()
+        assert items[0].status == "failed"
+        assert items[0].failed_at is not None
+
+    def test_mark_failed_nonexistent(self, queue):
+        assert queue.mark_failed(999) is False
+
+    def test_get_failed(self, queue):
+        item1 = queue.add("https://www.youtube.com/watch?v=a")
+        item2 = queue.add("https://www.youtube.com/watch?v=b")
+        queue.add("https://www.youtube.com/watch?v=c")
+        queue.mark_failed(item1.id)
+        queue.mark_failed(item2.id)
+        failed = queue.get_failed()
+        assert len(failed) == 2
+        assert all(f.status == "failed" for f in failed)
+
+    def test_get_failed_empty(self, queue):
+        queue.add("https://www.youtube.com/watch?v=a")
+        assert queue.get_failed() == []
+
+    def test_retry_failed(self, queue):
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        queue.increment_error(item.id, "some error")
+        queue.increment_error(item.id, "another error")
+        queue.mark_failed(item.id)
+        assert queue.retry_failed(item.id) is True
+        # Verify reset
+        items = queue.get_all()
+        assert items[0].status == "pending"
+        assert items[0].error_count == 0
+        assert items[0].last_error == ""
+        assert items[0].failed_at is None
+
+    def test_retry_failed_only_works_on_failed(self, queue):
+        """retry_failed should only affect items with status='failed'."""
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        # Item is 'pending', not 'failed'
+        assert queue.retry_failed(item.id) is False
+
+    def test_retry_failed_nonexistent(self, queue):
+        assert queue.retry_failed(999) is False
+
+    def test_clear_failed(self, queue):
+        item1 = queue.add("https://www.youtube.com/watch?v=a")
+        item2 = queue.add("https://www.youtube.com/watch?v=b")
+        item3 = queue.add("https://www.youtube.com/watch?v=c")
+        queue.mark_failed(item1.id)
+        queue.mark_failed(item2.id)
+        queue.clear_failed()
+        items = queue.get_all()
+        assert len(items) == 1
+        assert items[0].id == item3.id
+
+    def test_clear_failed_empty(self, queue):
+        """clear_failed on no failed items is a no-op."""
+        queue.add("https://www.youtube.com/watch?v=a")
+        queue.clear_failed()
+        assert len(queue.get_all()) == 1
+
+    def test_failed_items_not_in_pending(self, queue):
+        """Failed items should not appear in get_pending()."""
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        queue.mark_failed(item.id)
+        assert queue.get_pending() == []
+        assert queue.get_next() is None
+
+    def test_error_fields_in_to_dict(self, queue):
+        """QueueItem.to_dict() includes error tracking fields."""
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        queue.increment_error(item.id, "test error")
+        items = queue.get_all()
+        d = items[0].to_dict()
+        assert "error_count" in d
+        assert "last_error" in d
+        assert "failed_at" in d
+        assert d["error_count"] == 1
+        assert d["last_error"] == "test error"

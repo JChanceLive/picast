@@ -8,11 +8,12 @@ import json
 import logging
 import os
 
-from flask import Flask, jsonify, redirect, render_template, request
+from flask import Flask, Response, jsonify, redirect, render_template, request
 
 from picast.config import ServerConfig
 from picast.server.database import Database
 from picast.server.discovery import DeviceRegistry
+from picast.server.events import EventBus
 from picast.server.library import Library
 from picast.server.mpv_client import MPVClient
 from picast.server.player import Player
@@ -67,6 +68,9 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         except (json.JSONDecodeError, OSError) as e:
             logger.warning("Failed to migrate queue.json: %s", e)
 
+    # Event bus for SSE push notifications
+    event_bus = EventBus(db)
+
     # Source registry
     sources = SourceRegistry()
     sources.register(YouTubeSource(config.ytdl_format, config=config))
@@ -78,7 +82,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     for name, host, port in (devices or []):
         device_registry.add_from_config(name, host, port)
 
-    player = Player(mpv, queue, config.ytdl_format, config.ytdl_format_live, library=library, config=config)
+    player = Player(
+        mpv, queue, config.ytdl_format, config.ytdl_format_live,
+        library=library, config=config, event_bus=event_bus,
+    )
 
     # Start the player loop
     player.start()
@@ -90,6 +97,7 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     app.library = library
     app.sources = sources
     app.player = player
+    app.event_bus = event_bus
     app.device_registry = device_registry
 
     # --- Web UI Pages ---
@@ -419,6 +427,55 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             except OSError:
                 pass
         return jsonify(resp)
+
+    # --- Event Endpoints ---
+
+    @app.route("/api/events")
+    def events_stream():
+        """SSE stream of real-time events."""
+        def generate():
+            q = event_bus.subscribe()
+            try:
+                while True:
+                    try:
+                        event = q.get(timeout=30)
+                        data = json.dumps(event)
+                        yield f"event: {event['type']}\ndata: {data}\n\n"
+                    except Exception:
+                        # Timeout - send keepalive heartbeat
+                        yield ": heartbeat\n\n"
+            finally:
+                event_bus.unsubscribe(q)
+
+        return Response(generate(), mimetype="text/event-stream")
+
+    @app.route("/api/events/recent")
+    def events_recent():
+        """Get recent events."""
+        limit = int(request.args.get("limit", 20))
+        return jsonify(event_bus.recent(limit))
+
+    # --- Queue Error Endpoints ---
+
+    @app.route("/api/queue/failed")
+    def queue_get_failed():
+        """Get all failed queue items."""
+        return jsonify([item.to_dict() for item in queue.get_failed()])
+
+    @app.route("/api/queue/<int:item_id>/retry", methods=["POST"])
+    def queue_retry_failed(item_id):
+        """Retry a failed queue item."""
+        ok = queue.retry_failed(item_id)
+        if not ok:
+            return jsonify({"error": "item not found or not failed"}), 404
+        event_bus.emit("retry", f"Retrying item {item_id}", queue_item_id=item_id)
+        return jsonify({"ok": True})
+
+    @app.route("/api/queue/clear-failed", methods=["POST"])
+    def queue_clear_failed():
+        """Remove all failed items."""
+        queue.clear_failed()
+        return jsonify({"ok": True})
 
     # --- Library Endpoints ---
 

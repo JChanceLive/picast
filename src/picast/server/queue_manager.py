@@ -21,8 +21,11 @@ class QueueItem:
     url: str
     title: str = ""
     source_type: str = "youtube"
-    status: str = "pending"  # pending, playing, played, skipped
+    status: str = "pending"  # pending, playing, played, skipped, failed
     added_at: float = field(default_factory=time.time)
+    error_count: int = 0
+    last_error: str = ""
+    failed_at: float | None = None
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -41,6 +44,9 @@ def _row_to_item(row: dict) -> QueueItem:
         source_type=row["source_type"],
         status=row["status"],
         added_at=row["added_at"],
+        error_count=row.get("error_count", 0),
+        last_error=row.get("last_error", ""),
+        failed_at=row.get("failed_at"),
     )
 
 
@@ -212,6 +218,52 @@ class QueueManager:
     def clear_all(self):
         """Remove all items."""
         self._db.execute("DELETE FROM queue")
+        self._db.commit()
+
+    def increment_error(self, item_id: int, error_msg: str) -> int:
+        """Bump error count for an item and store the error message.
+
+        Returns the new error count.
+        """
+        self._db.execute(
+            "UPDATE queue SET error_count = error_count + 1, last_error = ? WHERE id = ?",
+            (error_msg, item_id),
+        )
+        self._db.commit()
+        row = self._db.fetchone("SELECT error_count FROM queue WHERE id = ?", (item_id,))
+        count = row["error_count"] if row else 0
+        logger.warning("Error #%d for item %d: %s", count, item_id, error_msg)
+        return count
+
+    def mark_failed(self, item_id: int) -> bool:
+        """Mark an item as permanently failed."""
+        cursor = self._db.execute(
+            "UPDATE queue SET status = 'failed', failed_at = ? WHERE id = ?",
+            (time.time(), item_id),
+        )
+        self._db.commit()
+        return cursor.rowcount > 0
+
+    def get_failed(self) -> list[QueueItem]:
+        """Get all failed items."""
+        rows = self._db.fetchall(
+            "SELECT * FROM queue WHERE status = 'failed' ORDER BY failed_at DESC"
+        )
+        return [_row_to_item(r) for r in rows]
+
+    def retry_failed(self, item_id: int) -> bool:
+        """Reset a failed item back to pending, clearing error fields."""
+        cursor = self._db.execute(
+            "UPDATE queue SET status = 'pending', error_count = 0, last_error = '', "
+            "failed_at = NULL WHERE id = ? AND status = 'failed'",
+            (item_id,),
+        )
+        self._db.commit()
+        return cursor.rowcount > 0
+
+    def clear_failed(self):
+        """Remove all failed items from the queue."""
+        self._db.execute("DELETE FROM queue WHERE status = 'failed'")
         self._db.commit()
 
     def import_queue_txt(self, queue_txt_path: str) -> int:

@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -66,11 +66,26 @@ CREATE TABLE IF NOT EXISTS queue (
     status TEXT NOT NULL DEFAULT 'pending',
     position INTEGER NOT NULL DEFAULT 0,
     added_at REAL NOT NULL,
-    played_at REAL
+    played_at REAL,
+    error_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT NOT NULL DEFAULT '',
+    failed_at REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status);
 CREATE INDEX IF NOT EXISTS idx_queue_position ON queue(position);
+
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_type TEXT NOT NULL,
+    queue_item_id INTEGER,
+    title TEXT NOT NULL DEFAULT '',
+    detail TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
 """
 
 
@@ -127,6 +142,24 @@ class Database:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_status ON queue(status)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_queue_position ON queue(position)")
+        if from_version < 3:
+            # Add error tracking columns to queue table
+            conn.execute("ALTER TABLE queue ADD COLUMN error_count INTEGER NOT NULL DEFAULT 0")
+            conn.execute("ALTER TABLE queue ADD COLUMN last_error TEXT NOT NULL DEFAULT ''")
+            conn.execute("ALTER TABLE queue ADD COLUMN failed_at REAL")
+            # Create events table
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    event_type TEXT NOT NULL,
+                    queue_item_id INTEGER,
+                    title TEXT NOT NULL DEFAULT '',
+                    detail TEXT NOT NULL DEFAULT '',
+                    created_at REAL NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)

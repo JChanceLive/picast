@@ -18,7 +18,7 @@ class TestDatabase:
 
     def test_schema_version(self, db):
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 2
+        assert row["version"] == 3
 
     def test_fetchone_returns_dict(self, db):
         db.execute("INSERT INTO library (url, title, added_at) VALUES (?, ?, ?)", ("http://a", "Test", 1.0))

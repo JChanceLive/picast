@@ -42,6 +42,9 @@ class ServerConfig:
     ytdl_cookies_from_browser: str = ""  # e.g. "chromium"
     ytdl_po_token: str = ""              # PO token for headless setups
     data_dir: str = ""
+    osd_enabled: bool = True             # Show OSD text on TV via mpv
+    osd_duration_ms: int = 2500          # OSD display duration in ms
+    db_backup_interval_hours: int = 6    # SQLite backup interval (0 = disabled)
 
     def __post_init__(self):
         if not self.data_dir:
@@ -109,6 +112,9 @@ def _parse_config(data: dict) -> Config:
             ytdl_cookies_from_browser=s.get("ytdl_cookies_from_browser", config.server.ytdl_cookies_from_browser),
             ytdl_po_token=s.get("ytdl_po_token", config.server.ytdl_po_token),
             data_dir=s.get("data_dir", config.server.data_dir),
+            osd_enabled=s.get("osd_enabled", config.server.osd_enabled),
+            osd_duration_ms=s.get("osd_duration_ms", config.server.osd_duration_ms),
+            db_backup_interval_hours=s.get("db_backup_interval_hours", config.server.db_backup_interval_hours),
         )
 
     if "telegram" in data:
