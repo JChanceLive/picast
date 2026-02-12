@@ -254,10 +254,18 @@ class Player:
 
         try:
             mpv_log = open("/tmp/mpv-debug.log", "w")
+
+            # Pass Wayland display to mpv so it renders on the compositor
+            env = os.environ.copy()
+            if self._wayland_display:
+                env["WAYLAND_DISPLAY"] = self._wayland_display
+                env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+
             self._mpv_process = subprocess.Popen(
                 cmd,
                 stdout=mpv_log,
                 stderr=mpv_log,
+                env=env,
             )
 
             # Give mpv a moment to create the socket
