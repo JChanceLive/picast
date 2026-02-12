@@ -28,4 +28,4 @@ jobs:
         run: ruff check src/ tests/
 
       - name: Test
-        run: pytest tests/ -v
+        run: pytest tests/ -v --cov=picast.server --cov-report=term-missing --cov-fail-under=70

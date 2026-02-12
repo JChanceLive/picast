@@ -44,6 +44,17 @@ document.addEventListener('keydown', function(e) {
     }
 });
 
+// Retry a failed queue item
+function retryFailed(itemId) {
+    return fetch('/api/queue/' + itemId + '/retry', {method: 'POST'})
+        .then(r => r.json())
+        .then(r => {
+            if (r.ok) showToast('Retrying...');
+            else showToast(r.error || 'Retry failed');
+        })
+        .catch(() => showToast('Retry failed'));
+}
+
 // Device switcher - redirect to another Pi's web UI
 function switchDevice(url) {
     if (url && !url.includes('localhost') && !url.includes('127.0.0.1')) {

@@ -109,12 +109,16 @@ def _parse_config(data: dict) -> Config:
             db_file=s.get("db_file", config.server.db_file),
             ytdl_format=s.get("ytdl_format", config.server.ytdl_format),
             ytdl_format_live=s.get("ytdl_format_live", config.server.ytdl_format_live),
-            ytdl_cookies_from_browser=s.get("ytdl_cookies_from_browser", config.server.ytdl_cookies_from_browser),
+            ytdl_cookies_from_browser=s.get(
+                "ytdl_cookies_from_browser", config.server.ytdl_cookies_from_browser,
+            ),
             ytdl_po_token=s.get("ytdl_po_token", config.server.ytdl_po_token),
             data_dir=s.get("data_dir", config.server.data_dir),
             osd_enabled=s.get("osd_enabled", config.server.osd_enabled),
             osd_duration_ms=s.get("osd_duration_ms", config.server.osd_duration_ms),
-            db_backup_interval_hours=s.get("db_backup_interval_hours", config.server.db_backup_interval_hours),
+            db_backup_interval_hours=s.get(
+                "db_backup_interval_hours", config.server.db_backup_interval_hours,
+            ),
         )
 
     if "telegram" in data:

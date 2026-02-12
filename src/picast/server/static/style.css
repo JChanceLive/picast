@@ -718,6 +718,77 @@ body {
     text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
 }
 
+/* Error Banner */
+.error-banner {
+    background: rgba(255, 42, 109, 0.1);
+    border: 1px solid rgba(255, 42, 109, 0.4);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    display: none;
+    animation: errorIn 0.3s;
+}
+
+.error-banner.visible { display: block; }
+
+.error-banner-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.25rem;
+}
+
+.error-banner-title {
+    color: var(--danger);
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+.error-banner-dismiss {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 1.1rem;
+    padding: 0 0.25rem;
+}
+
+.error-banner-dismiss:hover { color: var(--text); }
+
+.error-banner-detail {
+    color: var(--muted);
+    font-size: 0.8rem;
+    margin-bottom: 0.5rem;
+}
+
+.error-banner-actions {
+    display: flex;
+    gap: 0.5rem;
+}
+
+@keyframes errorIn { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Failed queue items */
+.queue-item.failed {
+    opacity: 0.6;
+    border-left: 3px solid var(--danger);
+}
+
+.queue-item.failed .qi-status { color: var(--danger); }
+
+.qi-error {
+    color: var(--danger);
+    font-size: 0.7rem;
+    margin-top: 0.15rem;
+}
+
+.qi-error-count {
+    color: var(--danger);
+    font-size: 0.65rem;
+    font-weight: 700;
+    margin-left: 0.25rem;
+}
+
 /* Toast */
 .toast {
     position: fixed;

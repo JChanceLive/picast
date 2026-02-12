@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.7.0] - 2026-02-12
+
+### Added
+- **Error tracking** - Failed videos now tracked in SQLite with error count, message, and timestamp (schema v3)
+- **Server-Sent Events (SSE)** - Real-time push from server to Web UI via `GET /api/events` endpoint
+- **EventBus** - Thread-safe event system persists events to DB and pushes to all SSE subscribers
+- **mpv OSD** - On-screen display shows "Loading", "Now Playing", retry/fail messages on the TV via mpv `show-text`
+- **Error classification** - Parses mpv exit codes and log files to identify 403s, extraction failures, timeouts, codec issues
+- **Web UI error banner** - Real-time red error banner with title, detail, Retry and Dismiss buttons; auto-dismisses after 15s
+- **Failed item display** - Queue shows failed items with error icon, error count, last error detail, and Retry button
+- **Error API endpoints** - `GET /api/queue/failed`, `POST /api/queue/<id>/retry`, `POST /api/queue/clear-failed`
+- **Recent events endpoint** - `GET /api/events/recent` returns last N events as JSON
+- **Exponential backoff** - Retry delays escalate [1s, 5s, 30s] instead of flat 30s wait
+- **DB backup** - Automatic SQLite backup every 6 hours via daemon thread
+- **Systemd watchdog** - `sd_notify` READY/WATCHDOG protocol via raw Unix socket (no dependency needed)
+
+### Changed
+- `install-pi.sh` service now uses `Type=notify` with `WatchdogSec=30`
+- Cascade "skip" action replaced with "failed" status that persists to DB
+- Queue items now carry `error_count`, `last_error`, and `failed_at` fields
+- Test suite enforces 80% code coverage via pytest-cov
+
+### Fixed
+- Silent video failures - errors now visible in Web UI, on TV (OSD), and in event log
+- Rapid failure loops now properly tracked and marked as failed after 3 attempts
+
 ## [0.6.0] - 2026-02-12
 
 ### Added

@@ -49,6 +49,18 @@
     </div>
 </section>
 
+<section class="error-banner" id="error-banner">
+    <div class="error-banner-header">
+        <span class="error-banner-title" id="error-banner-title"></span>
+        <button class="error-banner-dismiss" onclick="dismissError()" aria-label="Dismiss">&times;</button>
+    </div>
+    <div class="error-banner-detail" id="error-banner-detail"></div>
+    <div class="error-banner-actions">
+        <button class="btn btn-sm" id="error-banner-retry" onclick="retryErrorItem()">Retry</button>
+        <button class="btn btn-sm" onclick="dismissError()">Dismiss</button>
+    </div>
+</section>
+
 <section class="add-url">
     <form id="add-form" onsubmit="addUrl(event)">
         <input type="url" inputmode="url" id="url-input" placeholder="Paste a YouTube URL or playlist..." autocomplete="off" oninput="detectPlaylist()">
@@ -168,21 +180,25 @@ function updateQueue(items) {
     }
 
     const pendingIds = items.filter(i => i.status === 'pending').map(i => i.id);
-    const statusIcons = {pending: '', playing: '\u25B6', played: '\u2713', skipped: '\u2014'};
+    const statusIcons = {pending: '', playing: '\u25B6', played: '\u2713', skipped: '\u2014', failed: '\u2717'};
     const tags = {youtube: 'YT', local: 'Local', twitch: 'Twitch'};
 
     list.innerHTML = items.map((item, i) => {
         const title = item.title || item.url;
-        const isFinished = ['played','skipped'].includes(item.status);
+        const isFinished = ['played','skipped','failed'].includes(item.status);
+        const isFailed = item.status === 'failed';
         const isPending = item.status === 'pending';
         const cls = item.status === 'playing' ? 'queue-item playing' :
+                    item.status === 'failed' ? 'queue-item failed' :
                     item.status === 'skipped' ? 'queue-item skipped' :
                     item.status === 'played' ? 'queue-item played' : 'queue-item';
         const videoId = extractVideoId(item.url);
         const isPlaying = item.status === 'playing';
         const playBtn = !isPlaying ?
             `<button onclick="playNow(${item.id})" class="qi-circle qi-play" title="Play now">\u25B6</button>` : '';
-        const replayBtn = isFinished ?
+        const replayBtn = isFailed ?
+            `<button onclick="retryFailed(${item.id}).then(poll)" class="qi-circle qi-play" title="Retry" style="color:var(--danger);border-color:rgba(255,42,109,0.4)">\u21BB</button>` :
+            isFinished ?
             `<button onclick="replayItem(${item.id})" class="qi-circle qi-replay" title="Re-queue">\u21BB</button>` : '';
         const addUrl = '/add-to-collection?url=' + encodeURIComponent(item.url) + '&title=' + encodeURIComponent(item.title||'') + '&source_type=' + encodeURIComponent(item.source_type||'youtube');
         const pidx = pendingIds.indexOf(item.id);
@@ -207,6 +223,7 @@ function updateQueue(items) {
                     <span class="qi-title">${esc(title)}</span>
                 </div>
                 <div class="qi-url">${esc(item.url || '')}</div>
+                ${isFailed && item.last_error ? `<div class="qi-error">${esc(item.last_error)}${item.error_count > 1 ? `<span class="qi-error-count">(${item.error_count}x)</span>` : ''}</div>` : ''}
             </div>
             ${vidIdHtml}
             <span class="qi-actions">
@@ -476,6 +493,70 @@ function filterQueue(query) {
     });
 }
 
+// SSE event stream for real-time updates
+let errorBannerTimeout = null;
+let lastErrorItemId = null;
+
+function connectSSE() {
+    const es = new EventSource('/api/events');
+
+    es.addEventListener('error', function(e) {
+        try {
+            const data = JSON.parse(e.data);
+            showErrorBanner(data.title, data.detail, data.queue_item_id);
+            poll();
+        } catch (err) {}
+    });
+
+    es.addEventListener('failed', function(e) {
+        try {
+            const data = JSON.parse(e.data);
+            showErrorBanner(data.title, data.detail, data.queue_item_id);
+            poll();
+        } catch (err) {}
+    });
+
+    es.addEventListener('playback', function(e) {
+        poll();
+    });
+
+    es.addEventListener('retry', function(e) {
+        poll();
+    });
+
+    es.onerror = function() {
+        // SSE connection lost - polling is still running as fallback
+        es.close();
+        setTimeout(connectSSE, 5000);
+    };
+}
+
+function showErrorBanner(title, detail, itemId) {
+    const banner = document.getElementById('error-banner');
+    document.getElementById('error-banner-title').textContent = title || 'Error';
+    document.getElementById('error-banner-detail').textContent = detail || '';
+    lastErrorItemId = itemId;
+    const retryBtn = document.getElementById('error-banner-retry');
+    retryBtn.style.display = itemId ? '' : 'none';
+    banner.classList.add('visible');
+
+    if (errorBannerTimeout) clearTimeout(errorBannerTimeout);
+    errorBannerTimeout = setTimeout(dismissError, 15000);
+}
+
+function dismissError() {
+    document.getElementById('error-banner').classList.remove('visible');
+    if (errorBannerTimeout) { clearTimeout(errorBannerTimeout); errorBannerTimeout = null; }
+}
+
+function retryErrorItem() {
+    if (lastErrorItemId) {
+        retryFailed(lastErrorItemId).then(poll);
+        dismissError();
+    }
+}
+
+connectSSE();
 setInterval(poll, 1000);
 poll();
 </script>

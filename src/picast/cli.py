@@ -6,7 +6,11 @@ picast: Runs the Textual TUI on your Mac (Session 2)
 
 import argparse
 import logging
+import os
+import socket
 import sys
+import threading
+import time
 
 
 def run_server():
@@ -119,6 +123,12 @@ def run_server():
                     'Telegram dependencies not installed. Install with: pip install "picast[telegram]"'
                 )
 
+    # Notify systemd that we're ready (if running as a service)
+    _notify_systemd("READY=1")
+
+    # Start watchdog thread for systemd
+    _start_watchdog()
+
     app.run(
         host=config.server.host,
         port=config.server.port,
@@ -126,6 +136,46 @@ def run_server():
         threaded=True,  # Handle concurrent requests (status polls + UI)
         use_reloader=False,  # Don't reload - we have background threads
     )
+
+
+def _notify_systemd(state: str):
+    """Send a notification to systemd via NOTIFY_SOCKET.
+
+    No external dependency needed - uses raw socket protocol.
+    """
+    notify_socket = os.environ.get("NOTIFY_SOCKET")
+    if not notify_socket:
+        return
+    try:
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        if notify_socket.startswith("@"):
+            # Abstract socket
+            notify_socket = "\0" + notify_socket[1:]
+        sock.connect(notify_socket)
+        sock.sendall(state.encode())
+        sock.close()
+    except OSError:
+        pass
+
+
+def _start_watchdog():
+    """Start a background thread that pings the systemd watchdog.
+
+    Only active when WATCHDOG_USEC is set by systemd.
+    """
+    watchdog_usec = os.environ.get("WATCHDOG_USEC")
+    if not watchdog_usec:
+        return
+    interval = int(watchdog_usec) / 1_000_000 / 2  # Ping at half the timeout
+
+    def watchdog_loop():
+        while True:
+            _notify_systemd("WATCHDOG=1")
+            time.sleep(interval)
+
+    t = threading.Thread(target=watchdog_loop, daemon=True, name="sd-watchdog")
+    t.start()
+    logging.getLogger("picast").debug("Systemd watchdog started (interval=%.0fs)", interval)
 
 
 def run_tui():

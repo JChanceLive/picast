@@ -130,7 +130,7 @@ def main():
 
     # Version badge
     draw.rounded_rectangle((260, 40, 365, 68), radius=10, fill=ACCENT)
-    draw.text((275, 43), "v0.6.0", fill=BG, font=ver_font)
+    draw.text((275, 43), "v0.7.0", fill=BG, font=ver_font)
 
     # Status indicator
     draw.ellipse((WIDTH - 160, 48, WIDTH - 146, 62), fill=ACCENT2)

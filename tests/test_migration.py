@@ -2,8 +2,6 @@
 
 import sqlite3
 
-import pytest
-
 from picast.server.database import Database
 
 
@@ -76,7 +74,8 @@ class TestMigrationV2ToV3:
         conn.execute(
             "INSERT INTO queue (url, title, source_type, status, position, added_at, played_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            ("https://youtube.com/watch?v=test2", "Test Video 2", "youtube", "played", 2, 1001.0, 1002.0),
+            ("https://youtube.com/watch?v=test2", "Test Video 2",
+             "youtube", "played", 2, 1001.0, 1002.0),
         )
         conn.commit()
         conn.close()

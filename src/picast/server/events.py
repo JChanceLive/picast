@@ -4,7 +4,6 @@ Provides SSE (Server-Sent Events) push from server to connected Web UI clients.
 Events are persisted to the SQLite events table and pushed to subscriber queues.
 """
 
-import json
 import logging
 import queue
 import threading

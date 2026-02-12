@@ -1,13 +1,8 @@
 """Tests for EventBus and SSE endpoints."""
 
-import json
 import queue
 import threading
 import time
-
-import pytest
-
-from picast.server.events import EventBus
 
 
 class TestEventBus:
@@ -54,7 +49,7 @@ class TestEventBus:
 
     def test_dead_subscriber_cleanup(self, event_bus):
         """Full queues get cleaned up on next emit."""
-        q = event_bus.subscribe()
+        event_bus.subscribe()
         # Fill the queue to max
         for i in range(50):
             event_bus.emit("fill", f"Event {i}")

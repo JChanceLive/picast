@@ -7,15 +7,23 @@ Includes cascade protection, Wayland auto-detection, and HDMI audio routing
 ported from the original bash player.
 """
 
+from __future__ import annotations
+
 import logging
 import os
+import shutil
 import signal
 import subprocess
 import threading
 import time
+from typing import TYPE_CHECKING
 
 from picast.server.mpv_client import MPVClient
 from picast.server.queue_manager import QueueItem, QueueManager
+
+if TYPE_CHECKING:
+    from picast.config import ServerConfig
+    from picast.server.events import EventBus
 
 # Optional library import - player works without it
 try:
@@ -139,6 +147,16 @@ class Player:
         self._running = True
         self._thread = threading.Thread(target=self._loop, daemon=True, name="player-loop")
         self._thread.start()
+
+        # Start DB backup thread if configured
+        backup_hours = self._config.db_backup_interval_hours if self._config else 6
+        if backup_hours > 0:
+            self._backup_thread = threading.Thread(
+                target=self._backup_loop, args=(backup_hours,),
+                daemon=True, name="db-backup",
+            )
+            self._backup_thread.start()
+
         logger.info("Player started")
 
     def stop(self):
@@ -187,6 +205,22 @@ class Player:
                 logger.info("Removed stale mpv socket: %s", socket_path)
             except OSError:
                 pass
+
+    def _backup_loop(self, interval_hours: int):
+        """Periodically back up the SQLite database."""
+        interval_secs = interval_hours * 3600
+        while self._running:
+            time.sleep(interval_secs)
+            if not self._running:
+                break
+            db_path = self._config.db_file if self._config else ""
+            if db_path and os.path.exists(db_path):
+                bak_path = db_path + ".bak"
+                try:
+                    shutil.copy2(db_path, bak_path)
+                    logger.info("Database backed up to %s", bak_path)
+                except OSError as e:
+                    logger.warning("Database backup failed: %s", e)
 
     def _loop(self):
         """Main player loop."""
@@ -364,8 +398,10 @@ class Player:
         Returns:
             "ok" - Normal play, counters reset
             "retry" - Failed quickly, will retry (item NOT marked played)
-            "skip" - Too many failures, skip and back off
+            "failed" - Too many failures, marked as permanently failed
         """
+        display_title = item.title or item.url
+
         # Skip cascade checks if user requested stop/skip
         if self._stop_requested or self._skip_requested:
             self._consecutive_failures = 0
@@ -382,48 +418,146 @@ class Player:
             # mpv failed quickly - not a real play
             self._consecutive_failures += 1
             self._rapid_successes = 0
+
+            error_reason = self._classify_error(exit_code, item)
+            error_count = self.queue.increment_error(item.id, error_reason)
+
             logger.warning(
-                "RAPID FAILURE (exit=%d, %.0fs, streak=%d): %s",
-                exit_code, duration, self._consecutive_failures, item.url,
+                "RAPID FAILURE (exit=%d, %.0fs, streak=%d, errors=%d): %s",
+                exit_code, duration, self._consecutive_failures, error_count, item.url,
             )
 
             if self._consecutive_failures >= MAX_RAPID_FAILURES:
-                logger.warning(
-                    "CASCADE PROTECTION: %d failures, skipping and backing off %ds",
-                    self._consecutive_failures, FAILURE_BACKOFF,
-                )
+                # Mark as permanently failed
+                self.queue.mark_failed(item.id)
                 self._consecutive_failures = 0
-                time.sleep(FAILURE_BACKOFF)
-                return "skip"
+
+                self._emit(
+                    "failed",
+                    f"Failed: {display_title}",
+                    error_reason,
+                    item.id,
+                )
+                self._show_osd(f"Failed: {display_title}")
+
+                logger.warning(
+                    "CASCADE PROTECTION: %d failures, marking failed: %s",
+                    error_count, item.url,
+                )
+                backoff = FAILURE_BACKOFF[-1]
+                time.sleep(backoff)
+                return "failed"
             else:
-                # Undo playing status so it retries
+                # Retry with exponential backoff
                 self.queue.mark_pending(item.id)
-                time.sleep(3)
+                retry_num = self._consecutive_failures
+                backoff_idx = min(retry_num - 1, len(FAILURE_BACKOFF) - 1)
+                backoff = FAILURE_BACKOFF[backoff_idx]
+
+                self._emit(
+                    "error",
+                    f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}",
+                    error_reason,
+                    item.id,
+                )
+                self._show_osd(
+                    f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}"
+                )
+
+                time.sleep(backoff)
                 return "retry"
 
         if exit_code == 0 and duration < MIN_PLAY_SECONDS:
             # Exited OK but suspiciously fast (skip command, yt-dlp silent fail)
             self._rapid_successes += 1
             self._consecutive_failures = 0
+
+            error_reason = self._classify_error(exit_code, item)
+            error_count = self.queue.increment_error(item.id, error_reason)
+
             logger.warning(
-                "RAPID EXIT (exit=0, %.0fs, streak=%d): %s",
-                duration, self._rapid_successes, item.url,
+                "RAPID EXIT (exit=0, %.0fs, streak=%d, errors=%d): %s",
+                duration, self._rapid_successes, error_count, item.url,
             )
 
             if self._rapid_successes >= MAX_RAPID_FAILURES:
-                logger.warning(
-                    "CASCADE PROTECTION: %d rapid exits, pausing %ds",
-                    self._rapid_successes, FAILURE_BACKOFF,
-                )
-                self.queue.mark_pending(item.id)
+                self.queue.mark_failed(item.id)
                 self._rapid_successes = 0
-                time.sleep(FAILURE_BACKOFF)
+
+                self._emit(
+                    "failed",
+                    f"Failed: {display_title}",
+                    error_reason,
+                    item.id,
+                )
+                self._show_osd(f"Failed: {display_title}")
+
+                backoff = FAILURE_BACKOFF[-1]
+                time.sleep(backoff)
+                return "failed"
+            else:
+                self.queue.mark_pending(item.id)
+                retry_num = self._rapid_successes
+                backoff_idx = min(retry_num - 1, len(FAILURE_BACKOFF) - 1)
+                backoff = FAILURE_BACKOFF[backoff_idx]
+
+                self._emit(
+                    "error",
+                    f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}",
+                    error_reason,
+                    item.id,
+                )
+                self._show_osd(
+                    f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}"
+                )
+
+                time.sleep(backoff)
                 return "retry"
 
         # Non-zero exit but played for a while (user quit, network drop, etc.)
         self._consecutive_failures = 0
         self._rapid_successes = 0
         return "ok"
+
+    def _classify_error(self, exit_code: int, item: QueueItem) -> str:
+        """Classify the error reason from mpv exit code and log file.
+
+        Returns a human-readable error string.
+        """
+        # Check known mpv exit codes
+        mpv_codes = {
+            2: "mpv: file/device unavailable",
+            3: "mpv: network error",
+            4: "mpv: codec/format not supported",
+        }
+        if exit_code in mpv_codes:
+            return mpv_codes[exit_code]
+
+        # Try to parse mpv debug log for more detail
+        try:
+            with open("/tmp/mpv-debug.log", "r") as f:
+                lines = f.readlines()
+            # Scan last 50 lines for error patterns
+            for line in reversed(lines[-50:]):
+                line_lower = line.lower()
+                if "403" in line or "forbidden" in line_lower:
+                    return "HTTP 403 Forbidden (auth/geo-blocked)"
+                if "unable to extract" in line_lower:
+                    return "yt-dlp: unable to extract video data"
+                if "timeout" in line_lower or "timed out" in line_lower:
+                    return "Network timeout"
+                if "error" in line_lower and "level" not in line_lower:
+                    # Get the actual error message (trim to reasonable length)
+                    msg = line.strip()[-120:]
+                    if msg:
+                        return f"mpv: {msg}"
+        except (OSError, IndexError):
+            pass
+
+        # Fallback
+        if exit_code == 0:
+            return "Exited too quickly (possible yt-dlp failure)"
+        return f"mpv exited with code {exit_code}"
 
     def _get_title(self, url: str) -> str:
         """Get video title via yt-dlp."""

@@ -205,7 +205,7 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
+Type=notify
 User=$INSTALL_USER
 Environment=DISPLAY=:0
 Environment=WAYLAND_DISPLAY=wayland-0
@@ -214,6 +214,7 @@ Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$INSTALL_UID/bus
 ExecStart=/home/$INSTALL_USER/.local/bin/picast-server
 Restart=on-failure
 RestartSec=10
+WatchdogSec=30
 
 [Install]
 WantedBy=multi-user.target
