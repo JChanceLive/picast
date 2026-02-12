@@ -52,9 +52,15 @@ if [ "$PYTHON_MAJOR" -lt 3 ] || ([ "$PYTHON_MAJOR" -eq 3 ] && [ "$PYTHON_MINOR" 
 fi
 log "Python $PYTHON_VERSION"
 
+PI_MODEL=""
 if [ -f /sys/firmware/devicetree/base/model ]; then
     MODEL=$(cat /sys/firmware/devicetree/base/model | tr -d '\0')
     log "Detected: $MODEL"
+    case "$MODEL" in
+        *"Pi 5"*|*"Pi 4"*) PI_MODEL="pi4+" ;;
+        *"Pi 3"*|*"Pi 2"*) PI_MODEL="pi3" ;;
+        *) PI_MODEL="unknown" ;;
+    esac
 else
     warn "Not a Raspberry Pi (or can't detect model)"
     echo "    Continuing anyway - PiCast works on any Linux with mpv."
@@ -137,12 +143,21 @@ step 5 "Creating default config..."
 mkdir -p ~/.config/picast
 
 if [ ! -f ~/.config/picast/picast.toml ]; then
-    cat > ~/.config/picast/picast.toml << 'TOML'
+    # Auto-select video quality based on Pi model
+    if [ "$PI_MODEL" = "pi3" ]; then
+        YTDL_FMT="bestvideo[height<=720]+bestaudio/best[height<=720]"
+        log "Pi 3 detected - using 720p video format"
+    else
+        YTDL_FMT="bestvideo[height<=1080][fps<=30]+bestaudio/best[height<=1080]"
+        log "Using 1080p video format"
+    fi
+
+    cat > ~/.config/picast/picast.toml << TOML
 [server]
 host = "0.0.0.0"
 port = 5050
 mpv_socket = "/tmp/mpv-socket"
-ytdl_format = "bestvideo[height<=1080][fps<=30]+bestaudio/best[height<=1080]"
+ytdl_format = "$YTDL_FMT"
 
 # Uncomment to enable Telegram bot
 # [telegram]
@@ -230,6 +245,10 @@ echo ""
 echo "  On your Mac:"
 echo "    pip install picast"
 echo "    picast  # Opens TUI dashboard"
+echo ""
+echo -e "  ${YELLOW}YouTube Setup Required:${NC}"
+echo "    YouTube needs a PO token for server-side playback."
+echo "    See: https://github.com/JChanceLive/picast/blob/main/docs/youtube-setup.md"
 echo -e "${NC}"
 
 # Reboot reminder

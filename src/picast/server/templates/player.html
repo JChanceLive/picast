@@ -31,18 +31,18 @@
 </section>
 
 <section class="controls" id="controls-section">
-    <button class="btn-icon-pin" id="btn-pin" onclick="toggleFloatingControls()" title="Pin controls">📌</button>
+    <button class="btn-icon-pin" id="btn-pin" onclick="toggleFloatingControls()" title="Pin controls" aria-label="Pin controls">📌</button>
     <div class="controls-bar">
-        <button onclick="doToggle(this)" class="btn-icon" id="btn-toggle"><span class="bi-ico">⏸</span><span class="bi-lbl">Pause</span></button>
-        <button onclick="doSkip(this)" class="btn-icon" id="btn-skip"><span class="bi-ico">⏭</span><span class="bi-lbl">Skip</span></button>
-        <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop"><span class="bi-ico">⏹</span><span class="bi-lbl">Stop</span></button>
-        <button onclick="volDown()" class="btn-icon"><span class="bi-ico">🔉</span><span class="bi-lbl">Vol-</span></button>
-        <button onclick="volUp()" class="btn-icon"><span class="bi-ico">🔊</span><span class="bi-lbl">Vol+</span></button>
-        <button onclick="speedDown()" class="btn-icon"><span class="bi-ico">🐌</span><span class="bi-lbl">Slow</span></button>
-        <button onclick="speedUp()" class="btn-icon"><span class="bi-ico">🐇</span><span class="bi-lbl">Fast</span></button>
-        <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after"><span class="bi-ico">⏱</span><span class="bi-lbl">1More</span></button>
-        <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
-        <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
+        <button onclick="doToggle(this)" class="btn-icon" id="btn-toggle" aria-label="Pause"><span class="bi-ico">⏸</span><span class="bi-lbl">Pause</span></button>
+        <button onclick="doSkip(this)" class="btn-icon" id="btn-skip" aria-label="Skip"><span class="bi-ico">⏭</span><span class="bi-lbl">Skip</span></button>
+        <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop" aria-label="Stop"><span class="bi-ico">⏹</span><span class="bi-lbl">Stop</span></button>
+        <button onclick="volDown()" class="btn-icon" aria-label="Volume down"><span class="bi-ico">🔉</span><span class="bi-lbl">Vol-</span></button>
+        <button onclick="volUp()" class="btn-icon" aria-label="Volume up"><span class="bi-ico">🔊</span><span class="bi-lbl">Vol+</span></button>
+        <button onclick="speedDown()" class="btn-icon" aria-label="Slow down"><span class="bi-ico">🐌</span><span class="bi-lbl">Slow</span></button>
+        <button onclick="speedUp()" class="btn-icon" aria-label="Speed up"><span class="bi-ico">🐇</span><span class="bi-lbl">Fast</span></button>
+        <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after" aria-label="Stop after current"><span class="bi-ico">⏱</span><span class="bi-lbl">1More</span></button>
+        <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" aria-label="Sleep 30 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
+        <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" aria-label="Sleep 60 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
