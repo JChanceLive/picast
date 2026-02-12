@@ -6,7 +6,7 @@ a running server or terminal.
 
 import pytest
 
-from picast.tui.api_client import PiCastClient, PiCastAPIError
+from picast.tui.api_client import PiCastAPIError, PiCastClient
 from picast.tui.widgets.now_playing import _format_time
 
 

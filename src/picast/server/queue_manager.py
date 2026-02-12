@@ -271,7 +271,6 @@ class QueueManager:
 
         Returns number of items imported.
         """
-        import os
 
         count = 0
         try:

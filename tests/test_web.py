@@ -1,6 +1,5 @@
 """Tests for web UI routes and API integration."""
 
-import pytest
 
 
 class TestWebPages:

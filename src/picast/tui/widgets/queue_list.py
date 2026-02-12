@@ -1,11 +1,9 @@
 """Queue list widget - displays the playback queue with status indicators."""
 
 from textual.app import ComposeResult
-from textual.containers import VerticalScroll
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Label, ListItem, ListView, Static
-
+from textual.widgets import Label, ListItem, ListView
 
 SOURCE_TAGS = {
     "youtube": "[YT]",
@@ -60,7 +58,10 @@ class QueueList(Widget):
     def compose(self) -> ComposeResult:
         yield Label("Queue (0 pending)", id="ql-header", classes="ql-header")
         yield ListView(id="ql-list")
-        yield Label("Queue is empty - press [bold]A[/bold] to add a URL", id="ql-empty", classes="ql-empty")
+        yield Label(
+            "Queue is empty - press [bold]A[/bold] to add a URL",
+            id="ql-empty", classes="ql-empty",
+        )
 
     def update_queue(self, items: list[dict]) -> None:
         """Update the queue display from API response."""

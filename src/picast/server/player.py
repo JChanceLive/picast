@@ -102,8 +102,14 @@ class Player:
         self,
         mpv: MPVClient,
         queue: QueueManager,
-        ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]",
-        ytdl_format_live: str = "bestvideo[height<=480][vcodec^=avc]+bestaudio/best[height<=480]",
+        ytdl_format: str = (
+            "bestvideo[height<=720][fps<=30][vcodec^=avc]"
+            "+bestaudio/best[height<=720]"
+        ),
+        ytdl_format_live: str = (
+            "bestvideo[height<=480][vcodec^=avc]"
+            "+bestaudio/best[height<=480]"
+        ),
         library: "Library | None" = None,
         config: "ServerConfig | None" = None,
         event_bus: "EventBus | None" = None,

@@ -284,7 +284,10 @@ class AsyncPiCastClient:
 
     # --- Library ---
 
-    async def get_library(self, sort: str = "recent", limit: int = 50, offset: int = 0) -> list[dict]:
+    async def get_library(
+        self, sort: str = "recent", limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict]:
         return await self._get(f"/api/library?sort={sort}&limit={limit}&offset={offset}")
 
     async def search_library(self, query: str) -> list[dict]:

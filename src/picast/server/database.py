@@ -8,7 +8,6 @@ import logging
 import os
 import sqlite3
 import threading
-import time
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +55,8 @@ CREATE TABLE IF NOT EXISTS playlist_items (
 );
 
 CREATE INDEX IF NOT EXISTS idx_playlist_items_playlist ON playlist_items(playlist_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_playlist_items_unique ON playlist_items(playlist_id, library_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_playlist_items_unique
+    ON playlist_items(playlist_id, library_id);
 
 CREATE TABLE IF NOT EXISTS queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,

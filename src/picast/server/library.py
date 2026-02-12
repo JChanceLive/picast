@@ -64,7 +64,10 @@ class Library:
         self.db.commit()
         return self.get_by_url(url)
 
-    def record_play(self, url: str, title: str = "", source_type: str = "youtube", duration: float = 0) -> dict:
+    def record_play(
+        self, url: str, title: str = "",
+        source_type: str = "youtube", duration: float = 0,
+    ) -> dict:
         """Record that a video was played. Creates entry if needed, bumps play count."""
         entry = self.add(url, title, source_type, duration)
         now = time.time()
@@ -198,7 +201,10 @@ class Library:
                ORDER BY p.updated_at DESC"""
         )
 
-    def update_playlist(self, playlist_id: int, name: str | None = None, description: str | None = None) -> bool:
+    def update_playlist(
+        self, playlist_id: int,
+        name: str | None = None, description: str | None = None,
+    ) -> bool:
         """Update playlist metadata."""
         updates = ["updated_at = ?"]
         params = [time.time()]
@@ -235,17 +241,23 @@ class Library:
         """Add a library item to a playlist."""
         # Get next position
         row = self.db.fetchone(
-            "SELECT COALESCE(MAX(position), -1) + 1 as next_pos FROM playlist_items WHERE playlist_id = ?",
+            "SELECT COALESCE(MAX(position), -1) + 1 as next_pos "
+            "FROM playlist_items WHERE playlist_id = ?",
             (playlist_id,),
         )
         pos = row["next_pos"] if row else 0
 
         try:
             self.db.execute(
-                "INSERT INTO playlist_items (playlist_id, library_id, position, added_at) VALUES (?, ?, ?, ?)",
+                "INSERT INTO playlist_items "
+                "(playlist_id, library_id, position, added_at) "
+                "VALUES (?, ?, ?, ?)",
                 (playlist_id, library_id, pos, time.time()),
             )
-            self.db.execute("UPDATE playlists SET updated_at = ? WHERE id = ?", (time.time(), playlist_id))
+            self.db.execute(
+                "UPDATE playlists SET updated_at = ? WHERE id = ?",
+                (time.time(), playlist_id),
+            )
             self.db.commit()
         except Exception:
             return None
@@ -261,7 +273,10 @@ class Library:
             "DELETE FROM playlist_items WHERE playlist_id = ? AND library_id = ?",
             (playlist_id, library_id),
         )
-        self.db.execute("UPDATE playlists SET updated_at = ? WHERE id = ?", (time.time(), playlist_id))
+        self.db.execute(
+            "UPDATE playlists SET updated_at = ? WHERE id = ?",
+            (time.time(), playlist_id),
+        )
         self.db.commit()
         return True
 
@@ -283,7 +298,8 @@ class Library:
         fav_count = favs["cnt"] if favs else 0
 
         sources = self.db.fetchall(
-            "SELECT source_type, COUNT(*) as cnt FROM library GROUP BY source_type ORDER BY cnt DESC"
+            "SELECT source_type, COUNT(*) as cnt "
+            "FROM library GROUP BY source_type ORDER BY cnt DESC"
         )
         source_breakdown = {row["source_type"]: row["cnt"] for row in sources}
 

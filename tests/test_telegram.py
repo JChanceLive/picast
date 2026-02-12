@@ -1,12 +1,10 @@
 """Tests for the Telegram bot module."""
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from picast.server.telegram_bot import PiCastBot, _format_time, _progress_bar
-
 
 # --- Helper formatting tests ---
 

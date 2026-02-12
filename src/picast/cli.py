@@ -120,7 +120,8 @@ def run_server():
                 logging.getLogger("picast").info("Telegram bot enabled")
             except ImportError:
                 logging.getLogger("picast").error(
-                    'Telegram dependencies not installed. Install with: pip install "picast[telegram]"'
+                    "Telegram dependencies not installed. "
+                    'Install with: pip install "picast[telegram]"'
                 )
 
     # Notify systemd that we're ready (if running as a service)

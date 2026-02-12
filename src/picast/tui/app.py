@@ -10,7 +10,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Input, Label, Static, TextArea
+from textual.widgets import Input, Label, TextArea
 
 from picast.tui.api_client import AsyncPiCastClient, PiCastAPIError
 from picast.tui.widgets.controls import ControlsBar

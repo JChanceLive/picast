@@ -4,7 +4,6 @@ These tests don't require a running mpv instance - they test the client's
 behavior when mpv is not available (connection handling, defaults, etc).
 """
 
-import pytest
 
 from picast.server.mpv_client import MPVClient
 

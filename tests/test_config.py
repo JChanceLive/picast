@@ -2,10 +2,9 @@
 
 from picast.config import (
     ServerConfig,
-    load_config,
+    _parse_config,
     ytdl_auth_args,
     ytdl_raw_options_auth,
-    _parse_config,
 )
 
 

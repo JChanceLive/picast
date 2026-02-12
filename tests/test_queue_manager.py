@@ -1,6 +1,5 @@
 """Tests for QueueManager."""
 
-import pytest
 
 from picast.server.database import Database
 from picast.server.queue_manager import QueueManager

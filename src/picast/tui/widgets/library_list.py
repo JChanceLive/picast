@@ -5,7 +5,6 @@ from textual.reactive import reactive
 from textual.widget import Widget
 from textual.widgets import Label, ListItem, ListView
 
-
 SOURCE_TAGS = {
     "youtube": "[YT]",
     "local": "[Local]",
@@ -49,7 +48,10 @@ class LibraryList(Widget):
     def compose(self) -> ComposeResult:
         yield Label("History (0 videos)", id="ll-header", classes="ll-header")
         yield ListView(id="ll-list")
-        yield Label("History is empty - videos are saved automatically after playing", id="ll-empty", classes="ll-empty")
+        yield Label(
+            "History is empty - videos are saved automatically after playing",
+            id="ll-empty", classes="ll-empty",
+        )
 
     def update_library(self, items: list[dict]) -> None:
         self.library_items = items

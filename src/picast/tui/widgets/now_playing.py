@@ -4,7 +4,7 @@ from textual.app import ComposeResult
 from textual.containers import Horizontal
 from textual.reactive import reactive
 from textual.widget import Widget
-from textual.widgets import Label, ProgressBar, Static
+from textual.widgets import Label, ProgressBar
 
 
 class NowPlaying(Widget):
@@ -75,11 +75,17 @@ class NowPlaying(Widget):
     source_type: reactive[str] = reactive("")
 
     def compose(self) -> ComposeResult:
-        yield Label("Nothing playing - add a URL with [bold]A[/bold]", id="np-idle", classes="np-idle")
+        yield Label(
+            "Nothing playing - add a URL with [bold]A[/bold]",
+            id="np-idle", classes="np-idle",
+        )
         yield Label("", id="np-title", classes="np-title")
         yield Label("", id="np-url", classes="np-url")
         with Horizontal(classes="np-progress-row"):
-            yield ProgressBar(total=100, show_eta=False, show_percentage=False, id="np-bar", classes="np-bar")
+            yield ProgressBar(
+                total=100, show_eta=False, show_percentage=False,
+                id="np-bar", classes="np-bar",
+            )
             yield Label("0:00 / 0:00", id="np-time", classes="np-time")
         with Horizontal(classes="np-meta-row"):
             yield Label("Vol: 100", id="np-volume", classes="np-volume")

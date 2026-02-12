@@ -1,6 +1,5 @@
 """Tests for library and playlist operations."""
 
-import pytest
 
 
 class TestLibraryAdd:

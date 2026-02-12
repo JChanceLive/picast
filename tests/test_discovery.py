@@ -1,12 +1,9 @@
 """Tests for device discovery and multi-Pi support."""
 
-import os
-import tempfile
 
 import pytest
 
 from picast.server.discovery import DeviceInfo, DeviceRegistry, _get_local_ip
-
 
 # --- DeviceInfo tests ---
 
@@ -121,8 +118,8 @@ class TestDeviceRegistry:
 class TestDeviceAPI:
     @pytest.fixture
     def app(self, tmp_path):
-        from picast.server.app import create_app
         from picast.config import ServerConfig
+        from picast.server.app import create_app
 
         config = ServerConfig(data_dir=str(tmp_path))
         devices = [

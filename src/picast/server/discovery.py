@@ -9,8 +9,7 @@ Requires: pip install zeroconf
 import logging
 import socket
 import threading
-import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +129,10 @@ class DeviceRegistry:
                 properties={"version": _get_version()},
             )
             self._zeroconf.register_service(self._service_info)
-            logger.info("Registered mDNS service: %s on %s:%d", self._local_name, local_ip, self._local_port)
+            logger.info(
+                "Registered mDNS service: %s on %s:%d",
+                self._local_name, local_ip, self._local_port,
+            )
 
             # Browse for other PiCast instances
             self._browser = ServiceBrowser(
