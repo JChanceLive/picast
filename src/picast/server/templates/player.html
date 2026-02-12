@@ -30,32 +30,22 @@
     </div>
 </section>
 
-<section class="controls">
-    <button onclick="doToggle(this)" class="btn btn-primary" id="btn-toggle">Play/Pause</button>
-    <button onclick="doSkip(this)" class="btn" id="btn-skip">Skip</button>
-    <button onclick="doStop(this)" class="btn btn-danger" id="btn-stop">Stop</button>
-    <div class="vol-controls">
-        <button onclick="volDown()" class="btn btn-sm">Vol -</button>
-        <button onclick="volUp()" class="btn btn-sm">Vol +</button>
+<section class="controls" id="controls-section">
+    <button class="btn-icon-pin" id="btn-pin" onclick="toggleFloatingControls()" title="Pin controls">📌</button>
+    <div class="controls-grid">
+        <button onclick="doToggle(this)" class="btn-icon" id="btn-toggle" title="Play/Pause">⏸</button>
+        <button onclick="doSkip(this)" class="btn-icon" id="btn-skip" title="Skip">⏭</button>
+        <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop" title="Stop">⏹</button>
+        <button onclick="volDown()" class="btn-icon" title="Volume Down">🔉</button>
+        <button onclick="volUp()" class="btn-icon" title="Volume Up">🔊</button>
+        <button onclick="speedDown()" class="btn-icon" title="Slower">🐌</button>
+        <button onclick="speedUp()" class="btn-icon" title="Faster">🐇</button>
+        <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after" title="Stop after this video">⏱</button>
+        <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" title="Sleep 30 min">😴<sub>30</sub></button>
+        <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" title="Sleep 60 min">😴<sub>60</sub></button>
     </div>
-    <div class="speed-controls">
-        <button onclick="speedDown()" class="btn btn-sm">Slower</button>
-        <button onclick="speedUp()" class="btn btn-sm">Faster</button>
-    </div>
-</section>
-
-<section class="timer-section" id="timer-section">
-    <div class="timer-row">
-        <button onclick="toggleStopAfter(this)" class="btn btn-sm" id="btn-stop-after">Stop after this video</button>
-        <span class="timer-countdown" id="timer-countdown"></span>
-    </div>
-    <div class="timer-presets">
-        <span class="timer-label">Sleep:</span>
-        <button onclick="setSleepTimer(15)" class="btn btn-sm timer-preset">15m</button>
-        <button onclick="setSleepTimer(30)" class="btn btn-sm timer-preset">30m</button>
-        <button onclick="setSleepTimer(60)" class="btn btn-sm timer-preset">60m</button>
-        <button onclick="setSleepTimer(90)" class="btn btn-sm timer-preset">90m</button>
-        <button onclick="setSleepTimer(0)" class="btn btn-sm timer-cancel" id="btn-timer-cancel" style="display:none">Cancel</button>
+    <div class="timer-status" id="timer-status" style="display:none">
+        <span id="timer-countdown"></span>
     </div>
 </section>
 
@@ -88,6 +78,7 @@ let currentVolume = 100;
 let currentSpeed = 1.0;
 let addingUrl = false;
 let stopAfterCurrent = false;
+let sleepTimerActive = false;
 let isPlaylistUrl = false;
 let importTarget = 'queue';
 
@@ -108,23 +99,28 @@ function ytThumb(url) {
     return m ? 'https://img.youtube.com/vi/' + m[1] + '/mqdefault.jpg' : null;
 }
 
+function extractVideoId(url) {
+    if (!url) return '';
+    const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    return m ? m[1] : '';
+}
+
 function updateNowPlaying(s) {
     const idle = document.getElementById('np-idle');
     const active = document.getElementById('np-active');
 
-    // Update timer state
     updateTimerUI(s);
 
     if (s.idle) {
         idle.style.display = '';
         active.style.display = 'none';
-        // Update idle screen
         const now = new Date();
         document.getElementById('idle-time').textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         const pendingCount = lastQueueItems.filter(i => i.status === 'pending').length;
         document.getElementById('idle-hint').textContent = pendingCount > 0
             ? pendingCount + ' video' + (pendingCount !== 1 ? 's' : '') + ' in queue'
             : 'Add a URL to start';
+        document.getElementById('btn-toggle').innerHTML = '▶';
         return;
     }
     idle.style.display = 'none';
@@ -155,7 +151,7 @@ function updateNowPlaying(s) {
     const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
     document.getElementById('np-source').textContent = tags[s.source_type] || '';
 
-    document.getElementById('btn-toggle').textContent = s.paused ? 'Resume' : 'Pause';
+    document.getElementById('btn-toggle').innerHTML = s.paused ? '▶' : '⏸';
 }
 
 let lastQueueItems = [];
@@ -172,8 +168,8 @@ function updateQueue(items) {
     }
 
     const pendingIds = items.filter(i => i.status === 'pending').map(i => i.id);
-    const icons = {pending: '', playing: '\u25B6', played: '\u2713', skipped: '\u2014'};
-    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
+    const statusIcons = {pending: '', playing: '\u25B6', played: '\u2713', skipped: '\u2014'};
+    const tags = {youtube: 'YT', local: 'Local', twitch: 'Twitch'};
 
     list.innerHTML = items.map((item, i) => {
         const title = item.title || item.url;
@@ -182,29 +178,33 @@ function updateQueue(items) {
         const cls = item.status === 'playing' ? 'queue-item playing' :
                     item.status === 'skipped' ? 'queue-item skipped' :
                     item.status === 'played' ? 'queue-item played' : 'queue-item';
-        const thumbUrl = ytThumb(item.url);
-        const thumbHtml = thumbUrl ? `<img class="qi-thumb" src="${thumbUrl}" alt="">` : '';
+        const videoId = extractVideoId(item.url);
         const replayBtn = isFinished ?
-            `<button onclick="replayItem(${item.id})" class="btn btn-sm qi-replay" title="Play again" aria-label="Play again">\u21BB</button>` : '';
+            `<button onclick="replayItem(${item.id})" class="qi-circle qi-replay" title="Play again">\u21BB</button>` : '';
         const addUrl = '/add-to-collection?url=' + encodeURIComponent(item.url) + '&title=' + encodeURIComponent(item.title||'') + '&source_type=' + encodeURIComponent(item.source_type||'youtube');
         const pidx = pendingIds.indexOf(item.id);
         const isFirst = pidx === 0;
         const isLast = pidx === pendingIds.length - 1;
         const moveCol = isPending ? `<span class="qi-move-col">
-            <button onclick="moveItem(${item.id},-1)" class="btn btn-sm qi-move" title="Move up" aria-label="Move up"${isFirst ? ' disabled' : ''}>\u25B2</button>
-            <button onclick="moveItem(${item.id},1)" class="btn btn-sm qi-move" title="Move down" aria-label="Move down"${isLast ? ' disabled' : ''}>\u25BC</button>
+            <button onclick="moveItem(${item.id},-1)" class="qi-circle qi-move" title="Move up"${isFirst ? ' disabled' : ''}>\u25B2</button>
+            <button onclick="moveItem(${item.id},1)" class="qi-circle qi-move" title="Move down"${isLast ? ' disabled' : ''}>\u25BC</button>
         </span>` : '';
+        const vidIdHtml = videoId ? `<span class="qi-video-id">${videoId}</span>` : '';
         return `<div class="${cls}">
+            ${replayBtn}
             ${moveCol}
-            <span class="qi-num">${i+1}.</span>
-            <span class="qi-icon">${icons[item.status] || ''}</span>
-            ${thumbHtml}
-            <span class="qi-title">${esc(title)}</span>
-            <span class="qi-source">${tags[item.source_type] || ''}</span>
+            <span class="qi-status">${statusIcons[item.status] || ''}</span>
+            <div class="qi-info">
+                <div class="qi-info-top">
+                    <span class="qi-source">${tags[item.source_type] || ''}</span>
+                    <span class="qi-title">${esc(title)}</span>
+                </div>
+                <div class="qi-url">${esc(item.url || '')}</div>
+            </div>
+            ${vidIdHtml}
             <span class="qi-actions">
-                <a href="${addUrl}" class="btn btn-sm qi-add" title="Add to collection">Add +</a>
-                ${replayBtn}
-                <button onclick="removeItem(${item.id})" class="btn btn-sm btn-danger qi-remove" title="Remove" aria-label="Remove from queue">X</button>
+                <a href="${addUrl}" class="qi-circle qi-add" title="Add to collection">+</a>
+                <button onclick="removeItem(${item.id})" class="qi-circle qi-remove" title="Remove">\u00D7</button>
             </span>
         </div>`;
     }).join('');
@@ -231,7 +231,6 @@ function api(action, data) {
 
 function detectPlaylist() {
     const url = document.getElementById('url-input').value.trim();
-    const btn = document.getElementById('btn-add');
     const target = document.getElementById('import-target');
     isPlaylistUrl = url.includes('list=');
     target.style.display = isPlaylistUrl ? '' : 'none';
@@ -322,7 +321,6 @@ function replayItem(id) {
             if (r.ok) {
                 showToast('Replaying');
             } else {
-                // Fallback: re-add by URL
                 const item = lastQueueItems.find(i => i.id === id);
                 if (item) return api('queue/add', {url: item.url, title: item.title}).then(() => showToast('Re-added to queue'));
                 showToast('Replay failed');
@@ -375,8 +373,8 @@ function fmt(s) {
 // Timer controls
 function toggleStopAfter(btn) {
     stopAfterCurrent = !stopAfterCurrent;
-    withLoading(btn, '...', api('timer/stop-after-current', {enabled: stopAfterCurrent})
-        .then(() => { showToast(stopAfterCurrent ? 'Will stop after this video' : 'Continuous play'); }));
+    api('timer/stop-after-current', {enabled: stopAfterCurrent})
+        .then(() => { showToast(stopAfterCurrent ? 'Will stop after this video' : 'Continuous play'); });
 }
 
 function setSleepTimer(minutes) {
@@ -387,31 +385,59 @@ function setSleepTimer(minutes) {
         });
 }
 
+function handleSleep60() {
+    if (sleepTimerActive) {
+        setSleepTimer(0);
+    } else {
+        setSleepTimer(60);
+    }
+}
+
 function updateTimerUI(s) {
-    // Stop-after-current button
     stopAfterCurrent = s.stop_after_current || false;
     const btn = document.getElementById('btn-stop-after');
     if (stopAfterCurrent) {
-        btn.classList.add('timer-active');
-        btn.textContent = 'Stopping after this video';
+        btn.classList.add('btn-icon-active');
+        btn.title = 'Stopping after this video (click to cancel)';
     } else {
-        btn.classList.remove('timer-active');
-        btn.textContent = 'Stop after this video';
+        btn.classList.remove('btn-icon-active');
+        btn.title = 'Stop after this video';
     }
 
-    // Countdown display
+    const timerStatus = document.getElementById('timer-status');
     const countdown = document.getElementById('timer-countdown');
-    const cancelBtn = document.getElementById('btn-timer-cancel');
+    const sleep60 = document.getElementById('btn-sleep-60');
     if (s.stop_timer_remaining != null && s.stop_timer_remaining > 0) {
+        sleepTimerActive = true;
         countdown.textContent = 'Sleeping in ' + fmt(s.stop_timer_remaining);
-        countdown.style.display = '';
-        cancelBtn.style.display = '';
+        timerStatus.style.display = '';
+        sleep60.innerHTML = '❌';
+        sleep60.title = 'Cancel sleep timer';
     } else {
+        sleepTimerActive = false;
         countdown.textContent = '';
-        countdown.style.display = 'none';
-        cancelBtn.style.display = 'none';
+        timerStatus.style.display = 'none';
+        sleep60.innerHTML = '😴<sub>60</sub>';
+        sleep60.title = 'Sleep 60 min';
     }
 }
+
+// Floating controls
+function toggleFloatingControls() {
+    const section = document.getElementById('controls-section');
+    section.classList.toggle('floating');
+    const isFloating = section.classList.contains('floating');
+    localStorage.setItem('picast-floating-controls', isFloating ? '1' : '0');
+    document.getElementById('btn-pin').classList.toggle('pinned', isFloating);
+}
+
+// Restore float state
+(function() {
+    if (localStorage.getItem('picast-floating-controls') === '1') {
+        document.getElementById('controls-section').classList.add('floating');
+        document.getElementById('btn-pin').classList.add('pinned');
+    }
+})();
 
 function filterQueue(query) {
     const items = document.querySelectorAll('#queue-list .queue-item');
