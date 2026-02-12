@@ -179,8 +179,11 @@ function updateQueue(items) {
                     item.status === 'skipped' ? 'queue-item skipped' :
                     item.status === 'played' ? 'queue-item played' : 'queue-item';
         const videoId = extractVideoId(item.url);
+        const isPlaying = item.status === 'playing';
+        const playBtn = !isPlaying ?
+            `<button onclick="playNow(${item.id})" class="qi-circle qi-play" title="Play now">\u25B6</button>` : '';
         const replayBtn = isFinished ?
-            `<button onclick="replayItem(${item.id})" class="qi-circle qi-replay" title="Play again">\u21BB</button>` : '';
+            `<button onclick="replayItem(${item.id})" class="qi-circle qi-replay" title="Re-queue">\u21BB</button>` : '';
         const addUrl = '/add-to-collection?url=' + encodeURIComponent(item.url) + '&title=' + encodeURIComponent(item.title||'') + '&source_type=' + encodeURIComponent(item.source_type||'youtube');
         const pidx = pendingIds.indexOf(item.id);
         const isFirst = pidx === 0;
@@ -193,6 +196,7 @@ function updateQueue(items) {
         const thumbUrl = ytThumb(item.url);
         const thumbHtml = thumbUrl ? `<img class="qi-thumb" src="${thumbUrl}" alt="">` : '';
         return `<div class="${cls}">
+            ${playBtn}
             ${replayBtn}
             ${moveCol}
             <span class="qi-status">${statusIcons[item.status] || ''}</span>
@@ -222,6 +226,17 @@ function moveItem(id, direction) {
     pendingIds.splice(idx, 1);
     pendingIds.splice(newIdx, 0, id);
     api('queue/reorder', {item_ids: pendingIds}).then(poll);
+}
+
+function playNow(id) {
+    const item = lastQueueItems.find(i => i.id === id);
+    if (!item) return;
+    const btn = event && event.target.closest('button');
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+    api('play', {url: item.url, title: item.title || ''})
+        .then(() => { showToast('Playing now'); poll(); })
+        .catch(() => showToast('Play failed'))
+        .finally(() => { if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; } });
 }
 
 function api(action, data) {

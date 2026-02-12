@@ -491,6 +491,8 @@ body {
     box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2);
 }
 
+.qi-play { color: var(--neon-green, #0f6); border-color: rgba(0, 255, 102, 0.4); }
+.qi-play:hover { border-color: var(--neon-green, #0f6); box-shadow: var(--glow-sm) rgba(0, 255, 102, 0.3); }
 .qi-replay { color: var(--accent); border-color: rgba(0, 240, 255, 0.3); opacity: 0.6; }
 .qi-replay:hover { opacity: 1; }
 .qi-add { color: var(--accent); border-color: rgba(0, 240, 255, 0.3); }

@@ -156,28 +156,35 @@ class QueueManager:
         """Reorder items by specifying the desired ID order.
 
         Only reorders pending items. Playing/played items stay in place.
+        Reuses existing position slots so pending items don't jump above
+        non-pending items in the display order.
         """
-        # Get all pending IDs for validation
+        # Get pending items with their current positions
         rows = self._db.fetchall(
-            "SELECT id FROM queue WHERE status = 'pending' ORDER BY position, id"
+            "SELECT id, position FROM queue WHERE status = 'pending' ORDER BY position, id"
         )
         pending_ids = {r["id"] for r in rows}
+        # Sorted position slots currently held by pending items
+        slots = sorted(r["position"] for r in rows)
 
-        # Assign new positions to reordered items
-        position = 0
+        # Assign existing slots to the new order
+        idx = 0
         seen = set()
         for item_id in item_ids:
-            if item_id in pending_ids:
+            if item_id in pending_ids and idx < len(slots):
                 self._db.execute(
-                    "UPDATE queue SET position = ? WHERE id = ?", (position, item_id)
+                    "UPDATE queue SET position = ? WHERE id = ?", (slots[idx], item_id)
                 )
                 seen.add(item_id)
-                position += 1
+                idx += 1
 
-        # Any pending items not in the reorder list get appended
+        # Any pending items not in the reorder list get remaining slots
         for pid in pending_ids - seen:
-            self._db.execute("UPDATE queue SET position = ? WHERE id = ?", (position, pid))
-            position += 1
+            if idx < len(slots):
+                self._db.execute(
+                    "UPDATE queue SET position = ? WHERE id = ?", (slots[idx], pid)
+                )
+                idx += 1
 
         self._db.commit()
 
