@@ -1,0 +1,141 @@
+{% extends "base.html" %}
+{% block title_suffix %} - History{% endblock %}
+
+{% block content %}
+<section class="stats-bar" id="stats-bar"></section>
+
+<section class="library-header">
+    <h2>History</h2>
+    <div class="library-controls">
+        <input type="text" id="search-input" placeholder="Search history..." oninput="searchLibrary(this.value)">
+        <select id="sort-select" onchange="currentPage=0;loadLibrary()">
+            <option value="recent">Recently Played</option>
+            <option value="added">Recently Added</option>
+            <option value="title">Title A-Z</option>
+            <option value="plays">Most Played</option>
+        </select>
+        <label class="fav-filter">
+            <input type="checkbox" id="fav-only" onchange="currentPage=0;loadLibrary()"> Favorites
+        </label>
+    </div>
+</section>
+
+<section id="library-list" class="library-list"></section>
+<section id="pagination" class="pagination" style="display:none">
+    <button onclick="prevPage()" class="btn btn-sm" id="btn-prev" disabled>Prev</button>
+    <span id="page-info">Page 1</span>
+    <button onclick="nextPage()" class="btn btn-sm" id="btn-next">Next</button>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let searchTimeout = null;
+let currentPage = 0;
+const PAGE_SIZE = 20;
+const MAX_PAGES = 10;
+let isSearching = false;
+
+function loadLibrary() {
+    isSearching = false;
+    const sort = document.getElementById('sort-select').value;
+    const fav = document.getElementById('fav-only').checked ? '1' : '0';
+    const offset = currentPage * PAGE_SIZE;
+    fetch(`/api/library?sort=${sort}&favorites=${fav}&limit=${PAGE_SIZE + 1}&offset=${offset}`)
+        .then(r => r.json())
+        .then(items => {
+            const hasMore = items.length > PAGE_SIZE;
+            if (hasMore) items = items.slice(0, PAGE_SIZE);
+            renderLibrary(items);
+            updatePagination(hasMore);
+        });
+}
+
+function searchLibrary(q) {
+    clearTimeout(searchTimeout);
+    if (!q.trim()) { currentPage = 0; loadLibrary(); return; }
+    isSearching = true;
+    searchTimeout = setTimeout(() => {
+        fetch('/api/library/search?q=' + encodeURIComponent(q))
+            .then(r => r.json())
+            .then(items => {
+                renderLibrary(items);
+                document.getElementById('pagination').style.display = 'none';
+            });
+    }, 300);
+}
+
+function updatePagination(hasMore) {
+    const pag = document.getElementById('pagination');
+    pag.style.display = '';
+    document.getElementById('btn-prev').disabled = currentPage === 0;
+    document.getElementById('btn-next').disabled = !hasMore || currentPage >= MAX_PAGES - 1;
+    document.getElementById('page-info').textContent = 'Page ' + (currentPage + 1);
+}
+
+function prevPage() { if (currentPage > 0) { currentPage--; loadLibrary(); } }
+function nextPage() { if (currentPage < MAX_PAGES - 1) { currentPage++; loadLibrary(); } }
+
+function renderLibrary(items) {
+    const list = document.getElementById('library-list');
+    if (!items.length) {
+        list.innerHTML = '<div class="empty">No videos in history yet. Videos are saved automatically after playing.</div>';
+        return;
+    }
+
+    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
+    list.innerHTML = items.map(item => {
+        const fav = item.favorite ? '*' : '';
+        const title = item.title || item.url;
+        return `<div class="library-item${item.favorite ? ' favorite' : ''}">
+            <div class="li-main">
+                <span class="li-fav">${fav}</span>
+                <span class="li-title">${esc(title)}</span>
+                <span class="li-source">${tags[item.source_type] || ''}</span>
+                <span class="li-plays">x${item.play_count}</span>
+            </div>
+            <div class="li-actions">
+                <button onclick="queueItem(${item.id})" class="btn btn-sm">Queue</button>
+                <button onclick="toggleFav(${item.id})" class="btn btn-sm">${item.favorite ? 'Unfav' : 'Fav'}</button>
+            </div>
+            ${item.notes ? '<div class="li-notes">' + esc(item.notes) + '</div>' : ''}
+        </div>`;
+    }).join('');
+}
+
+function queueItem(id) {
+    const btn = event && event.target;
+    withLoading(btn, '...', fetch('/api/library/' + id + '/queue', {method:'POST'})
+        .then(r => r.json())
+        .then(() => showToast('Added to queue')));
+}
+
+function toggleFav(id) {
+    const btn = event && event.target;
+    withLoading(btn, '...', fetch('/api/library/' + id + '/favorite', {method:'POST'})
+        .then(r => r.json())
+        .then(d => { showToast(d.favorite ? 'Favorited' : 'Unfavorited'); loadLibrary(); }));
+}
+
+function loadStats() {
+    fetch('/api/library/stats')
+        .then(r => r.json())
+        .then(s => {
+            const bar = document.getElementById('stats-bar');
+            const parts = [
+                `<span class="stat-item">${s.total_videos} videos</span>`,
+                `<span class="stat-item">${s.total_plays} plays</span>`,
+                `<span class="stat-item">${s.favorites} favorites</span>`,
+            ];
+            Object.entries(s.sources || {}).forEach(([type, count]) => {
+                const labels = {youtube: 'YT', local: 'Local', twitch: 'Twitch'};
+                parts.push(`<span class="stat-item stat-source">${labels[type] || type}: ${count}</span>`);
+            });
+            bar.innerHTML = parts.join('');
+        });
+}
+
+loadStats();
+loadLibrary();
+</script>
+{% endblock %}

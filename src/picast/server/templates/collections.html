@@ -1,0 +1,243 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Collections{% endblock %}
+
+{% block content %}
+<section class="playlists-header">
+    <h2>Collections</h2>
+    <button onclick="showCreateForm()" class="btn btn-primary">New Collection</button>
+</section>
+
+<div id="create-form" class="create-form" style="display:none">
+    <input type="text" id="pl-name" placeholder="Collection name...">
+    <input type="text" id="pl-desc" placeholder="Description (optional)">
+    <button onclick="createPlaylist()" class="btn btn-primary btn-sm">Create</button>
+    <button onclick="hideCreateForm()" class="btn btn-sm">Cancel</button>
+</div>
+
+<section id="playlists-list" class="playlists-list"></section>
+
+<section id="playlist-detail" class="playlist-detail" style="display:none">
+    <div class="pd-header">
+        <button onclick="backToList()" class="btn btn-sm">Back</button>
+        <h3 id="pd-name"></h3>
+        <button onclick="queueAll()" class="btn btn-primary btn-sm">Queue All</button>
+    </div>
+    <div id="pd-items"></div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentPlaylistId = null;
+let viewingFavorites = false;
+
+function loadPlaylists() {
+    fetch('/api/playlists')
+        .then(r => r.json())
+        .then(renderPlaylists);
+    fetch('/api/library?favorites=1&limit=200')
+        .then(r => r.json())
+        .then(items => {
+            document.getElementById('fav-count').textContent = items.length + ' favorites';
+        });
+}
+
+function renderPlaylists(items) {
+    const list = document.getElementById('playlists-list');
+    const favCard = `<div class="playlist-card favorites-card" onclick="openFavorites()">
+        <div class="pc-name">Favorites</div>
+        <div class="pc-meta" id="fav-count">Loading...</div>
+        <div class="pc-actions">
+            <button onclick="event.stopPropagation();queueFavorites()" class="btn btn-sm">Queue All</button>
+        </div>
+    </div>`;
+    if (!items.length) {
+        list.innerHTML = favCard;
+        return;
+    }
+    list.innerHTML = favCard + items.map(pl => `
+        <div class="playlist-card" onclick="openPlaylist(${pl.id})">
+            <div class="pc-name">${esc(pl.name)}</div>
+            <div class="pc-meta">${pl.item_count} items${pl.description ? ' - ' + esc(pl.description) : ''}</div>
+            <div class="pc-actions">
+                <button onclick="event.stopPropagation();queuePlaylist(${pl.id})" class="btn btn-sm">Queue All</button>
+                <button onclick="event.stopPropagation();deletePlaylist(${pl.id})" class="btn btn-sm btn-danger">Delete</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function openPlaylist(id) {
+    currentPlaylistId = id;
+    fetch('/api/playlists/' + id)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('playlists-list').style.display = 'none';
+            const detail = document.getElementById('playlist-detail');
+            detail.style.display = '';
+            document.getElementById('pd-name').textContent = data.name;
+            renderPlaylistItems(data.items || []);
+        });
+}
+
+function renderPlaylistItems(items) {
+    const el = document.getElementById('pd-items');
+    if (!items.length) {
+        el.innerHTML = '<div class="empty">Collection is empty</div>';
+        return;
+    }
+    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
+    el.innerHTML = items.map((item, i) => `
+        <div class="pd-item" data-url="${esc(item.url)}" data-title="${esc(item.title || '')}">
+            <span class="pdi-num">${i+1}.</span>
+            <div class="pdi-info">
+                <span class="pdi-title">${esc(item.title || item.url)}</span>
+                <span class="pdi-url">${esc(item.url)}</span>
+            </div>
+            <span class="pdi-source">${tags[item.source_type] || ''}</span>
+            <span class="pdi-actions">
+                <button onclick="playFromItem(this)" class="btn btn-sm btn-primary pdi-play" title="Play now on Pi">Play</button>
+                <button onclick="queueFromItem(this)" class="btn btn-sm" title="Add to queue">Queue</button>
+                <button onclick="removeFromPlaylist(${item.id})" class="btn btn-sm btn-danger" title="Remove">X</button>
+            </span>
+        </div>
+    `).join('');
+}
+
+function backToList() {
+    document.getElementById('playlist-detail').style.display = 'none';
+    document.getElementById('playlists-list').style.display = '';
+    currentPlaylistId = null;
+    viewingFavorites = false;
+    loadPlaylists();
+}
+
+function openFavorites() {
+    viewingFavorites = true;
+    fetch('/api/library?favorites=1&limit=200')
+        .then(r => r.json())
+        .then(items => {
+            document.getElementById('playlists-list').style.display = 'none';
+            const detail = document.getElementById('playlist-detail');
+            detail.style.display = '';
+            document.getElementById('pd-name').textContent = 'Favorites';
+            renderFavItems(items);
+        });
+}
+
+function renderFavItems(items) {
+    const el = document.getElementById('pd-items');
+    if (!items.length) {
+        el.innerHTML = '<div class="empty">No favorites yet. Go to History and tap Fav on videos you like.</div>';
+        return;
+    }
+    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
+    el.innerHTML = items.map((item, i) => `
+        <div class="pd-item" data-url="${esc(item.url)}" data-title="${esc(item.title || '')}">
+            <span class="pdi-num">${i+1}.</span>
+            <div class="pdi-info">
+                <span class="pdi-title">${esc(item.title || item.url)}</span>
+                <span class="pdi-url">${esc(item.url)}</span>
+            </div>
+            <span class="pdi-source">${tags[item.source_type] || ''}</span>
+            <span class="pdi-actions">
+                <button onclick="playFromItem(this)" class="btn btn-sm btn-primary pdi-play" title="Play now on Pi">Play</button>
+                <button onclick="queueFavItem(${item.id})" class="btn btn-sm" title="Add to queue">Queue</button>
+                <button onclick="unfavItem(${item.id})" class="btn btn-sm btn-danger" title="Unfavorite">Unfav</button>
+            </span>
+        </div>
+    `).join('');
+}
+
+function queueFavItem(libraryId) {
+    const btn = event && event.target;
+    withLoading(btn, '...', fetch('/api/library/' + libraryId + '/queue', {method:'POST'})
+        .then(() => showToast('Added to queue')));
+}
+
+function unfavItem(libraryId) {
+    fetch('/api/library/' + libraryId + '/favorite', {method:'POST'})
+        .then(() => openFavorites());
+}
+
+function queueFavorites() {
+    fetch('/api/library?favorites=1&limit=200')
+        .then(r => r.json())
+        .then(items => {
+            let queued = 0;
+            const promises = items.map(item =>
+                fetch('/api/library/' + item.id + '/queue', {method:'POST'}).then(() => queued++)
+            );
+            Promise.all(promises).then(() => showToast('Queued ' + queued + ' favorites'));
+        });
+}
+
+function showCreateForm() { document.getElementById('create-form').style.display = ''; }
+function hideCreateForm() { document.getElementById('create-form').style.display = 'none'; }
+
+function createPlaylist() {
+    const name = document.getElementById('pl-name').value.trim();
+    if (!name) return;
+    const desc = document.getElementById('pl-desc').value.trim();
+    const btn = event && event.target;
+    withLoading(btn, '...', fetch('/api/playlists', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name, description: desc}),
+    }).then(() => {
+        hideCreateForm();
+        document.getElementById('pl-name').value = '';
+        document.getElementById('pl-desc').value = '';
+        showToast('Collection created');
+        loadPlaylists();
+    }));
+}
+
+function queuePlaylist(id) {
+    fetch('/api/playlists/' + id + '/queue', {method:'POST'})
+        .then(r => r.json())
+        .then(d => showToast('Queued ' + d.queued + ' items'));
+}
+
+function queueAll() {
+    if (viewingFavorites) queueFavorites();
+    else if (currentPlaylistId) queuePlaylist(currentPlaylistId);
+}
+
+function deletePlaylist(id) {
+    if (confirm('Delete this collection?')) {
+        fetch('/api/playlists/' + id, {method:'DELETE'}).then(loadPlaylists);
+    }
+}
+
+function removeFromPlaylist(libraryId) {
+    if (!currentPlaylistId) return;
+    fetch('/api/playlists/' + currentPlaylistId + '/items/' + libraryId, {method:'DELETE'})
+        .then(() => openPlaylist(currentPlaylistId));
+}
+
+function playFromItem(btn) {
+    const row = btn.closest('.pd-item');
+    const url = row.dataset.url;
+    const title = row.dataset.title;
+    withLoading(btn, '...', fetch('/api/play', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url, title}),
+    }).then(() => showToast('Playing now')));
+}
+
+function queueFromItem(btn) {
+    const row = btn.closest('.pd-item');
+    const url = row.dataset.url;
+    const title = row.dataset.title;
+    withLoading(btn, '...', fetch('/api/queue/add', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url, title}),
+    }).then(() => showToast('Added to queue')));
+}
+
+loadPlaylists();
+</script>
+{% endblock %}

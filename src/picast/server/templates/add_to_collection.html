@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Add to Collection{% endblock %}
+
+{% block content %}
+<section class="atc-header">
+    <a href="/" class="btn btn-sm">Back to Queue</a>
+    <h2>Add to Collection</h2>
+    <div class="atc-video">{{ title or url }}</div>
+</section>
+
+<section class="atc-list">
+    <form method="POST" action="/add-to-collection/fav">
+        <input type="hidden" name="url" value="{{ url }}">
+        <input type="hidden" name="title" value="{{ title }}">
+        <input type="hidden" name="source_type" value="{{ source_type }}">
+        <button type="submit" class="atc-item">Favorites</button>
+    </form>
+
+    {% for pl in playlists %}
+    <form method="POST" action="/add-to-collection/{{ pl.id }}">
+        <input type="hidden" name="url" value="{{ url }}">
+        <input type="hidden" name="title" value="{{ title }}">
+        <input type="hidden" name="source_type" value="{{ source_type }}">
+        <button type="submit" class="atc-item">{{ pl.name }}</button>
+    </form>
+    {% endfor %}
+
+    {% if not playlists %}
+    <div class="empty">No collections yet. Create one in the Collections tab.</div>
+    {% endif %}
+</section>
+{% endblock %}

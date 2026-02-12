@@ -1,0 +1,428 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Queue{% endblock %}
+
+{% block content %}
+<section class="now-playing" id="now-playing">
+    <div class="np-idle" id="np-idle">
+        <div class="idle-time" id="idle-time"></div>
+        <div>Nothing playing</div>
+        <div class="idle-hint" id="idle-hint">Add a URL to start</div>
+    </div>
+    <div class="np-active" id="np-active" style="display:none">
+        <div class="np-top">
+            <img id="np-thumb" class="np-thumb" src="" alt="" style="display:none">
+            <div class="np-info">
+                <div class="np-title" id="np-title"></div>
+                <div class="np-url" id="np-url"></div>
+            </div>
+        </div>
+        <div class="progress-container">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <span class="np-time" id="np-time">0:00 / 0:00</span>
+        </div>
+        <div class="np-meta">
+            <span id="np-volume">Vol: 100</span>
+            <span id="np-speed">Speed: 1.0x</span>
+            <span id="np-source" class="source-tag"></span>
+        </div>
+    </div>
+</section>
+
+<section class="controls">
+    <button onclick="doToggle(this)" class="btn btn-primary" id="btn-toggle">Play/Pause</button>
+    <button onclick="doSkip(this)" class="btn" id="btn-skip">Skip</button>
+    <button onclick="doStop(this)" class="btn btn-danger" id="btn-stop">Stop</button>
+    <div class="vol-controls">
+        <button onclick="volDown()" class="btn btn-sm">Vol -</button>
+        <button onclick="volUp()" class="btn btn-sm">Vol +</button>
+    </div>
+    <div class="speed-controls">
+        <button onclick="speedDown()" class="btn btn-sm">Slower</button>
+        <button onclick="speedUp()" class="btn btn-sm">Faster</button>
+    </div>
+</section>
+
+<section class="timer-section" id="timer-section">
+    <div class="timer-row">
+        <button onclick="toggleStopAfter(this)" class="btn btn-sm" id="btn-stop-after">Stop after this video</button>
+        <span class="timer-countdown" id="timer-countdown"></span>
+    </div>
+    <div class="timer-presets">
+        <span class="timer-label">Sleep:</span>
+        <button onclick="setSleepTimer(15)" class="btn btn-sm timer-preset">15m</button>
+        <button onclick="setSleepTimer(30)" class="btn btn-sm timer-preset">30m</button>
+        <button onclick="setSleepTimer(60)" class="btn btn-sm timer-preset">60m</button>
+        <button onclick="setSleepTimer(90)" class="btn btn-sm timer-preset">90m</button>
+        <button onclick="setSleepTimer(0)" class="btn btn-sm timer-cancel" id="btn-timer-cancel" style="display:none">Cancel</button>
+    </div>
+</section>
+
+<section class="add-url">
+    <form id="add-form" onsubmit="addUrl(event)">
+        <input type="url" inputmode="url" id="url-input" placeholder="Paste a YouTube URL or playlist..." autocomplete="off" oninput="detectPlaylist()">
+        <div class="import-target" id="import-target" style="display:none">
+            <span class="import-label">Import to:</span>
+            <button type="button" class="btn btn-sm import-opt active" id="opt-queue" onclick="setImportTarget('queue')">Queue</button>
+            <button type="button" class="btn btn-sm import-opt" id="opt-collection" onclick="setImportTarget('collection')">Collection</button>
+        </div>
+        <button type="submit" class="btn btn-primary" id="btn-add">Add to Queue</button>
+    </form>
+</section>
+
+<section class="queue" id="queue-section">
+    <h2>Queue (<span id="queue-count">0</span> pending)</h2>
+    <input type="text" id="queue-search" class="queue-search" placeholder="Filter queue..." oninput="filterQueue(this.value)">
+    <div id="queue-list"></div>
+    <div class="queue-actions">
+        <button onclick="clearPlayed()" class="btn btn-sm">Clear Played</button>
+        <button onclick="clearAll()" class="btn btn-sm btn-danger">Clear All</button>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentVolume = 100;
+let currentSpeed = 1.0;
+let addingUrl = false;
+let stopAfterCurrent = false;
+let isPlaylistUrl = false;
+let importTarget = 'queue';
+
+function poll() {
+    fetch('/api/status')
+        .then(r => r.json())
+        .then(updateNowPlaying)
+        .catch(() => {});
+    fetch('/api/queue')
+        .then(r => r.json())
+        .then(updateQueue)
+        .catch(() => {});
+}
+
+function ytThumb(url) {
+    if (!url) return null;
+    const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+    return m ? 'https://img.youtube.com/vi/' + m[1] + '/mqdefault.jpg' : null;
+}
+
+function updateNowPlaying(s) {
+    const idle = document.getElementById('np-idle');
+    const active = document.getElementById('np-active');
+
+    // Update timer state
+    updateTimerUI(s);
+
+    if (s.idle) {
+        idle.style.display = '';
+        active.style.display = 'none';
+        // Update idle screen
+        const now = new Date();
+        document.getElementById('idle-time').textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+        const pendingCount = lastQueueItems.filter(i => i.status === 'pending').length;
+        document.getElementById('idle-hint').textContent = pendingCount > 0
+            ? pendingCount + ' video' + (pendingCount !== 1 ? 's' : '') + ' in queue'
+            : 'Add a URL to start';
+        return;
+    }
+    idle.style.display = 'none';
+    active.style.display = '';
+
+    const icon = s.paused ? '|| ' : '>> ';
+    document.getElementById('np-title').textContent = icon + (s.title || s.url || '');
+    document.getElementById('np-url').textContent = s.url || '';
+
+    const thumb = document.getElementById('np-thumb');
+    const thumbUrl = ytThumb(s.url);
+    if (thumbUrl) {
+        thumb.src = thumbUrl;
+        thumb.style.display = '';
+    } else {
+        thumb.style.display = 'none';
+    }
+
+    const pct = s.duration > 0 ? (s.position / s.duration) * 100 : 0;
+    document.getElementById('progress-fill').style.width = pct + '%';
+    document.getElementById('np-time').textContent = fmt(s.position) + ' / ' + fmt(s.duration);
+
+    currentVolume = s.volume || 100;
+    currentSpeed = s.speed || 1.0;
+    document.getElementById('np-volume').textContent = 'Vol: ' + Math.round(currentVolume);
+    document.getElementById('np-speed').textContent = 'Speed: ' + currentSpeed.toFixed(1) + 'x';
+
+    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
+    document.getElementById('np-source').textContent = tags[s.source_type] || '';
+
+    document.getElementById('btn-toggle').textContent = s.paused ? 'Resume' : 'Pause';
+}
+
+let lastQueueItems = [];
+
+function updateQueue(items) {
+    lastQueueItems = items;
+    const pending = items.filter(i => i.status === 'pending').length;
+    document.getElementById('queue-count').textContent = pending;
+
+    const list = document.getElementById('queue-list');
+    if (!items.length) {
+        list.innerHTML = '<div class="queue-empty">Queue is empty</div>';
+        return;
+    }
+
+    const pendingIds = items.filter(i => i.status === 'pending').map(i => i.id);
+    const icons = {pending: '', playing: '\u25B6', played: '\u2713', skipped: '\u2014'};
+    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
+
+    list.innerHTML = items.map((item, i) => {
+        const title = item.title || item.url;
+        const isFinished = ['played','skipped'].includes(item.status);
+        const isPending = item.status === 'pending';
+        const cls = item.status === 'playing' ? 'queue-item playing' :
+                    item.status === 'skipped' ? 'queue-item skipped' :
+                    item.status === 'played' ? 'queue-item played' : 'queue-item';
+        const thumbUrl = ytThumb(item.url);
+        const thumbHtml = thumbUrl ? `<img class="qi-thumb" src="${thumbUrl}" alt="">` : '';
+        const replayBtn = isFinished ?
+            `<button onclick="replayItem(${item.id})" class="btn btn-sm qi-replay" title="Play again" aria-label="Play again">\u21BB</button>` : '';
+        const addUrl = '/add-to-collection?url=' + encodeURIComponent(item.url) + '&title=' + encodeURIComponent(item.title||'') + '&source_type=' + encodeURIComponent(item.source_type||'youtube');
+        const pidx = pendingIds.indexOf(item.id);
+        const isFirst = pidx === 0;
+        const isLast = pidx === pendingIds.length - 1;
+        const moveCol = isPending ? `<span class="qi-move-col">
+            <button onclick="moveItem(${item.id},-1)" class="btn btn-sm qi-move" title="Move up" aria-label="Move up"${isFirst ? ' disabled' : ''}>\u25B2</button>
+            <button onclick="moveItem(${item.id},1)" class="btn btn-sm qi-move" title="Move down" aria-label="Move down"${isLast ? ' disabled' : ''}>\u25BC</button>
+        </span>` : '';
+        return `<div class="${cls}">
+            ${moveCol}
+            <span class="qi-num">${i+1}.</span>
+            <span class="qi-icon">${icons[item.status] || ''}</span>
+            ${thumbHtml}
+            <span class="qi-title">${esc(title)}</span>
+            <span class="qi-source">${tags[item.source_type] || ''}</span>
+            <span class="qi-actions">
+                <a href="${addUrl}" class="btn btn-sm qi-add" title="Add to collection">Add +</a>
+                ${replayBtn}
+                <button onclick="removeItem(${item.id})" class="btn btn-sm btn-danger qi-remove" title="Remove" aria-label="Remove from queue">X</button>
+            </span>
+        </div>`;
+    }).join('');
+}
+
+function moveItem(id, direction) {
+    const pendingIds = lastQueueItems.filter(i => i.status === 'pending').map(i => i.id);
+    const idx = pendingIds.indexOf(id);
+    if (idx < 0) return;
+    const newIdx = idx + direction;
+    if (newIdx < 0 || newIdx >= pendingIds.length) return;
+    pendingIds.splice(idx, 1);
+    pendingIds.splice(newIdx, 0, id);
+    api('queue/reorder', {item_ids: pendingIds}).then(poll);
+}
+
+function api(action, data) {
+    return fetch('/api/' + action, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: data ? JSON.stringify(data) : undefined,
+    }).then(r => r.json());
+}
+
+function detectPlaylist() {
+    const url = document.getElementById('url-input').value.trim();
+    const btn = document.getElementById('btn-add');
+    const target = document.getElementById('import-target');
+    isPlaylistUrl = url.includes('list=');
+    target.style.display = isPlaylistUrl ? '' : 'none';
+    updateImportButton();
+}
+
+function setImportTarget(t) {
+    importTarget = t;
+    document.getElementById('opt-queue').classList.toggle('active', t === 'queue');
+    document.getElementById('opt-collection').classList.toggle('active', t === 'collection');
+    updateImportButton();
+}
+
+function updateImportButton() {
+    const btn = document.getElementById('btn-add');
+    if (!isPlaylistUrl) {
+        btn.textContent = 'Add to Queue';
+    } else if (importTarget === 'collection') {
+        btn.textContent = 'Import to Collection';
+    } else {
+        btn.textContent = 'Import to Queue';
+    }
+}
+
+function addUrl(e) {
+    e.preventDefault();
+    if (addingUrl) return;
+
+    const input = document.getElementById('url-input');
+    const btn = document.getElementById('btn-add');
+    const url = input.value.trim();
+    if (!url) return;
+
+    addingUrl = true;
+    btn.disabled = true;
+
+    if (isPlaylistUrl) {
+        btn.textContent = 'Importing...';
+        const endpoint = importTarget === 'collection' ? 'playlists/import-playlist' : 'queue/import-playlist';
+        api(endpoint, {url})
+            .then(r => {
+                if (r.ok) {
+                    input.value = '';
+                    if (importTarget === 'collection') {
+                        const msg = 'Created "' + (r.collection_name || 'Collection') + '" with ' + r.added + ' video' + (r.added !== 1 ? 's' : '');
+                        showToast(msg);
+                    } else {
+                        const msg = 'Added ' + r.added + ' video' + (r.added !== 1 ? 's' : '') + ' to queue';
+                        if (r.failed > 0) showToast(msg + ' (' + r.failed + ' failed)');
+                        else showToast(msg);
+                    }
+                } else {
+                    showToast(r.error || 'Import failed');
+                }
+                poll();
+            })
+            .catch(() => showToast('Import failed'))
+            .finally(() => {
+                addingUrl = false;
+                isPlaylistUrl = false;
+                document.getElementById('import-target').style.display = 'none';
+                btn.textContent = 'Add to Queue';
+                btn.disabled = false;
+            });
+    } else {
+        btn.textContent = 'Adding...';
+        api('queue/add', {url})
+            .then(r => {
+                input.value = '';
+                showToast('Added to queue');
+                poll();
+            })
+            .catch(() => showToast('Failed to add'))
+            .finally(() => {
+                addingUrl = false;
+                btn.textContent = 'Add to Queue';
+                btn.disabled = false;
+            });
+    }
+}
+
+function replayItem(id) {
+    const btn = event && event.target;
+    if (btn) { btn.disabled = true; btn.textContent = '...'; }
+
+    api('queue/replay', {id})
+        .then(r => {
+            if (r.ok) {
+                showToast('Replaying');
+            } else {
+                // Fallback: re-add by URL
+                const item = lastQueueItems.find(i => i.id === id);
+                if (item) return api('queue/add', {url: item.url, title: item.title}).then(() => showToast('Re-added to queue'));
+                showToast('Replay failed');
+            }
+        })
+        .catch(() => showToast('Replay failed'))
+        .finally(() => {
+            if (btn) { btn.disabled = false; btn.textContent = '\u21BB'; }
+            poll();
+        });
+}
+
+function removeItem(id) {
+    const btn = event && event.target;
+    withLoading(btn, '...', fetch('/api/queue/' + id, {method:'DELETE'})
+        .then(() => { showToast('Removed'); poll(); }));
+}
+function clearPlayed() {
+    const btn = event && event.target;
+    withLoading(btn, '...', api('queue/clear-played').then(() => { showToast('Cleared played'); poll(); }));
+}
+function clearAll() {
+    const btn = event && event.target;
+    withLoading(btn, '...', api('queue/clear').then(() => { showToast('Queue cleared'); poll(); }));
+}
+
+function doToggle(btn) {
+    withLoading(btn, '...', api('toggle').then(() => poll()));
+}
+function doSkip(btn) {
+    withLoading(btn, '...', api('skip').then(() => { showToast('Skipped'); poll(); }));
+}
+function doStop(btn) {
+    withLoading(btn, '...', api('stop').then(() => { showToast('Stopped'); poll(); }));
+}
+function volUp() { currentVolume = Math.min(100, currentVolume + 5); api('volume', {level: currentVolume}); showToast('Vol: ' + Math.round(currentVolume)); }
+function volDown() { currentVolume = Math.max(0, currentVolume - 5); api('volume', {level: currentVolume}); showToast('Vol: ' + Math.round(currentVolume)); }
+function speedUp() { currentSpeed = Math.min(4, currentSpeed + 0.25); api('speed', {speed: currentSpeed}); showToast('Speed: ' + currentSpeed.toFixed(1) + 'x'); }
+function speedDown() { currentSpeed = Math.max(0.25, currentSpeed - 0.25); api('speed', {speed: currentSpeed}); showToast('Speed: ' + currentSpeed.toFixed(1) + 'x'); }
+
+function fmt(s) {
+    s = Math.max(0, Math.floor(s || 0));
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2,'0') + ':' + String(sec).padStart(2,'0');
+    return m + ':' + String(sec).padStart(2,'0');
+}
+
+// Timer controls
+function toggleStopAfter(btn) {
+    stopAfterCurrent = !stopAfterCurrent;
+    withLoading(btn, '...', api('timer/stop-after-current', {enabled: stopAfterCurrent})
+        .then(() => { showToast(stopAfterCurrent ? 'Will stop after this video' : 'Continuous play'); }));
+}
+
+function setSleepTimer(minutes) {
+    api('timer/stop-in', {minutes})
+        .then(() => {
+            if (minutes > 0) showToast('Sleep timer: ' + minutes + ' min');
+            else showToast('Sleep timer cancelled');
+        });
+}
+
+function updateTimerUI(s) {
+    // Stop-after-current button
+    stopAfterCurrent = s.stop_after_current || false;
+    const btn = document.getElementById('btn-stop-after');
+    if (stopAfterCurrent) {
+        btn.classList.add('timer-active');
+        btn.textContent = 'Stopping after this video';
+    } else {
+        btn.classList.remove('timer-active');
+        btn.textContent = 'Stop after this video';
+    }
+
+    // Countdown display
+    const countdown = document.getElementById('timer-countdown');
+    const cancelBtn = document.getElementById('btn-timer-cancel');
+    if (s.stop_timer_remaining != null && s.stop_timer_remaining > 0) {
+        countdown.textContent = 'Sleeping in ' + fmt(s.stop_timer_remaining);
+        countdown.style.display = '';
+        cancelBtn.style.display = '';
+    } else {
+        countdown.textContent = '';
+        countdown.style.display = 'none';
+        cancelBtn.style.display = 'none';
+    }
+}
+
+function filterQueue(query) {
+    const items = document.querySelectorAll('#queue-list .queue-item');
+    const q = query.toLowerCase();
+    items.forEach(item => {
+        const title = (item.querySelector('.qi-title') || {}).textContent || '';
+        item.style.display = !q || title.toLowerCase().includes(q) ? '' : 'none';
+    });
+}
+
+setInterval(poll, 1000);
+poll();
+</script>
+{% endblock %}

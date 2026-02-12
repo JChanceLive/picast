@@ -1,0 +1,16 @@
+[Unit]
+Description=PiCast Media Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__USER__
+Environment=DISPLAY=:0
+Environment=PICAST_DATA_DIR=/home/__USER__/.picast
+ExecStart=/home/__USER__/.local/bin/picast-server
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

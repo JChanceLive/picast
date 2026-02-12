@@ -1,0 +1,38 @@
+/* PiCast TUI Stylesheet */
+
+Screen {
+    background: $background;
+}
+
+#main {
+    height: 1fr;
+    padding: 1 0;
+}
+
+NowPlaying {
+    height: auto;
+    max-height: 8;
+    margin: 0 1 1 1;
+    border: round $primary;
+    padding: 0 1;
+}
+
+QueueList {
+    height: 1fr;
+    margin: 0 1;
+    border: round $secondary;
+}
+
+/* Modal overrides */
+AddURLScreen > Container {
+    border: thick $accent;
+}
+
+/* Progress bar styling */
+ProgressBar Bar {
+    color: $primary;
+}
+
+ProgressBar Bar > .bar--bar {
+    color: $accent;
+}
