@@ -83,19 +83,19 @@ allowed_users = [YOUR_TELEGRAM_ID]
 
 ### Player Control
 
-Play, pause, skip, seek, adjust volume and speed. All from any client.
+Play, pause, skip, seek, adjust volume and speed. Play any queued video instantly with the Play Now button. All from any client.
 
 ### Queue Management
 
-Add URLs, reorder items, remove individual videos, clear played history.
+Add URLs, reorder items with up/down arrows, play any video immediately, import YouTube playlists. Sleep timers and stop-after-current for unattended playback.
 
-### Library
+### History
 
 Every video you watch is saved automatically. Search, favorite, add notes, re-queue old videos.
 
-### Playlists
+### Collections
 
-Create named playlists from your library. Queue an entire playlist with one command.
+Create named collections from your history. Import YouTube playlists as collections. Queue an entire collection with one command.
 
 ### Multi-Source
 
@@ -155,11 +155,21 @@ Press **Tab** in the TUI or use the dropdown in the web UI to switch.
 | GET | `/api/queue` | - |
 | POST | `/api/queue/add` | `{"url": "..."}` |
 | DELETE | `/api/queue/:id` | - |
-| POST | `/api/queue/reorder` | `{"items": [3,1,2]}` |
+| POST | `/api/queue/reorder` | `{"item_ids": [3,1,2]}` |
+| POST | `/api/queue/replay` | `{"id": 1}` |
+| POST | `/api/queue/import-playlist` | `{"url": "..."}` |
 | POST | `/api/queue/clear-played` | - |
 | POST | `/api/queue/clear` | - |
 
-### Library
+### Timers
+
+| Method | Endpoint | Body |
+|--------|----------|------|
+| GET | `/api/timer` | - |
+| POST | `/api/timer/stop-after-current` | `{"enabled": true}` |
+| POST | `/api/timer/stop-in` | `{"minutes": 30}` |
+
+### History
 
 | Method | Endpoint | Body |
 |--------|----------|------|
@@ -172,7 +182,7 @@ Press **Tab** in the TUI or use the dropdown in the web UI to switch.
 | POST | `/api/library/:id/queue` | - |
 | DELETE | `/api/library/:id` | - |
 
-### Playlists
+### Collections
 
 | Method | Endpoint | Body |
 |--------|----------|------|
@@ -182,8 +192,10 @@ Press **Tab** in the TUI or use the dropdown in the web UI to switch.
 | PUT | `/api/playlists/:id` | `{"name": "..."}` |
 | DELETE | `/api/playlists/:id` | - |
 | POST | `/api/playlists/:id/items` | `{"library_id": 1}` |
+| POST | `/api/playlists/:id/add-by-url` | `{"url": "..."}` |
 | DELETE | `/api/playlists/:id/items/:lib_id` | - |
 | POST | `/api/playlists/:id/queue` | - |
+| POST | `/api/playlists/import-playlist` | `{"url": "..."}` |
 
 ### Devices
 

@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.5.0] - 2026-02-12
+
+### Added
+- **Play Now button** - Play any queued video immediately from the web UI (green play button on each item)
+- **Sleep timers** - Stop after current video, or sleep timer (30/60 min) with countdown display
+- **Playlist import** - Import YouTube playlists directly into queue or as a saved collection
+- **Floating controls** - Pin the control bar so it stays visible while scrolling the queue
+- **Queue search** - Real-time filter/search within the queue list
+
+### Fixed
+- **Queue reorder jumping** - Moving items up/down no longer causes them to jump above the currently playing video. Reorder now reuses existing position slots instead of resetting from zero.
+
+### Changed
+- Renamed "Library" to "History" and "Playlists" to "Collections" throughout the UI
+- "Play Again" button renamed to "Re-queue" to clarify it adds to end of queue, not immediate play
+
+## [0.4.0] - 2026-02-11
+
+### Added
+- **Cyber neon UI** - Complete visual overhaul with magenta/cyan dark theme, glow effects, responsive mobile-first design
+- **Slim control bar** - Horizontal layout with icon + label buttons (pause, skip, stop, volume, speed)
+- **Queue thumbnails** - YouTube video thumbnails displayed inline in queue items
+- **Video ID display** - Shows YouTube video ID on each queue item
+- **Disaster recovery docs** - Documentation for common failure scenarios
+
+### Fixed
+- **Orphaned mpv on restart** - Properly kills mpv process when stopping/restarting playback
+- **Broken stop_playback** - Fixed stop command to correctly halt queue processing
+- **WAYLAND_DISPLAY passthrough** - mpv subprocess now receives Wayland environment for video output on Pi OS Bookworm
+- **YouTube PO token** - Removed stale cookie auth, switched to PO token for reliable YouTube playback
+- **Orphaned CI workflows** - Cleaned up unused GitHub Actions
+
 ## [0.3.1] - 2026-02-10
 
 ### Fixed
@@ -34,7 +66,7 @@
 ### Added
 - **SQLite Library** - Automatic play history with favorites, notes, search
 - **Playlists** - Create, manage, and queue entire playlists
-- **Web UI** - Dark mode browser interface at http://picast.local:5000
+- **Web UI** - Dark mode browser interface at http://picast.local:5050
   - Player controls, library browser, playlist manager
   - Mobile-friendly responsive design
   - 1-second auto-refresh, keyboard shortcuts
