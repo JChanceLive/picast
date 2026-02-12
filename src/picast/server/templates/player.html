@@ -32,17 +32,17 @@
 
 <section class="controls" id="controls-section">
     <button class="btn-icon-pin" id="btn-pin" onclick="toggleFloatingControls()" title="Pin controls">📌</button>
-    <div class="controls-grid">
-        <button onclick="doToggle(this)" class="btn-icon" id="btn-toggle" title="Play/Pause">⏸</button>
-        <button onclick="doSkip(this)" class="btn-icon" id="btn-skip" title="Skip">⏭</button>
-        <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop" title="Stop">⏹</button>
-        <button onclick="volDown()" class="btn-icon" title="Volume Down">🔉</button>
-        <button onclick="volUp()" class="btn-icon" title="Volume Up">🔊</button>
-        <button onclick="speedDown()" class="btn-icon" title="Slower">🐌</button>
-        <button onclick="speedUp()" class="btn-icon" title="Faster">🐇</button>
-        <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after" title="Stop after this video">⏱</button>
-        <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" title="Sleep 30 min">😴<sub>30</sub></button>
-        <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" title="Sleep 60 min">😴<sub>60</sub></button>
+    <div class="controls-bar">
+        <button onclick="doToggle(this)" class="btn-icon" id="btn-toggle"><span class="bi-ico">⏸</span><span class="bi-lbl">Pause</span></button>
+        <button onclick="doSkip(this)" class="btn-icon" id="btn-skip"><span class="bi-ico">⏭</span><span class="bi-lbl">Skip</span></button>
+        <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop"><span class="bi-ico">⏹</span><span class="bi-lbl">Stop</span></button>
+        <button onclick="volDown()" class="btn-icon"><span class="bi-ico">🔉</span><span class="bi-lbl">Vol-</span></button>
+        <button onclick="volUp()" class="btn-icon"><span class="bi-ico">🔊</span><span class="bi-lbl">Vol+</span></button>
+        <button onclick="speedDown()" class="btn-icon"><span class="bi-ico">🐌</span><span class="bi-lbl">Slow</span></button>
+        <button onclick="speedUp()" class="btn-icon"><span class="bi-ico">🐇</span><span class="bi-lbl">Fast</span></button>
+        <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after"><span class="bi-ico">⏱</span><span class="bi-lbl">1More</span></button>
+        <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
+        <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
@@ -120,7 +120,7 @@ function updateNowPlaying(s) {
         document.getElementById('idle-hint').textContent = pendingCount > 0
             ? pendingCount + ' video' + (pendingCount !== 1 ? 's' : '') + ' in queue'
             : 'Add a URL to start';
-        document.getElementById('btn-toggle').innerHTML = '▶';
+        setToggleBtn(true);
         return;
     }
     idle.style.display = 'none';
@@ -151,7 +151,7 @@ function updateNowPlaying(s) {
     const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
     document.getElementById('np-source').textContent = tags[s.source_type] || '';
 
-    document.getElementById('btn-toggle').innerHTML = s.paused ? '▶' : '⏸';
+    setToggleBtn(s.paused);
 }
 
 let lastQueueItems = [];
@@ -361,6 +361,14 @@ function volDown() { currentVolume = Math.max(0, currentVolume - 5); api('volume
 function speedUp() { currentSpeed = Math.min(4, currentSpeed + 0.25); api('speed', {speed: currentSpeed}); showToast('Speed: ' + currentSpeed.toFixed(1) + 'x'); }
 function speedDown() { currentSpeed = Math.max(0.25, currentSpeed - 0.25); api('speed', {speed: currentSpeed}); showToast('Speed: ' + currentSpeed.toFixed(1) + 'x'); }
 
+function setToggleBtn(paused) {
+    const btn = document.getElementById('btn-toggle');
+    const ico = btn.querySelector('.bi-ico');
+    const lbl = btn.querySelector('.bi-lbl');
+    if (paused) { ico.textContent = '▶'; lbl.textContent = 'Play'; }
+    else { ico.textContent = '⏸'; lbl.textContent = 'Pause'; }
+}
+
 function fmt(s) {
     s = Math.max(0, Math.floor(s || 0));
     const h = Math.floor(s / 3600);
@@ -411,13 +419,15 @@ function updateTimerUI(s) {
         sleepTimerActive = true;
         countdown.textContent = 'Sleeping in ' + fmt(s.stop_timer_remaining);
         timerStatus.style.display = '';
-        sleep60.innerHTML = '❌';
+        sleep60.querySelector('.bi-ico').textContent = '❌';
+        sleep60.querySelector('.bi-lbl').textContent = 'Off';
         sleep60.title = 'Cancel sleep timer';
     } else {
         sleepTimerActive = false;
         countdown.textContent = '';
         timerStatus.style.display = 'none';
-        sleep60.innerHTML = '😴<sub>60</sub>';
+        sleep60.querySelector('.bi-ico').textContent = '😴';
+        sleep60.querySelector('.bi-lbl').textContent = '60m';
         sleep60.title = 'Sleep 60 min';
     }
 }
