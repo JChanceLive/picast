@@ -21,7 +21,7 @@ warn() { echo -e "  ${YELLOW}⚠${NC} $1"; }
 err() { echo -e "  ${RED}✗${NC} $1"; }
 step() { echo -e "\n${YELLOW}[$1/$TOTAL_STEPS] $2${NC}"; }
 
-TOTAL_STEPS=8
+TOTAL_STEPS=9
 PICAST_VERSION="${PICAST_VERSION:-}"
 PICAST_EXTRAS="${PICAST_EXTRAS:-}"
 PICAST_SKIP_SERVICE="${PICAST_SKIP_SERVICE:-0}"
@@ -320,6 +320,44 @@ SYSTEMD
     sudo systemctl enable picast-update.timer
     sudo systemctl start picast-update.timer
     log "Daily update timer enabled (4 AM + jitter)"
+fi
+
+# --- Step 9: Generate desktop wallpaper ---
+step 9 "Setting desktop wallpaper..."
+
+WALLPAPER_SCRIPT_URL="https://raw.githubusercontent.com/JChanceLive/picast/main/scripts/generate-wallpaper.py"
+if curl -sSf "$WALLPAPER_SCRIPT_URL" -o /tmp/picast-wallpaper-gen.py 2>/dev/null; then
+    if python3 /tmp/picast-wallpaper-gen.py 2>/dev/null; then
+        # Set as desktop wallpaper
+        mkdir -p ~/.config/pcmanfm/default
+        cat > ~/.config/pcmanfm/default/desktop-items-0.conf << 'DESKTOP'
+[*]
+wallpaper_mode=crop
+wallpaper_common=1
+wallpaper=/home/PICAST_USER/.picast/wallpaper.png
+desktop_bg=#121218
+desktop_fg=#e8e8e8
+desktop_shadow=#121218
+desktop_font=Nunito Sans Light 12
+show_wm_menu=0
+sort=mtime;ascending;
+show_documents=0
+show_trash=1
+show_mounts=1
+DESKTOP
+        sed -i "s|PICAST_USER|$INSTALL_USER|g" ~/.config/pcmanfm/default/desktop-items-0.conf
+
+        # Copy to LXDE-pi profile if it exists
+        if [ -d ~/.config/pcmanfm/LXDE-pi ]; then
+            cp ~/.config/pcmanfm/default/desktop-items-0.conf ~/.config/pcmanfm/LXDE-pi/desktop-items-0.conf
+        fi
+        log "PiCast wallpaper set"
+    else
+        warn "Could not generate wallpaper (missing Pillow?)"
+    fi
+    rm -f /tmp/picast-wallpaper-gen.py
+else
+    warn "Could not download wallpaper script"
 fi
 
 # --- Done ---
