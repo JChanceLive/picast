@@ -1,8 +1,15 @@
 #!/usr/bin/env python3
-"""Generate PiCast desktop wallpaper with system info."""
+"""Generate PiCast desktop wallpaper with system info.
 
+Runs on the Pi at boot via picast-wallpaper.service to keep the
+desktop wallpaper current (IP address, version, etc).
+"""
+
+from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
+import os
 import socket
+import subprocess
 
 WIDTH, HEIGHT = 1920, 1080
 
@@ -30,7 +37,15 @@ def get_ip():
         s.close()
         return ip
     except Exception:
-        return "10.0.0.25"
+        return "check router"
+
+
+def get_version():
+    try:
+        from picast.__about__ import __version__
+        return __version__
+    except Exception:
+        return "0.7.0"
 
 
 def load_font(size):
@@ -106,9 +121,23 @@ def draw_section(draw, x, y, w, title, lines, title_font, body_font, mono_font,
     return card_h
 
 
+def refresh_desktop(wallpaper_path):
+    """Tell pcmanfm to reload the wallpaper."""
+    display = os.environ.get("DISPLAY", ":0")
+    env = {**os.environ, "DISPLAY": display}
+    try:
+        subprocess.run(
+            ["pcmanfm", "--set-wallpaper", wallpaper_path],
+            env=env, timeout=5, capture_output=True,
+        )
+    except Exception:
+        pass  # Desktop may not be running (headless/SSH)
+
+
 def main():
     ip = get_ip()
     hostname = get_hostname()
+    version = get_version()
 
     img = Image.new("RGB", (WIDTH, HEIGHT), BG)
     draw = ImageDraw.Draw(img)
@@ -129,8 +158,9 @@ def main():
     draw.text((60, 85), "YouTube Queue Player for Raspberry Pi", fill=DIM, font=subtitle_font)
 
     # Version badge
+    ver_text = f"v{version}"
     draw.rounded_rectangle((260, 40, 365, 68), radius=10, fill=ACCENT)
-    draw.text((275, 43), "v0.7.0", fill=BG, font=ver_font)
+    draw.text((275, 43), ver_text, fill=BG, font=ver_font)
 
     # Status indicator
     draw.ellipse((WIDTH - 160, 48, WIDTH - 146, 62), fill=ACCENT2)
@@ -287,9 +317,13 @@ def main():
               f"{hostname}  |  {ip}  |  port 5050", fill=DIM, font=small_font)
 
     # Save
-    output = "/home/jopi/.picast/wallpaper.png"
+    output_dir = Path.home() / ".picast"
+    output_dir.mkdir(exist_ok=True)
+    output = str(output_dir / "wallpaper.png")
     img.save(output, "PNG", optimize=True)
     print(f"Wallpaper saved to {output}")
+
+    refresh_desktop(output)
 
 
 if __name__ == "__main__":

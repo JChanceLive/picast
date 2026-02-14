@@ -326,9 +326,14 @@ fi
 # --- Step 9: Generate desktop wallpaper ---
 step 9 "Setting desktop wallpaper..."
 
+# Install wallpaper generator permanently
 WALLPAPER_SCRIPT_URL="https://raw.githubusercontent.com/JChanceLive/picast/main/scripts/generate-wallpaper.py"
-if curl -sSf "$WALLPAPER_SCRIPT_URL" -o /tmp/picast-wallpaper-gen.py 2>/dev/null; then
-    if python3 /tmp/picast-wallpaper-gen.py 2>/dev/null; then
+WALLPAPER_BIN="$HOME/.local/bin/picast-wallpaper"
+if curl -sSf "$WALLPAPER_SCRIPT_URL" -o "$WALLPAPER_BIN" 2>/dev/null; then
+    chmod +x "$WALLPAPER_BIN"
+    log "Wallpaper script installed at $WALLPAPER_BIN"
+
+    if python3 "$WALLPAPER_BIN" 2>/dev/null; then
         # Set as desktop wallpaper
         mkdir -p ~/.config/pcmanfm/default
         cat > ~/.config/pcmanfm/default/desktop-items-0.conf << 'DESKTOP'
@@ -356,9 +361,32 @@ DESKTOP
     else
         warn "Could not generate wallpaper (missing Pillow?)"
     fi
-    rm -f /tmp/picast-wallpaper-gen.py
 else
     warn "Could not download wallpaper script"
+fi
+
+# Systemd service to regenerate wallpaper on every boot (keeps IP current)
+if [ "$PICAST_SKIP_SERVICE" != "1" ]; then
+    sudo tee /etc/systemd/system/picast-wallpaper.service > /dev/null << SYSTEMD
+[Unit]
+Description=PiCast Wallpaper Generator
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=$INSTALL_USER
+Environment=DISPLAY=:0
+ExecStart=/usr/bin/python3 /home/$INSTALL_USER/.local/bin/picast-wallpaper
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target
+SYSTEMD
+
+    sudo systemctl daemon-reload
+    sudo systemctl enable picast-wallpaper.service
+    log "Wallpaper regenerates on every boot"
 fi
 
 # --- Done ---
