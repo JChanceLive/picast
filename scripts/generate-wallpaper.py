@@ -214,7 +214,7 @@ def main():
             ("IP", ip),
             ("Hostname", f"{hostname}.local"),
             ("Port", "5050"),
-            ("SSH", f"ssh jopi@{ip}"),
+            ("SSH", f"ssh {os.getlogin()}@{ip}"),
         ], section_font, body_font, mono_font, label_w=100)
 
     # ============ COLUMN 2 ============

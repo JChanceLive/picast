@@ -42,8 +42,8 @@ For live development on the same network, deploy directly from your Mac:
 
 ```bash
 rsync -avz --exclude '.git' --exclude '__pycache__' --exclude '*.pyc' \
-  src/picast/ jopi@10.0.0.25:/home/jopi/.local/lib/python3.11/site-packages/picast/
-ssh jopi@10.0.0.25 "sudo systemctl restart picast"
+  src/picast/ youruser@picast.local:/home/youruser/.local/lib/python3.11/site-packages/picast/
+ssh youruser@picast.local "sudo systemctl restart picast"
 ```
 
 This overwrites the installed package files directly. The auto-updater will not interfere because it only updates when the version number changes.

@@ -2,26 +2,26 @@
 
 ## Access Methods
 
-### 1. Direct Pi IP (Recommended)
+### 1. mDNS / Bonjour (Recommended)
+
+If avahi-daemon is running on the Pi:
+
+```
+http://picast.local:5050
+```
+
+### 2. Direct Pi IP
 
 Connect to the Pi directly over your local network:
 
 ```
-http://10.0.0.25:5050
+http://<PI_IP>:5050
 ```
 
 **Requirements:**
 - Phone/laptop on same WiFi network as Pi
 - Pi firewall allows port 5050
 - No VPN or security software blocking local traffic
-
-### 2. mDNS / Bonjour (jopi.local)
-
-If avahi-daemon is running on the Pi:
-
-```
-http://jopi.local:5050
-```
 
 **Setup on Pi:**
 ```bash
@@ -38,7 +38,7 @@ If direct access is blocked (e.g., by Bitdefender or corporate network):
 
 **From Mac:**
 ```bash
-ssh -L 5050:localhost:5050 jopi@10.0.0.25
+ssh -L 5050:localhost:5050 youruser@picast.local
 ```
 
 Then access at `http://localhost:5050` from Mac, or `http://<mac-ip>:5050` from phone.
@@ -68,11 +68,11 @@ cat ~/.config/picast/picast.toml | grep host
 ## Bitdefender Issue
 
 Bitdefender (Mac) may block direct connections to local network devices. Symptoms:
-- `curl http://10.0.0.25:5050` works from terminal
+- `curl http://<PI_IP>:5050` works from terminal
 - Browser shows connection refused or timeout
 
 **Workarounds:**
-1. Add `10.0.0.25` to Bitdefender exceptions (Network Protection > Exceptions)
+1. Add the Pi's IP to Bitdefender exceptions (Network Protection > Exceptions)
 2. Temporarily disable "Online Threat Prevention" for testing
 3. Use SSH tunnel method (tunneled traffic is not inspected)
 
