@@ -165,8 +165,15 @@ class Database:
         logger.info("Migrated database from v%d to v%d", from_version, to_version)
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """Execute a SQL statement."""
-        return self._get_conn().execute(sql, params)
+        """Execute a SQL statement. Retries once on I/O error with a fresh connection."""
+        try:
+            return self._get_conn().execute(sql, params)
+        except sqlite3.OperationalError as e:
+            if "disk I/O error" in str(e) or "database is locked" in str(e):
+                logger.warning("SQLite error, reconnecting: %s", e)
+                self.close()
+                return self._get_conn().execute(sql, params)
+            raise
 
     def executemany(self, sql: str, params_list: list[tuple]) -> sqlite3.Cursor:
         """Execute a SQL statement with many param sets."""

@@ -106,6 +106,11 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     # Start the player loop
     player.start()
 
+    # Close DB connections after each request to prevent fd leaks
+    @app.teardown_appcontext
+    def close_db(exc):
+        db.close()
+
     # Store on app for access in routes
     app.mpv = mpv
     app.queue = queue
