@@ -7,6 +7,7 @@ This is the single source of truth - both the TUI and web UI talk to this.
 import json
 import logging
 import os
+import re
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
@@ -21,6 +22,21 @@ from picast.server.queue_manager import QueueManager
 from picast.server.sources import LocalSource, SourceRegistry, TwitchSource, YouTubeSource
 
 logger = logging.getLogger(__name__)
+
+_YT_VIDEO_ID_RE = re.compile(r'^[a-zA-Z0-9_-]{11}$')
+_YT_PLAYLIST_ID_RE = re.compile(r'^(PL|UU|FL|OL|RD|LL)[a-zA-Z0-9_-]+$')
+
+
+def _normalize_youtube_input(raw: str) -> str:
+    """Expand bare YouTube video/playlist IDs to full URLs."""
+    raw = raw.strip()
+    if raw.startswith(("http://", "https://", "/", "file://")):
+        return raw  # Already a URL
+    if _YT_VIDEO_ID_RE.match(raw):
+        return f"https://www.youtube.com/watch?v={raw}"
+    if _YT_PLAYLIST_ID_RE.match(raw):
+        return f"https://www.youtube.com/playlist?list={raw}"
+    return raw  # Pass through, let validation handle it
 
 
 def create_app(config: ServerConfig | None = None, devices: list | None = None) -> Flask:
@@ -171,9 +187,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     def play():
         """Play a URL immediately."""
         data = request.get_json(silent=True) or {}
-        url = data.get("url", "")
+        url = data.get("url", "").strip()
         if not url:
             return jsonify({"error": "url required"}), 400
+        url = _normalize_youtube_input(url)
         title = data.get("title", "")
         player.play_now(url, title)
         return jsonify({"ok": True, "message": f"Playing: {url}"})
@@ -242,14 +259,22 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     @app.route("/api/queue")
     def get_queue():
         items = queue.get_all()
-        return jsonify([item.to_dict() for item in items])
+        result = []
+        for item in items:
+            d = item.to_dict()
+            lib_entry = library.get_by_url(item.url)
+            d["watch_count"] = lib_entry["play_count"] if lib_entry else 0
+            result.append(d)
+        return jsonify(result)
 
     @app.route("/api/queue/add", methods=["POST"])
     def queue_add():
         data = request.get_json(silent=True) or {}
-        url = data.get("url", "")
+        url = data.get("url", "").strip()
         if not url:
             return jsonify({"error": "url required"}), 400
+        # Normalize bare video IDs to full YouTube URLs
+        url = _normalize_youtube_input(url)
         # Validate URL before queueing
         valid, error = sources.validate_url(url)
         if not valid:
@@ -301,13 +326,22 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         queue.clear_all()
         return jsonify({"ok": True})
 
+    @app.route("/api/queue/loop", methods=["POST"])
+    def queue_loop_toggle():
+        """Toggle queue loop mode."""
+        data = request.get_json(silent=True) or {}
+        enabled = data.get("enabled", True)
+        player.set_loop(bool(enabled))
+        return jsonify({"ok": True, "loop_enabled": bool(enabled)})
+
     @app.route("/api/queue/import-playlist", methods=["POST"])
     def queue_import_playlist():
         """Import all videos from a YouTube playlist into the queue."""
         data = request.get_json(silent=True) or {}
-        url = data.get("url", "")
+        url = data.get("url", "").strip()
         if not url:
             return jsonify({"error": "url required"}), 400
+        url = _normalize_youtube_input(url)
 
         yt_handler = sources.get_handler("youtube")
         if not yt_handler or not hasattr(yt_handler, "is_playlist"):

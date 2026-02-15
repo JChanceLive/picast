@@ -132,6 +132,10 @@ class Player:
         self._stop_after_current: bool = False
         self._stop_at_time: float | None = None  # monotonic deadline
 
+        # Queue loop state (ephemeral, resets on restart)
+        self._loop_enabled: bool = False
+        self._loop_count: int = 0
+
         # Cascade protection state
         self._consecutive_failures = 0
         self._rapid_successes = 0
@@ -251,6 +255,12 @@ class Player:
 
             next_item = self.queue.get_next()
             if next_item is None:
+                if self._loop_enabled and self.queue.has_loopable():
+                    count = self.queue.reset_for_loop()
+                    self._loop_count += 1
+                    self._emit("playback", f"Queue looped (pass #{self._loop_count})", f"Reset {count} videos")
+                    self._show_osd(f"Queue looped - pass #{self._loop_count}")
+                    continue  # Re-check immediately
                 time.sleep(2)
                 continue
 
@@ -670,6 +680,15 @@ class Player:
             "stop_timer_remaining": remaining,
         }
 
+    def set_loop(self, enabled: bool):
+        """Toggle queue loop mode."""
+        self._loop_enabled = enabled
+        logger.info("Queue loop: %s", "enabled" if enabled else "disabled")
+
+    def get_loop_state(self) -> dict:
+        """Get current loop state."""
+        return {"loop_enabled": self._loop_enabled, "loop_count": self._loop_count}
+
     def get_status(self) -> dict:
         """Get combined player + mpv status."""
         status = self.mpv.get_status()
@@ -677,6 +696,9 @@ class Player:
         status["stopped"] = self._stop_requested
 
         if self._current_item:
+            # Override idle if we have an active item - mpv may briefly
+            # report idle during livestream buffering/reconnection
+            status["idle"] = False
             status["queue_item_id"] = self._current_item.id
             if not status.get("title"):
                 status["title"] = self._current_item.title
@@ -686,7 +708,8 @@ class Player:
             status["source_type"] = ""
             status["url"] = ""
 
-        # Include timer state
+        # Include timer + loop state
         status.update(self.get_timer_state())
+        status.update(self.get_loop_state())
 
         return status

@@ -266,6 +266,28 @@ class QueueManager:
         self._db.execute("DELETE FROM queue WHERE status = 'failed'")
         self._db.commit()
 
+    def has_loopable(self) -> bool:
+        """Check if there are played/skipped items that could be looped."""
+        row = self._db.fetchone(
+            "SELECT COUNT(*) as cnt FROM queue WHERE status IN ('played', 'skipped')"
+        )
+        return (row["cnt"] if row else 0) > 0
+
+    def reset_for_loop(self) -> int:
+        """Reset played/skipped items back to pending for queue loop.
+
+        Failed items are NOT reset (user preference). Returns count reset.
+        """
+        cursor = self._db.execute(
+            "UPDATE queue SET status = 'pending', played_at = NULL "
+            "WHERE status IN ('played', 'skipped')"
+        )
+        self._db.commit()
+        count = cursor.rowcount
+        if count:
+            logger.info("Loop reset: %d items back to pending", count)
+        return count
+
     def import_queue_txt(self, queue_txt_path: str) -> int:
         """Import URLs from the old queue.txt format.
 

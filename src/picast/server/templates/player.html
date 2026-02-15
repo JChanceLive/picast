@@ -43,6 +43,7 @@
         <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after" aria-label="Stop after current"><span class="bi-ico">⏱</span><span class="bi-lbl">1More</span></button>
         <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" aria-label="Sleep 30 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
         <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" aria-label="Sleep 60 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
+        <button onclick="toggleLoop()" class="btn-icon" id="btn-loop" aria-label="Loop queue"><span class="bi-ico">🔁</span><span class="bi-lbl">Loop</span></button>
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
@@ -63,7 +64,7 @@
 
 <section class="add-url">
     <form id="add-form" onsubmit="addUrl(event)">
-        <input type="url" inputmode="url" id="url-input" placeholder="Paste a YouTube URL or playlist..." autocomplete="off" oninput="detectPlaylist()">
+        <input type="text" inputmode="url" id="url-input" placeholder="YouTube URL, video ID, or playlist..." autocomplete="off" oninput="detectPlaylist()">
         <div class="import-target" id="import-target" style="display:none">
             <span class="import-label">Import to:</span>
             <button type="button" class="btn btn-sm import-opt active" id="opt-queue" onclick="setImportTarget('queue')">Queue</button>
@@ -93,6 +94,8 @@ let stopAfterCurrent = false;
 let sleepTimerActive = false;
 let isPlaylistUrl = false;
 let importTarget = 'queue';
+let loopEnabled = false;
+let idleStreak = 0;
 
 function poll() {
     fetch('/api/status')
@@ -124,17 +127,22 @@ function updateNowPlaying(s) {
     updateTimerUI(s);
 
     if (s.idle) {
+        idleStreak++;
+        if (idleStreak < 3) return;  // Debounce: wait for sustained idle to prevent flicker
         idle.style.display = '';
         active.style.display = 'none';
         const now = new Date();
         document.getElementById('idle-time').textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         const pendingCount = lastQueueItems.filter(i => i.status === 'pending').length;
-        document.getElementById('idle-hint').textContent = pendingCount > 0
+        let hint = pendingCount > 0
             ? pendingCount + ' video' + (pendingCount !== 1 ? 's' : '') + ' in queue'
             : 'Add a URL to start';
+        if (s.loop_enabled && s.loop_count > 0) hint += ' \u2022 Loop #' + s.loop_count;
+        document.getElementById('idle-hint').textContent = hint;
         setToggleBtn(true);
         return;
     }
+    idleStreak = 0;
     idle.style.display = 'none';
     active.style.display = '';
 
@@ -208,6 +216,8 @@ function updateQueue(items) {
             <button onclick="moveItem(${item.id},-1)" class="qi-circle qi-move" title="Move up"${isFirst ? ' disabled' : ''}>\u25B2</button>
             <button onclick="moveItem(${item.id},1)" class="qi-circle qi-move" title="Move down"${isLast ? ' disabled' : ''}>\u25BC</button>
         </span>` : '';
+        const watchCount = item.watch_count || 0;
+        const watchHtml = watchCount > 0 ? `<span class="qi-watch-count" title="${watchCount} plays">${watchCount}x</span>` : '';
         const vidIdHtml = videoId ? `<span class="qi-video-id">${videoId}</span>` : '';
         const thumbUrl = ytThumb(item.url);
         const thumbHtml = thumbUrl ? `<img class="qi-thumb" src="${thumbUrl}" alt="">` : '';
@@ -225,7 +235,7 @@ function updateQueue(items) {
                 <div class="qi-url">${esc(item.url || '')}</div>
                 ${isFailed && item.last_error ? `<div class="qi-error">${esc(item.last_error)}${item.error_count > 1 ? `<span class="qi-error-count">(${item.error_count}x)</span>` : ''}</div>` : ''}
             </div>
-            ${vidIdHtml}
+            ${vidIdHtml}${watchHtml}
             <span class="qi-actions">
                 <a href="${addUrl}" class="qi-circle qi-add" title="Add to collection">+</a>
                 <button onclick="removeItem(${item.id})" class="qi-circle qi-remove" title="Remove">\u00D7</button>
@@ -440,7 +450,19 @@ function handleSleep60() {
     }
 }
 
+function toggleLoop() {
+    loopEnabled = !loopEnabled;
+    api('queue/loop', {enabled: loopEnabled})
+        .then(() => showToast(loopEnabled ? 'Queue loop ON' : 'Queue loop OFF'));
+}
+
 function updateTimerUI(s) {
+    // Sync loop button state
+    loopEnabled = s.loop_enabled || false;
+    const loopBtn = document.getElementById('btn-loop');
+    if (loopEnabled) loopBtn.classList.add('btn-icon-active');
+    else loopBtn.classList.remove('btn-icon-active');
+
     stopAfterCurrent = s.stop_after_current || false;
     const btn = document.getElementById('btn-stop-after');
     if (stopAfterCurrent) {
