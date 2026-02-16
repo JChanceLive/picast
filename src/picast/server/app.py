@@ -111,6 +111,14 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     def close_db(exc):
         db.close()
 
+    # Allow cross-origin requests (Chrome extension, etc.)
+    @app.after_request
+    def add_cors_headers(response):
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        return response
+
     # Store on app for access in routes
     app.mpv = mpv
     app.queue = queue
