@@ -282,27 +282,29 @@ class Player:
         duration = self._config.osd_duration_ms if self._config else 2500
         self.mpv.show_text(text, duration)
 
-    def _seek_when_ready(self, target: float, title: str):
-        """Background thread: wait for playback to start, then seek."""
-        for _ in range(150):  # up to ~2.5 minutes
-            # Bail if mpv exited
-            if self._mpv_process is None or self._mpv_process.poll() is not None:
-                return
-            pos = self.mpv.get_property("time-pos")
-            if pos is not None and pos >= 0:
-                # Playback started — give it a moment to stabilize
-                time.sleep(1)
-                ok = self.mpv.seek(target, "absolute")
-                logger.info("Seek to %ds (ok=%s, was at %.1fs)", int(target), ok, pos)
-                if not ok:
-                    time.sleep(3)
-                    ok = self.mpv.seek(target, "absolute")
-                    logger.info("Seek retry to %ds (ok=%s)", int(target), ok)
-                if ok:
-                    self._show_osd(f"Now Playing: {title}")
-                return
-            time.sleep(1)
-        logger.warning("Seek abandoned — playback never started within timeout")
+    def _resolve_direct_urls(self, url: str, fmt: str) -> tuple[str, str | None]:
+        """Use yt-dlp to resolve a YouTube URL to direct CDN URLs.
+
+        Returns (video_url, audio_url). audio_url is None for combined formats.
+        Direct CDN URLs support HTTP range requests, enabling --start= seeking.
+        """
+        auth = []
+        if self._config:
+            from picast.config import ytdl_auth_args
+            auth = ytdl_auth_args(self._config)
+        try:
+            result = subprocess.run(
+                ["yt-dlp", "-g", "-f", fmt, "--no-warnings", *auth, url],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode == 0:
+                urls = result.stdout.strip().split("\n")
+                video_url = urls[0]
+                audio_url = urls[1] if len(urls) > 1 else None
+                return video_url, audio_url
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning("Failed to resolve direct URLs: %s", e)
+        return "", None
 
     def _play_item(self, item: QueueItem):
         """Play a single queue item with cascade protection."""
@@ -320,7 +322,7 @@ class Player:
 
         display_title = item.title or item.url
 
-        # Emit loading event + OSD
+        # Emit loading event
         self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
         # Build mpv command - use lower quality for live streams
@@ -337,16 +339,20 @@ class Player:
 
         hwdec = self._config.mpv_hwdec if self._config else "auto"
 
+        # Capture seek position (from play_now with start_time)
+        seek_to = self._next_start_time
+        self._next_start_time = 0
+
+        # Base mpv command — always starts idle so we get a window + OSD immediately
         cmd = [
             "mpv",
             f"--input-ipc-server={self.mpv.socket_path}",
-            f"--ytdl-format={fmt}",
-            f"--ytdl-raw-options={raw_opts}",
             f"--hwdec={hwdec}",
             "--cache=yes",
             "--demuxer-max-bytes=50MiB",
             "--log-file=/tmp/mpv-debug.log",
             "--fullscreen",
+            "--idle=yes",
             "--force-window=immediate",
             "--no-terminal",
         ]
@@ -366,12 +372,6 @@ class Player:
         # Add HDMI audio device if detected
         if self._audio_device:
             cmd.append(f"--audio-device={self._audio_device}")
-
-        # Capture seek position (from play_now with start_time)
-        seek_to = self._next_start_time
-        self._next_start_time = 0
-
-        cmd.append(item.url)
 
         start_time = time.monotonic()
         exit_code = -1
@@ -396,24 +396,54 @@ class Player:
             time.sleep(1)
             self.mpv.connect()
 
-            # Show loading message on screen while yt-dlp fetches the stream
-            self.mpv.show_text(f"Loading: {display_title}", "60000")
+            # Show loading message on screen immediately
+            self.mpv.show_text(f"Loading: {display_title}", "120000")
             self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
-            # Seek to timestamp in a background thread so we don't block
-            # the main wait() — YouTube streams take 30-90s to load
-            if seek_to > 0:
-                seek_thread = threading.Thread(
-                    target=self._seek_when_ready,
-                    args=(seek_to, display_title),
-                    daemon=True,
-                    name="seek-thread",
-                )
-                seek_thread.start()
+            if seek_to > 0 and item.source_type == "youtube" and not is_live:
+                # Resolve direct CDN URLs so we can use --start= (HTTP seeking)
+                logger.info("Resolving direct URLs for timestamp seek to %ds", int(seek_to))
+                video_url, audio_url = self._resolve_direct_urls(item.url, fmt)
+                if video_url:
+                    # Build loadfile options
+                    opts = f"start={int(seek_to)}"
+                    if audio_url:
+                        opts += f",audio-file={audio_url}"
+                    self.mpv.command("loadfile", video_url, "replace", opts)
+                    logger.info("Loaded direct URLs with start=%d", int(seek_to))
+                else:
+                    # Fallback: load YouTube URL normally (no seek)
+                    logger.warning("Direct URL resolve failed, loading without seek")
+                    self.mpv.command("loadfile", item.url, "replace",
+                                    f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
+            else:
+                # Normal load via mpv's yt-dlp hook
+                self.mpv.command("loadfile", item.url, "replace",
+                                f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
 
-            # Wait for mpv to exit
-            self._mpv_process.wait()
-            exit_code = self._mpv_process.returncode
+            self._show_osd(f"Now Playing: {display_title}")
+
+            # Wait for mpv to finish playing (idle=yes means it stays open)
+            # Poll until playback ends or skip/stop is requested
+            while True:
+                if self._mpv_process.poll() is not None:
+                    break
+                idle = self.mpv.get_property("idle-active", False)
+                eof = self.mpv.get_property("eof-reached", False)
+                if (idle or eof) and start_time + 5 < time.monotonic():
+                    # mpv went idle after playing — we're done
+                    break
+                time.sleep(1)
+
+            exit_code = self._mpv_process.poll()
+            if exit_code is None:
+                # mpv is still running (idle) — quit it
+                self.mpv.command("quit")
+                try:
+                    self._mpv_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._mpv_process.kill()
+                exit_code = self._mpv_process.returncode or 0
 
         except FileNotFoundError:
             logger.error("mpv not found. Install it: sudo apt install mpv")
