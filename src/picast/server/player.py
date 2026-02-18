@@ -17,6 +17,7 @@ import subprocess
 import threading
 import time
 from typing import TYPE_CHECKING
+from urllib.parse import parse_qs, urlparse
 
 from picast.server.mpv_client import MPVClient
 from picast.server.queue_manager import QueueItem, QueueManager
@@ -306,6 +307,80 @@ class Player:
             logger.warning("Failed to resolve direct URLs: %s", e)
         return "", None
 
+    @staticmethod
+    def _extract_video_id(url: str) -> str | None:
+        """Extract YouTube video ID from URL via string parsing (no API calls).
+
+        Handles youtube.com/watch?v=, music.youtube.com/watch?v=, youtu.be/,
+        youtube.com/shorts/, /embed/, /live/.
+        Returns None for non-YouTube URLs.
+        """
+        try:
+            parsed = urlparse(url)
+            host = (parsed.hostname or "").lower()
+        except Exception:
+            return None
+
+        if "youtu.be" in host:
+            vid = parsed.path.lstrip("/").split("/")[0]
+            return vid if vid else None
+
+        if "youtube.com" in host:
+            if parsed.path == "/watch":
+                params = parse_qs(parsed.query)
+                ids = params.get("v", [])
+                return ids[0] if ids else None
+            for prefix in ("/shorts/", "/embed/", "/live/"):
+                if parsed.path.startswith(prefix):
+                    vid = parsed.path[len(prefix):].split("/")[0].split("?")[0]
+                    return vid if vid else None
+
+        return None
+
+    def _resolve_for_seek(self, url: str, fmt: str) -> tuple[float | None, str, str | None]:
+        """Resolve duration + direct CDN URLs in a single yt-dlp call.
+
+        Returns (duration, video_url, audio_url).
+        duration is None for live streams or parse failures.
+        audio_url is None for combined formats.
+        """
+        auth = []
+        if self._config:
+            from picast.config import ytdl_auth_args
+            auth = ytdl_auth_args(self._config)
+        try:
+            result = subprocess.run(
+                ["yt-dlp", "--print", "duration", "-g", "-f", fmt,
+                 "--no-warnings", *auth, url],
+                capture_output=True, text=True, timeout=120,
+            )
+            if result.returncode != 0:
+                logger.warning("_resolve_for_seek failed: %s", result.stderr.strip())
+                return None, "", None
+
+            lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+            if len(lines) < 2:
+                logger.warning("_resolve_for_seek: unexpected output (%d lines)", len(lines))
+                return None, "", None
+
+            # Line 1: duration (may be "NA" for live streams)
+            raw_dur = lines[0].strip()
+            duration: float | None = None
+            if raw_dur not in ("NA", ""):
+                try:
+                    duration = float(raw_dur)
+                except ValueError:
+                    pass
+
+            video_url = lines[1].strip()
+            audio_url = lines[2].strip() if len(lines) > 2 else None
+
+            return duration, video_url, audio_url
+
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
+            logger.warning("_resolve_for_seek error: %s", e)
+            return None, "", None
+
     def _play_item(self, item: QueueItem):
         """Play a single queue item with cascade protection."""
         logger.info("Playing: %s (%s)", item.url, item.source_type)
@@ -316,10 +391,7 @@ class Player:
         self._skip_requested = False
         self._stop_requested = False
 
-        # Resolve title via yt-dlp if we don't have one
-        if not item.title and item.source_type == "youtube":
-            item.title = self._get_title(item.url)
-
+        # Use title from extension/queue (no blocking yt-dlp call)
         display_title = item.title or item.url
 
         # Emit loading event
@@ -360,6 +432,7 @@ class Player:
             "--force-window=immediate",
             "--osc=no",
             "--no-terminal",
+            "--image-display-duration=inf",
         ]
 
         # Live stream optimizations (Twitch, etc.)
@@ -407,15 +480,32 @@ class Player:
             if not connected:
                 logger.error("Failed to connect to mpv IPC after 10s")
 
-            # Show loading message on screen immediately
-            self.mpv.show_text(f"Loading: {display_title}", 120000)
+            # Show thumbnail + title immediately for YouTube videos
+            video_id = self._extract_video_id(item.url) if item.source_type == "youtube" else None
+            if video_id:
+                thumb_url = f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg"
+                self.mpv.command("loadfile", thumb_url, "replace")
+                self.mpv.show_text(display_title, 120000)
+            else:
+                self.mpv.show_text(f"Loading: {display_title}", 120000)
+
             self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
             if seek_to > 0 and item.source_type == "youtube" and not is_live:
-                # Resolve direct CDN URLs so we can use start= (HTTP seeking)
-                logger.info("Resolving direct URLs for timestamp seek to %ds", int(seek_to))
-                video_url, audio_url = self._resolve_direct_urls(item.url, fmt)
-                if video_url:
+                # Single yt-dlp call: get duration + direct CDN URLs
+                logger.info("Resolving URLs + duration for timestamp seek to %ds", int(seek_to))
+                duration, video_url, audio_url = self._resolve_for_seek(item.url, fmt)
+
+                # Duration validation: fall back to normal play if past end
+                if duration is not None and seek_to >= duration:
+                    logger.warning(
+                        "start_time %ds >= duration %ds, falling back to normal play",
+                        int(seek_to), int(duration),
+                    )
+                    seek_to = 0
+                    video_url = ""
+
+                if seek_to > 0 and video_url:
                     # Load video with start position
                     # Index arg (0) required for mpv v0.38+ IPC: loadfile url flags index options
                     resp = self.mpv.command("loadfile", video_url, "replace",
@@ -429,13 +519,18 @@ class Player:
                         self.mpv.command("audio-add", audio_url)
                 else:
                     # Fallback: load YouTube URL normally (no seek)
-                    logger.warning("Direct URL resolve failed, loading without seek")
+                    if not video_url and seek_to > 0:
+                        logger.warning("Direct URL resolve failed, loading without seek")
                     self.mpv.command("loadfile", item.url, "replace")
             else:
                 # Normal load via mpv's yt-dlp hook (ytdl opts set on CLI)
                 self.mpv.command("loadfile", item.url, "replace")
 
             self._show_osd(f"Now Playing: {display_title}")
+
+            # Brief pause to let mpv process the loadfile before polling
+            # (avoids race where thumbnail's idle-active state is read)
+            time.sleep(0.5)
 
             # Two-phase poll: wait for playback to START, then wait for it to END.
             # mpv starts idle (--idle=yes), so idle-active is True until loadfile
@@ -458,6 +553,14 @@ class Player:
 
             if not playback_started:
                 logger.warning("Playback never started (timeout or exit): %s", item.url)
+
+            # Backfill title from mpv if we didn't have one
+            if playback_started and not item.title:
+                mpv_title = self.mpv.get_property("media-title", "")
+                if mpv_title and mpv_title != item.url:
+                    item.title = mpv_title
+                    display_title = mpv_title
+                    logger.info("Backfilled title from mpv: %s", mpv_title)
 
             # Phase 2: Wait for playback to end (idle-active or eof-reached)
             while playback_started:
