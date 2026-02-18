@@ -491,6 +491,10 @@ class Player:
 
             self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
+            # Deferred seek: when yt-dlp returns trailer metadata for a movie,
+            # CDN seek won't work. Instead, load normally and seek after playback starts.
+            deferred_seek = 0.0
+
             if seek_to > 0 and item.source_type == "youtube" and not is_live:
                 # Single yt-dlp call: get duration + direct CDN URLs
                 logger.info("Resolving URLs + duration for timestamp seek to %ds", int(seek_to))
@@ -498,14 +502,15 @@ class Player:
 
                 # Duration validation: if start_time >= reported duration,
                 # yt-dlp may have the wrong content (e.g. trailer for a movie).
-                # Fall back to normal mpv load which preserves &t= in the URL.
+                # Load normally, then seek via IPC after playback starts.
                 if duration is not None and seek_to >= duration:
                     logger.warning(
                         "start_time %ds >= duration %ds (likely trailer/preview), "
-                        "falling back to native mpv load with URL timestamp",
+                        "will seek via IPC after playback starts",
                         int(seek_to), int(duration),
                     )
                     video_url = ""
+                    deferred_seek = seek_to
 
                 if seek_to > 0 and video_url:
                     # Load video with start position
@@ -520,8 +525,8 @@ class Player:
                         time.sleep(0.5)
                         self.mpv.command("audio-add", audio_url)
                 else:
-                    # Fallback: load YouTube URL normally (no seek)
-                    if not video_url and seek_to > 0:
+                    # Fallback: load YouTube URL normally (no seek via CDN)
+                    if not video_url and seek_to > 0 and deferred_seek == 0:
                         logger.warning("Direct URL resolve failed, loading without seek")
                     self.mpv.command("loadfile", item.url, "replace")
             else:
@@ -563,6 +568,25 @@ class Player:
                     item.title = mpv_title
                     display_title = mpv_title
                     logger.info("Backfilled title from mpv: %s", mpv_title)
+
+            # Deferred seek for movies: yt-dlp returned trailer metadata,
+            # so CDN seek was skipped. Now that mpv has loaded the actual
+            # stream, seek via IPC. Works if mpv resolved the full movie;
+            # fails gracefully if it only got the trailer.
+            if playback_started and deferred_seek > 0:
+                # Let mpv stabilize after stream load
+                time.sleep(2)
+                mins, secs = divmod(int(deferred_seek), 60)
+                logger.info("Deferred seek: jumping to %d:%02d", mins, secs)
+                if self.mpv.seek(deferred_seek, "absolute"):
+                    logger.info("Deferred seek successful")
+                    self._show_osd(f"Seeked to {mins}:{secs:02d}")
+                else:
+                    logger.warning(
+                        "Deferred seek to %d:%02d failed — "
+                        "mpv may have loaded trailer instead of full movie",
+                        mins, secs,
+                    )
 
             # Phase 2: Wait for playback to end (idle-active or eof-reached)
             while playback_started:
