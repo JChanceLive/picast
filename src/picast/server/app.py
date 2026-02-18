@@ -205,7 +205,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             return jsonify({"error": "url required"}), 400
         url = _normalize_youtube_input(url)
         title = data.get("title", "")
-        player.play_now(url, title)
+        start_time = float(data.get("start_time", 0) or 0)
+        if start_time > 0:
+            logger.info("Play request with start_time=%ds for %s", start_time, url)
+        player.play_now(url, title, start_time=start_time)
         return jsonify({"ok": True, "message": f"Playing: {url}"})
 
     @app.route("/api/pause", methods=["POST"])

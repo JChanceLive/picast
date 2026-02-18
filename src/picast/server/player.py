@@ -136,6 +136,9 @@ class Player:
         self._loop_enabled: bool = False
         self._loop_count: int = 0
 
+        # Start position for next play_now item (seconds)
+        self._next_start_time: float = 0
+
         # Cascade protection state
         self._consecutive_failures = 0
         self._rapid_successes = 0
@@ -340,6 +343,13 @@ class Player:
         # Add HDMI audio device if detected
         if self._audio_device:
             cmd.append(f"--audio-device={self._audio_device}")
+
+        # Start at a specific timestamp (from play_now with start_time)
+        seek_to = self._next_start_time
+        self._next_start_time = 0
+        if seek_to > 0:
+            cmd.append(f"--start={int(seek_to)}")
+            logger.info("Starting at %ds (--start=%d)", seek_to, int(seek_to))
 
         cmd.append(item.url)
 
@@ -627,13 +637,14 @@ class Player:
             # Fallback: kill the process
             self._kill_mpv()
 
-    def play_now(self, url: str, title: str = ""):
+    def play_now(self, url: str, title: str = "", start_time: float = 0):
         """Play a URL immediately, interrupting current playback.
 
         Adds the URL to the front of the queue and skips the current video.
         """
         # Clear stop state so new playback can start
         self._stop_requested = False
+        self._next_start_time = start_time
         item = self.queue.add(url, title)
         # Move it to the front by reordering
         pending = self.queue.get_pending()
