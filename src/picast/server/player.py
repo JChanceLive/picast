@@ -406,11 +406,14 @@ class Player:
                 logger.info("Resolving direct URLs for timestamp seek to %ds", int(seek_to))
                 video_url, audio_url = self._resolve_direct_urls(item.url, fmt)
                 if video_url:
-                    # Load video with start position (no audio-file in opts —
-                    # YouTube CDN URLs contain commas that break mpv option parsing)
-                    self.mpv.command("loadfile", video_url, "replace",
-                                    f"start={int(seek_to)}")
-                    # Add audio track separately
+                    # Load video with start position
+                    # Index arg (0) required for mpv v0.38+ IPC: loadfile url flags index options
+                    resp = self.mpv.command("loadfile", video_url, "replace",
+                                           0, f"start={int(seek_to)}")
+                    if resp and resp.get("error") != "success":
+                        logger.error("loadfile failed: %s", resp.get("error"))
+                    # Add audio track separately (CDN URLs have commas that
+                    # break mpv's comma-separated option parser)
                     if audio_url:
                         time.sleep(0.5)
                         self.mpv.command("audio-add", audio_url)
@@ -419,11 +422,11 @@ class Player:
                     # Fallback: load YouTube URL normally (no seek)
                     logger.warning("Direct URL resolve failed, loading without seek")
                     self.mpv.command("loadfile", item.url, "replace",
-                                    f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
+                                    0, f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
             else:
                 # Normal load via mpv's yt-dlp hook
                 self.mpv.command("loadfile", item.url, "replace",
-                                f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
+                                0, f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
 
             self._show_osd(f"Now Playing: {display_title}")
 
