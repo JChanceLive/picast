@@ -430,15 +430,37 @@ class Player:
 
             self._show_osd(f"Now Playing: {display_title}")
 
-            # Wait for mpv to finish playing (idle=yes means it stays open)
-            # Poll until playback ends or skip/stop is requested
-            while True:
+            # Two-phase poll: wait for playback to START, then wait for it to END.
+            # mpv starts idle (--idle=yes), so idle-active is True until loadfile
+            # finishes loading the stream. On Pi this takes 30-90 seconds.
+
+            # Phase 1: Wait for playback to start (idle-active becomes False)
+            load_deadline = time.monotonic() + 150  # 2.5 min timeout for Pi
+            playback_started = False
+            while time.monotonic() < load_deadline:
                 if self._mpv_process.poll() is not None:
+                    break
+                if self._skip_requested or self._stop_requested:
+                    break
+                idle = self.mpv.get_property("idle-active", True)
+                if not idle:
+                    playback_started = True
+                    logger.info("Playback started for: %s", display_title)
+                    break
+                time.sleep(1)
+
+            if not playback_started:
+                logger.warning("Playback never started (timeout or exit): %s", item.url)
+
+            # Phase 2: Wait for playback to end (idle-active or eof-reached)
+            while playback_started:
+                if self._mpv_process.poll() is not None:
+                    break
+                if self._skip_requested or self._stop_requested:
                     break
                 idle = self.mpv.get_property("idle-active", False)
                 eof = self.mpv.get_property("eof-reached", False)
-                if (idle or eof) and start_time + 5 < time.monotonic():
-                    # mpv went idle after playing — we're done
+                if idle or eof:
                     break
                 time.sleep(1)
 
