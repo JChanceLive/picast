@@ -397,10 +397,15 @@ class Player:
                 env=env,
             )
 
-            # Give mpv a moment to create the socket
-            time.sleep(1)
-            connected = self.mpv.connect()
-            logger.info("mpv IPC connect: %s", connected)
+            # Wait for mpv IPC socket (Pi needs 2-4s to create it)
+            connected = False
+            for _ in range(20):  # 10 seconds max
+                if self.mpv.connect():
+                    connected = True
+                    break
+                time.sleep(0.5)
+            if not connected:
+                logger.error("Failed to connect to mpv IPC after 10s")
 
             # Verify IPC works with a simple command
             ver = self.mpv.get_property("mpv-version")
