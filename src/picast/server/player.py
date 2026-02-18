@@ -496,13 +496,15 @@ class Player:
                 logger.info("Resolving URLs + duration for timestamp seek to %ds", int(seek_to))
                 duration, video_url, audio_url = self._resolve_for_seek(item.url, fmt)
 
-                # Duration validation: fall back to normal play if past end
+                # Duration validation: if start_time >= reported duration,
+                # yt-dlp may have the wrong content (e.g. trailer for a movie).
+                # Fall back to normal mpv load which preserves &t= in the URL.
                 if duration is not None and seek_to >= duration:
                     logger.warning(
-                        "start_time %ds >= duration %ds, falling back to normal play",
+                        "start_time %ds >= duration %ds (likely trailer/preview), "
+                        "falling back to native mpv load with URL timestamp",
                         int(seek_to), int(duration),
                     )
-                    seek_to = 0
                     video_url = ""
 
                 if seek_to > 0 and video_url:
