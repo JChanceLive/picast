@@ -282,6 +282,28 @@ class Player:
         duration = self._config.osd_duration_ms if self._config else 2500
         self.mpv.show_text(text, duration)
 
+    def _seek_when_ready(self, target: float, title: str):
+        """Background thread: wait for playback to start, then seek."""
+        for _ in range(150):  # up to ~2.5 minutes
+            # Bail if mpv exited
+            if self._mpv_process is None or self._mpv_process.poll() is not None:
+                return
+            pos = self.mpv.get_property("time-pos")
+            if pos is not None and pos >= 0:
+                # Playback started — give it a moment to stabilize
+                time.sleep(1)
+                ok = self.mpv.seek(target, "absolute")
+                logger.info("Seek to %ds (ok=%s, was at %.1fs)", int(target), ok, pos)
+                if not ok:
+                    time.sleep(3)
+                    ok = self.mpv.seek(target, "absolute")
+                    logger.info("Seek retry to %ds (ok=%s)", int(target), ok)
+                if ok:
+                    self._show_osd(f"Now Playing: {title}")
+                return
+            time.sleep(1)
+        logger.warning("Seek abandoned — playback never started within timeout")
+
     def _play_item(self, item: QueueItem):
         """Play a single queue item with cascade protection."""
         logger.info("Playing: %s (%s)", item.url, item.source_type)
@@ -325,6 +347,7 @@ class Player:
             "--demuxer-max-bytes=50MiB",
             "--log-file=/tmp/mpv-debug.log",
             "--fullscreen",
+            "--force-window=immediate",
             "--no-terminal",
         ]
 
@@ -373,30 +396,20 @@ class Player:
             time.sleep(1)
             self.mpv.connect()
 
-            # Now playing OSD
-            self._show_osd(f"Now Playing: {display_title}")
-            self._emit("playback", f"Now Playing: {display_title}", item.url, item.id)
+            # Show loading message on screen while yt-dlp fetches the stream
+            self.mpv.show_text(f"Loading: {display_title}", "60000")
+            self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
-            # Seek to timestamp via IPC after stream is established
-            # (--start= causes EOF with yt-dlp streams, IPC seek works)
+            # Seek to timestamp in a background thread so we don't block
+            # the main wait() — YouTube streams take 30-90s to load
             if seek_to > 0:
-                # Wait until playback is actually running before seeking
-                for attempt in range(30):
-                    pos = self.mpv.get_property("time-pos")
-                    if pos is not None and pos >= 0:
-                        logger.info("Playback active at %.1fs, seeking to %ds", pos, int(seek_to))
-                        ok = self.mpv.seek(seek_to, "absolute")
-                        if ok:
-                            logger.info("Seek to %ds succeeded", int(seek_to))
-                        else:
-                            # Retry once after a short delay
-                            time.sleep(2)
-                            ok = self.mpv.seek(seek_to, "absolute")
-                            logger.info("Seek retry to %ds (ok=%s)", int(seek_to), ok)
-                        break
-                    time.sleep(1)
-                else:
-                    logger.warning("Timed out waiting for playback to start, skipping seek")
+                seek_thread = threading.Thread(
+                    target=self._seek_when_ready,
+                    args=(seek_to, display_title),
+                    daemon=True,
+                    name="seek-thread",
+                )
+                seek_thread.start()
 
             # Wait for mpv to exit
             self._mpv_process.wait()
