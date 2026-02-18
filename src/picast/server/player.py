@@ -491,9 +491,8 @@ class Player:
 
             self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
-            # Deferred seek: when yt-dlp returns trailer metadata for a movie,
-            # CDN seek won't work. Instead, load normally and seek after playback starts.
-            deferred_seek = 0.0
+            # Track whether this is a DRM-protected movie (trailer-only)
+            is_protected_movie = False
 
             if seek_to > 0 and item.source_type == "youtube" and not is_live:
                 # Single yt-dlp call: get duration + direct CDN URLs
@@ -501,16 +500,16 @@ class Player:
                 duration, video_url, audio_url = self._resolve_for_seek(item.url, fmt)
 
                 # Duration validation: if start_time >= reported duration,
-                # yt-dlp may have the wrong content (e.g. trailer for a movie).
-                # Load normally, then seek via IPC after playback starts.
+                # yt-dlp resolved a trailer for a DRM-protected movie.
+                # mpv can only play the trailer — seek is impossible.
                 if duration is not None and seek_to >= duration:
                     logger.warning(
-                        "start_time %ds >= duration %ds (likely trailer/preview), "
-                        "will seek via IPC after playback starts",
+                        "start_time %ds >= duration %ds — DRM-protected movie, "
+                        "trailer only (Widevine)",
                         int(seek_to), int(duration),
                     )
                     video_url = ""
-                    deferred_seek = seek_to
+                    is_protected_movie = True
 
                 if seek_to > 0 and video_url:
                     # Load video with start position
@@ -526,7 +525,7 @@ class Player:
                         self.mpv.command("audio-add", audio_url)
                 else:
                     # Fallback: load YouTube URL normally (no seek via CDN)
-                    if not video_url and seek_to > 0 and deferred_seek == 0:
+                    if not video_url and seek_to > 0 and not is_protected_movie:
                         logger.warning("Direct URL resolve failed, loading without seek")
                     self.mpv.command("loadfile", item.url, "replace")
             else:
@@ -569,24 +568,17 @@ class Player:
                     display_title = mpv_title
                     logger.info("Backfilled title from mpv: %s", mpv_title)
 
-            # Deferred seek for movies: yt-dlp returned trailer metadata,
-            # so CDN seek was skipped. Now that mpv has loaded the actual
-            # stream, seek via IPC. Works if mpv resolved the full movie;
-            # fails gracefully if it only got the trailer.
-            if playback_started and deferred_seek > 0:
-                # Let mpv stabilize after stream load
-                time.sleep(2)
-                mins, secs = divmod(int(deferred_seek), 60)
-                logger.info("Deferred seek: jumping to %d:%02d", mins, secs)
-                if self.mpv.seek(deferred_seek, "absolute"):
-                    logger.info("Deferred seek successful")
-                    self._show_osd(f"Seeked to {mins}:{secs:02d}")
-                else:
-                    logger.warning(
-                        "Deferred seek to %d:%02d failed — "
-                        "mpv may have loaded trailer instead of full movie",
-                        mins, secs,
-                    )
+            # DRM-protected movie: notify user on TV and web UI
+            if playback_started and is_protected_movie:
+                notice = "YouTube Movie \u2014 trailer only (DRM protected)"
+                self.mpv.show_text(notice, 8000)
+                self._emit(
+                    "protected",
+                    title=notice,
+                    detail="This is a paid YouTube movie. Only the trailer "
+                           "is available without Widevine DRM decryption.",
+                    queue_item_id=item.id,
+                )
 
             # Phase 2: Wait for playback to end (idle-active or eof-reached)
             while playback_started:

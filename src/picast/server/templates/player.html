@@ -550,6 +550,14 @@ function connectSSE() {
         poll();
     });
 
+    es.addEventListener('protected', function(e) {
+        try {
+            const data = JSON.parse(e.data);
+            showErrorBanner(data.title, data.detail, data.queue_item_id);
+            poll();
+        } catch (err) {}
+    });
+
     es.onerror = function() {
         // SSE connection lost - polling is still running as fallback
         es.close();
