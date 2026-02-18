@@ -407,13 +407,8 @@ class Player:
             if not connected:
                 logger.error("Failed to connect to mpv IPC after 10s")
 
-            # Verify IPC works with a simple command
-            ver = self.mpv.get_property("mpv-version")
-            logger.info("mpv version via IPC: %s", ver)
-
             # Show loading message on screen immediately
-            osd_resp = self.mpv.show_text(f"Loading: {display_title}", 120000)
-            logger.info("show_text response: %s", osd_resp)
+            self.mpv.show_text(f"Loading: {display_title}", 120000)
             self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
             if seek_to > 0 and item.source_type == "youtube" and not is_live:
@@ -425,25 +420,20 @@ class Player:
                     # Index arg (0) required for mpv v0.38+ IPC: loadfile url flags index options
                     resp = self.mpv.command("loadfile", video_url, "replace",
                                            0, f"start={int(seek_to)}")
-                    logger.info("loadfile (seek) response: %s", resp)
-                    if resp and resp.get("error") != "success":
-                        logger.error("loadfile failed: %s", resp.get("error"))
+                    if not resp or resp.get("error") != "success":
+                        logger.error("loadfile seek failed: %s", resp)
                     # Add audio track separately (CDN URLs have commas that
                     # break mpv's comma-separated option parser)
                     if audio_url:
                         time.sleep(0.5)
-                        resp = self.mpv.command("audio-add", audio_url)
-                        logger.info("audio-add response: %s", resp)
-                    logger.info("Loaded direct URLs with start=%d", int(seek_to))
+                        self.mpv.command("audio-add", audio_url)
                 else:
                     # Fallback: load YouTube URL normally (no seek)
                     logger.warning("Direct URL resolve failed, loading without seek")
-                    resp = self.mpv.command("loadfile", item.url, "replace")
-                    logger.info("loadfile (fallback) response: %s", resp)
+                    self.mpv.command("loadfile", item.url, "replace")
             else:
                 # Normal load via mpv's yt-dlp hook (ytdl opts set on CLI)
-                resp = self.mpv.command("loadfile", item.url, "replace")
-                logger.info("loadfile (normal) response: %s", resp)
+                self.mpv.command("loadfile", item.url, "replace")
 
             self._show_osd(f"Now Playing: {display_title}")
 
