@@ -344,12 +344,9 @@ class Player:
         if self._audio_device:
             cmd.append(f"--audio-device={self._audio_device}")
 
-        # Start at a specific timestamp (from play_now with start_time)
+        # Capture seek position (from play_now with start_time)
         seek_to = self._next_start_time
         self._next_start_time = 0
-        if seek_to > 0:
-            cmd.append(f"--start={int(seek_to)}")
-            logger.info("Starting at %ds (--start=%d)", seek_to, int(seek_to))
 
         cmd.append(item.url)
 
@@ -375,6 +372,14 @@ class Player:
             # Give mpv a moment to create the socket
             time.sleep(1)
             self.mpv.connect()
+
+            # Seek to timestamp via IPC after stream is established
+            # (--start= causes EOF with yt-dlp streams, IPC seek works)
+            if seek_to > 0:
+                # Wait for stream to buffer before seeking
+                time.sleep(3)
+                ok = self.mpv.seek(seek_to, "absolute")
+                logger.info("Seeked to %ds via IPC (ok=%s)", int(seek_to), ok)
 
             # Now playing OSD
             self._show_osd(f"Now Playing: {display_title}")
