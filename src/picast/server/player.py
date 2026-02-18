@@ -354,6 +354,7 @@ class Player:
             "--fullscreen",
             "--idle=yes",
             "--force-window=immediate",
+            "--osc=no",
             "--no-terminal",
         ]
 
@@ -401,15 +402,18 @@ class Player:
             self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
             if seek_to > 0 and item.source_type == "youtube" and not is_live:
-                # Resolve direct CDN URLs so we can use --start= (HTTP seeking)
+                # Resolve direct CDN URLs so we can use start= (HTTP seeking)
                 logger.info("Resolving direct URLs for timestamp seek to %ds", int(seek_to))
                 video_url, audio_url = self._resolve_direct_urls(item.url, fmt)
                 if video_url:
-                    # Build loadfile options
-                    opts = f"start={int(seek_to)}"
+                    # Load video with start position (no audio-file in opts —
+                    # YouTube CDN URLs contain commas that break mpv option parsing)
+                    self.mpv.command("loadfile", video_url, "replace",
+                                    f"start={int(seek_to)}")
+                    # Add audio track separately
                     if audio_url:
-                        opts += f",audio-file={audio_url}"
-                    self.mpv.command("loadfile", video_url, "replace", opts)
+                        time.sleep(0.5)
+                        self.mpv.command("audio-add", audio_url)
                     logger.info("Loaded direct URLs with start=%d", int(seek_to))
                 else:
                     # Fallback: load YouTube URL normally (no seek)
