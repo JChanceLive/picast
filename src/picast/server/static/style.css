@@ -78,6 +78,31 @@ body {
     font-weight: 600;
 }
 
+/* Dice button */
+.btn-dice {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: 1px solid rgba(0, 240, 255, 0.3);
+    background: var(--card);
+    color: var(--text);
+    font-size: 1.1rem;
+    cursor: pointer;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-dice:hover {
+    border-color: var(--neon-cyan);
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.4);
+    transform: scale(1.1);
+}
+
+.btn-dice:active { transform: scale(0.95); }
+
 /* Device selector */
 .nav-devices { margin-left: auto; }
 
@@ -900,3 +925,90 @@ body {
     padding: 1rem 0;
 }
 #page-info { color: var(--muted); font-size: 0.9rem; }
+
+/* Discover Modal */
+.discover-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    background: rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+    align-items: center;
+    justify-content: center;
+}
+
+.discover-overlay.visible { display: flex; }
+
+.discover-modal {
+    background: var(--surface);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: var(--radius);
+    padding: 1.25rem;
+    width: 90%;
+    max-width: 360px;
+    box-shadow: 0 0 30px rgba(0, 240, 255, 0.15);
+    animation: modalIn 0.2s;
+}
+
+@keyframes modalIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+
+.discover-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.discover-header h3 {
+    font-size: 1.1rem;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.4);
+}
+
+.discover-close {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 1.4rem;
+    cursor: pointer;
+    padding: 0 0.25rem;
+}
+
+.discover-close:hover { color: var(--text); }
+
+.discover-body { margin-bottom: 1rem; }
+
+.discover-label {
+    display: block;
+    font-size: 0.8rem;
+    color: var(--muted);
+    margin-bottom: 0.25rem;
+    margin-top: 0.75rem;
+}
+
+.discover-label:first-child { margin-top: 0; }
+
+.discover-select {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.discover-select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2);
+}
+
+.discover-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}

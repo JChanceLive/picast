@@ -11,7 +11,7 @@ import threading
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -86,6 +86,18 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
 CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
+
+CREATE TABLE IF NOT EXISTS discover_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    genre TEXT NOT NULL DEFAULT '',
+    decade TEXT NOT NULL DEFAULT '',
+    rolled_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_discover_history_url ON discover_history(url);
+CREATE INDEX IF NOT EXISTS idx_discover_history_rolled ON discover_history(rolled_at);
 """
 
 
@@ -160,6 +172,19 @@ class Database:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)")
+        if from_version < 4:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS discover_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    genre TEXT NOT NULL DEFAULT '',
+                    decade TEXT NOT NULL DEFAULT '',
+                    rolled_at REAL NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_discover_history_url ON discover_history(url)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_discover_history_rolled ON discover_history(rolled_at)")
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)

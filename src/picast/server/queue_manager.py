@@ -62,6 +62,8 @@ class QueueManager:
             return "youtube"
         if "twitch.tv" in url:
             return "twitch"
+        if "archive.org" in url:
+            return "archive"
         if url.startswith("/") or url.startswith("file://"):
             return "local"
         return "youtube"

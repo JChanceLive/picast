@@ -7,7 +7,9 @@ This is the single source of truth - both the TUI and web UI talk to this.
 import json
 import logging
 import os
+import random
 import re
+import time
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
@@ -458,6 +460,77 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             return jsonify({"error": "minutes must be >= 0"}), 400
         player.set_stop_timer(minutes)
         return jsonify({"ok": True, "minutes": minutes})
+
+    # --- Discover Endpoints ---
+
+    DISCOVER_GENRES = [
+        {"id": "drama", "label": "Drama", "count": 3220},
+        {"id": "comedy", "label": "Comedy", "count": 1580},
+        {"id": "horror", "label": "Horror", "count": 1091},
+        {"id": "romance", "label": "Romance", "count": 890},
+        {"id": "mystery", "label": "Mystery", "count": 843},
+        {"id": "thriller", "label": "Thriller", "count": 674},
+        {"id": "western", "label": "Western", "count": 670},
+        {"id": "action", "label": "Action", "count": 499},
+        {"id": "adventure", "label": "Adventure", "count": 459},
+        {"id": "sci-fi", "label": "Sci-Fi", "count": 214},
+    ]
+
+    @app.route("/api/discover/genres")
+    def discover_genres():
+        """Return available genres for movie discovery."""
+        return jsonify(DISCOVER_GENRES)
+
+    @app.route("/api/discover/roll", methods=["POST"])
+    def discover_roll():
+        """Roll random movies from Archive.org and add to queue."""
+        data = request.get_json(silent=True) or {}
+        genre = data.get("genre", "").strip()
+        decade = data.get("decade", "").strip()
+
+        archive_handler = sources.get_handler("archive")
+        if not archive_handler:
+            return jsonify({"error": "Archive source not available"}), 500
+
+        # Fetch top 50 by downloads from Archive.org
+        results = archive_handler.search(genre=genre, decade=decade, rows=50)
+        if not results:
+            return jsonify({"error": "No movies found for this filter"}), 404
+
+        # Exclude recently rolled URLs (last 100)
+        recent_rows = db.fetchall(
+            "SELECT url FROM discover_history ORDER BY rolled_at DESC LIMIT 100"
+        )
+        recent_urls = {r["url"] for r in recent_rows}
+        pool = [item for item in results if item.url not in recent_urls]
+
+        # Fall back to full results if filtering removed everything
+        if not pool:
+            pool = results
+
+        # Random sample of 10 (or fewer if pool is small)
+        sample = random.sample(pool, min(10, len(pool)))
+
+        # Add to queue and history
+        now = time.time()
+        added_movies = []
+        for item in sample:
+            queue.add(item.url, item.title)
+            db.execute(
+                "INSERT INTO discover_history (url, title, genre, decade, rolled_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (item.url, item.title, genre, decade, now),
+            )
+            added_movies.append({"url": item.url, "title": item.title})
+        db.commit()
+
+        return jsonify({
+            "ok": True,
+            "added": len(added_movies),
+            "genre": genre,
+            "decade": decade,
+            "movies": added_movies,
+        })
 
     # --- Health Check ---
 

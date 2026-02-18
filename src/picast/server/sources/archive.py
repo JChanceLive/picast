@@ -1,8 +1,10 @@
 """Internet Archive (archive.org) source handler."""
 
+import json
 import logging
 import subprocess
-from urllib.parse import urlparse
+import urllib.request
+from urllib.parse import quote, urlparse
 
 from picast.server.sources.base import SourceHandler, SourceItem
 
@@ -72,6 +74,60 @@ class ArchiveSource(SourceHandler):
         except (FileNotFoundError, subprocess.TimeoutExpired, OSError) as e:
             logger.warning("yt-dlp metadata fetch failed for archive.org: %s", e)
         return None
+
+    def search(self, genre: str = "", decade: str = "", rows: int = 50) -> list[SourceItem]:
+        """Search Archive.org feature_films collection.
+
+        Args:
+            genre: Genre filter (e.g. "horror", "comedy"). Empty = any.
+            decade: Decade filter (e.g. "1960s"). Empty = any.
+            rows: Max results to fetch (sorted by downloads desc).
+
+        Returns list of SourceItem for matching movies.
+        """
+        query_parts = ["collection:feature_films", "mediatype:movies"]
+        if genre:
+            query_parts.append(f"subject:{genre}")
+        if decade:
+            # Parse "1960s" -> year:[1960 TO 1969]
+            try:
+                start = int(decade.rstrip("s"))
+                end = start + 9
+                query_parts.append(f"year:[{start} TO {end}]")
+            except ValueError:
+                pass
+
+        query = " AND ".join(query_parts)
+        url = (
+            f"https://archive.org/advancedsearch.php?"
+            f"q={quote(query)}&output=json&rows={rows}"
+            f"&fl[]=identifier&fl[]=title&fl[]=year&fl[]=downloads"
+            f"&sort[]=downloads+desc"
+        )
+
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "PiCast/0.13"})
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read().decode())
+        except Exception as e:
+            logger.warning("Archive.org search failed: %s", e)
+            return []
+
+        results = []
+        for doc in data.get("response", {}).get("docs", []):
+            identifier = doc.get("identifier", "")
+            if not identifier:
+                continue
+            title = doc.get("title", identifier)
+            year = doc.get("year", "")
+            if year:
+                title = f"{title} ({year})"
+            results.append(SourceItem(
+                url=f"https://archive.org/details/{identifier}",
+                title=title,
+                source_type="archive",
+            ))
+        return results
 
     def get_mpv_args(self, url: str) -> list[str]:
         return []

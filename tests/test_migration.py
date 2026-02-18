@@ -137,14 +137,14 @@ class TestMigrationV2ToV3:
         assert rows[1]["played_at"] == 1002.0
 
     def test_migration_updates_schema_version(self, tmp_path):
-        """v2→v3 migration bumps schema_version to 3."""
+        """v2→v3→v4 migration bumps schema_version to 4."""
         db_path = str(tmp_path / "migrate.db")
         self._create_v2_db(db_path)
 
         db = Database(db_path)
 
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 3
+        assert row["version"] == 4
 
     def test_migration_events_indices_exist(self, tmp_path):
         """v2→v3 migration creates indices on events table."""
