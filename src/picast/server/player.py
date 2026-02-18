@@ -373,17 +373,30 @@ class Player:
             time.sleep(1)
             self.mpv.connect()
 
-            # Seek to timestamp via IPC after stream is established
-            # (--start= causes EOF with yt-dlp streams, IPC seek works)
-            if seek_to > 0:
-                # Wait for stream to buffer before seeking
-                time.sleep(3)
-                ok = self.mpv.seek(seek_to, "absolute")
-                logger.info("Seeked to %ds via IPC (ok=%s)", int(seek_to), ok)
-
             # Now playing OSD
             self._show_osd(f"Now Playing: {display_title}")
             self._emit("playback", f"Now Playing: {display_title}", item.url, item.id)
+
+            # Seek to timestamp via IPC after stream is established
+            # (--start= causes EOF with yt-dlp streams, IPC seek works)
+            if seek_to > 0:
+                # Wait until playback is actually running before seeking
+                for attempt in range(30):
+                    pos = self.mpv.get_property("time-pos")
+                    if pos is not None and pos >= 0:
+                        logger.info("Playback active at %.1fs, seeking to %ds", pos, int(seek_to))
+                        ok = self.mpv.seek(seek_to, "absolute")
+                        if ok:
+                            logger.info("Seek to %ds succeeded", int(seek_to))
+                        else:
+                            # Retry once after a short delay
+                            time.sleep(2)
+                            ok = self.mpv.seek(seek_to, "absolute")
+                            logger.info("Seek retry to %ds (ok=%s)", int(seek_to), ok)
+                        break
+                    time.sleep(1)
+                else:
+                    logger.warning("Timed out waiting for playback to start, skipping seek")
 
             # Wait for mpv to exit
             self._mpv_process.wait()
