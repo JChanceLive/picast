@@ -114,21 +114,18 @@
                     <option value="musical">Musical</option>
                     <option value="fantasy">Fantasy</option>
                 </select>
-                <label class="discover-label">Decade</label>
-                <select id="discover-decade" class="discover-select">
-                    <option value="">Any Decade</option>
-                    <option value="1920s">1920s</option>
-                    <option value="1930s">1930s</option>
-                    <option value="1940s">1940s</option>
-                    <option value="1950s">1950s</option>
-                    <option value="1960s">1960s</option>
-                    <option value="1970s">1970s</option>
-                    <option value="1980s">1980s</option>
-                    <option value="1990s">1990s</option>
-                    <option value="2000s">2000s</option>
-                    <option value="2010s">2010s</option>
-                    <option value="2020s">2020s</option>
-                </select>
+                <label class="discover-label">Year Range</label>
+                <div class="discover-year-range">
+                    <input type="number" id="discover-year-start" class="discover-year-input" min="1900" max="2025" placeholder="From" value="">
+                    <span class="discover-year-sep">to</span>
+                    <input type="number" id="discover-year-end" class="discover-year-input" min="1900" max="2025" placeholder="To" value="">
+                </div>
+                <div class="discover-year-presets">
+                    <button type="button" class="discover-preset" onclick="setYearPreset(0,0)">Any</button>
+                    <button type="button" class="discover-preset" onclick="setYearPreset(1980,2025)">1980+</button>
+                    <button type="button" class="discover-preset" onclick="setYearPreset(2000,2025)">2000+</button>
+                    <button type="button" class="discover-preset" onclick="setYearPreset(1920,1969)">Classic</button>
+                </div>
                 <label class="discover-label">Sort by</label>
                 <select id="discover-sort" class="discover-select">
                     <option value="downloads">Most Popular</option>
@@ -235,7 +232,7 @@ function updateNowPlaying(s) {
     document.getElementById('np-volume').textContent = 'Vol: ' + Math.round(currentVolume);
     document.getElementById('np-speed').textContent = 'Speed: ' + currentSpeed.toFixed(1) + 'x';
 
-    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]'};
+    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]', archive: '[Archive]'};
     document.getElementById('np-source').textContent = tags[s.source_type] || '';
 
     setToggleBtn(s.paused);
@@ -256,7 +253,7 @@ function updateQueue(items) {
 
     const pendingIds = items.filter(i => i.status === 'pending').map(i => i.id);
     const statusIcons = {pending: '', playing: '\u25B6', played: '\u2713', skipped: '\u2014', failed: '\u2717'};
-    const tags = {youtube: 'YT', local: 'Local', twitch: 'Twitch'};
+    const tags = {youtube: 'YT', local: 'Local', twitch: 'Twitch', archive: 'Archive'};
 
     list.innerHTML = items.map((item, i) => {
         const title = item.title || item.url;
@@ -672,11 +669,22 @@ function closeDiscoverModal() {
     document.getElementById('discover-overlay').classList.remove('visible');
 }
 
+function setYearPreset(start, end) {
+    const startEl = document.getElementById('discover-year-start');
+    const endEl = document.getElementById('discover-year-end');
+    startEl.value = start || '';
+    endEl.value = end || '';
+    // Highlight active preset
+    document.querySelectorAll('.discover-preset').forEach(b => b.classList.remove('active'));
+    if (event && event.target) event.target.classList.add('active');
+}
+
 function rollMovies() {
     const genre = document.getElementById('discover-genre').value;
-    const decade = document.getElementById('discover-decade').value;
     const keyword = document.getElementById('discover-keyword').value.trim();
     const sort = document.getElementById('discover-sort').value;
+    const yearStart = document.getElementById('discover-year-start').value;
+    const yearEnd = document.getElementById('discover-year-end').value;
 
     // Switch to loading screen
     document.getElementById('discover-form').style.display = 'none';
@@ -685,7 +693,13 @@ function rollMovies() {
     fetch('/api/discover/roll', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({genre, decade, keyword, sort}),
+        body: JSON.stringify({
+            genre,
+            keyword,
+            sort,
+            year_start: yearStart ? parseInt(yearStart) : 0,
+            year_end: yearEnd ? parseInt(yearEnd) : 0,
+        }),
     })
     .then(r => r.json())
     .then(r => {

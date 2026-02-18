@@ -397,9 +397,17 @@ class Player:
         # Emit loading event
         self._emit("playback", f"Loading: {display_title}", item.url, item.id)
 
-        # Build mpv command - use lower quality for live streams
+        # Build mpv command - use source-appropriate format strings
         is_live = item.source_type == "twitch"
-        fmt = self.ytdl_format_live if is_live else self.ytdl_format
+        is_archive = item.source_type == "archive"
+        if is_live:
+            fmt = self.ytdl_format_live
+        elif is_archive:
+            # Archive.org has varied codecs (MPEG-4, VP8, etc.)
+            # YouTube-specific format string (vcodec^=avc) fails here
+            fmt = "best[height<=720]/best"
+        else:
+            fmt = self.ytdl_format
 
         # Build ytdl-raw-options with auth if configured
         raw_opts = "js-runtimes=deno,remote-components=ejs:github"

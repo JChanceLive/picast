@@ -1026,6 +1026,64 @@ body {
     box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2);
 }
 
+/* Discover year range */
+.discover-year-range {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.discover-year-input {
+    flex: 1;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.9rem;
+    transition: all 0.2s;
+    -moz-appearance: textfield;
+}
+
+.discover-year-input::-webkit-inner-spin-button,
+.discover-year-input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.discover-year-input::placeholder { color: var(--muted); }
+.discover-year-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2); }
+
+.discover-year-sep {
+    color: var(--muted);
+    font-size: 0.85rem;
+    flex-shrink: 0;
+}
+
+.discover-year-presets {
+    display: flex;
+    gap: 0.35rem;
+    margin-top: 0.4rem;
+    flex-wrap: wrap;
+}
+
+.discover-preset {
+    padding: 0.3rem 0.7rem;
+    background: var(--card);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 12px;
+    color: var(--muted);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.discover-preset:hover { color: var(--text); border-color: rgba(0, 240, 255, 0.4); }
+
+.discover-preset.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #0a0a1e;
+    font-weight: 600;
+}
+
 .discover-actions {
     display: flex;
     gap: 0.5rem;

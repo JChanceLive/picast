@@ -82,23 +82,32 @@ class ArchiveSource(SourceHandler):
         keyword: str = "",
         sort: str = "downloads",
         rows: int = 50,
+        year_start: int = 0,
+        year_end: int = 0,
     ) -> list[SourceItem]:
         """Search Archive.org feature_films collection.
 
         Args:
             genre: Genre filter (e.g. "horror", "comedy"). Empty = any.
-            decade: Decade filter (e.g. "1960s"). Empty = any.
+            decade: Decade filter (e.g. "1960s"). Empty = any (legacy).
             keyword: Free-text title search. Empty = any.
             sort: Sort order — "downloads", "date", "title".
             rows: Max results to fetch.
+            year_start: Start year for range filter (e.g. 1980). 0 = no limit.
+            year_end: End year for range filter (e.g. 2025). 0 = no limit.
 
         Returns list of SourceItem for matching movies.
         """
         query_parts = ["collection:feature_films", "mediatype:movies"]
         if genre:
             query_parts.append(f"subject:{genre}")
-        if decade:
-            # Parse "1960s" -> year:[1960 TO 1969]
+        if year_start > 0 or year_end > 0:
+            # Year range: year:[start TO end]
+            start = year_start if year_start > 0 else 1900
+            end = year_end if year_end > 0 else 2030
+            query_parts.append(f"year:[{start} TO {end}]")
+        elif decade:
+            # Legacy decade support: "1960s" -> year:[1960 TO 1969]
             try:
                 start = int(decade.rstrip("s"))
                 end = start + 9

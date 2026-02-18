@@ -489,6 +489,8 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         decade = data.get("decade", "").strip()
         keyword = data.get("keyword", "").strip()
         sort = data.get("sort", "downloads").strip()
+        year_start = int(data.get("year_start", 0) or 0)
+        year_end = int(data.get("year_end", 0) or 0)
 
         archive_handler = sources.get_handler("archive")
         if not archive_handler:
@@ -497,6 +499,7 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         # Fetch top 50 from Archive.org
         results = archive_handler.search(
             genre=genre, decade=decade, keyword=keyword, sort=sort, rows=50,
+            year_start=year_start, year_end=year_end,
         )
         if not results:
             return jsonify({"error": "No movies found for this filter"}), 404
