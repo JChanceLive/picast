@@ -4,6 +4,53 @@ Technical learnings and debugging notes for future sessions.
 
 ---
 
+## 2026-02-18 (Session 3): DRM Detection + Archive.org (v0.11.2 -> v0.12.0)
+
+### v0.11.2: Graceful YouTube Movie DRM Detection
+
+**Problem:** v0.11.1 added a "deferred seek" for YouTube movies — detect trailer/movie mismatch, load normally, then seek via IPC after playback starts. This can never work because yt-dlp only resolves the trailer (Widevine DRM prevents access to the full film). The deferred seek silently failed every time.
+
+**Fix:** Replaced deferred seek with explicit DRM detection + user notification:
+- `is_protected_movie` flag replaces `deferred_seek` variable
+- When mismatch detected: OSD notice on TV (8s) + SSE `"protected"` event to web UI
+- Web UI reuses existing `showErrorBanner()` — no new components
+- Trailer still plays (graceful degradation)
+
+**Key learning:** YouTube movies (both paid AND free/ad-supported) use Widevine DRM. No open-source tool can decrypt Widevine. This is not an auth/cookie problem — it's encryption. yt-dlp maintainers confirm this is unfixable. The only path for movies is licensed players (Chrome, YouTube app, smart TV apps).
+
+### v0.12.0: Archive.org Source Handler
+
+**Motivation:** YouTube movies are DRM-locked, but Archive.org has thousands of full-length public domain films with zero DRM. yt-dlp already supports archive.org natively.
+
+**Changes:**
+- New `sources/archive.py` — `ArchiveSource` handler with `matches()`, `validate()`, `get_metadata()` via yt-dlp
+- Registered in `app.py` alongside YouTube/Twitch/local
+- Chrome extension v1.5.0: `isSupportedUrl()` now matches `archive.org`, title cleaning strips Archive.org suffixes
+- Source detection: archive.org URLs properly detected as `source_type="archive"` instead of falling through to YouTube handler
+
+**Archive.org tips:**
+- Browse `https://archive.org/details/feature_films` for full movies
+- URL format: `https://archive.org/details/{ITEM_ID}` — IDs are case-sensitive
+- yt-dlp `--print duration` works to verify full-length before playing
+- Multi-file items: yt-dlp may return multiple lines, handler takes first
+
+**Tested full-length movies (confirmed working):**
+- His Girl Friday (1940) — 1h 32m: `archive.org/details/HisGirlFriday1940_201505`
+- Frankenstein (1931) — 1h 10m: `archive.org/details/frankenstein-1931-restored-movie-720p-hd`
+- Woman on the Run (1950) — 1h 18m: `archive.org/details/woman-on-the-run-1950_202406`
+
+### Key Technical Learnings (New)
+
+13. **YouTube DRM is absolute**: Both paid movies AND free/ad-supported movies use Widevine DRM. yt-dlp resolves only the trailer (~141s) for all of them. No cookie/auth workaround exists.
+
+14. **Archive.org URL sensitivity**: Item IDs are case-sensitive. `Night_of_the_Living_Dead` != `night_of_the_living_dead`. Always use the exact ID from the URL bar.
+
+15. **Source handler registration order**: `SourceRegistry.detect()` iterates handlers in registration order. First match wins. archive.org URLs don't match YouTube/local/Twitch handlers, so ArchiveSource must be registered to prevent them falling through to the `"youtube"` default.
+
+16. **Player source_type branching**: The CDN seek path in `_play_item()` only fires for `source_type == "youtube"`. Archive.org items go through the normal `loadfile` path, which is correct — mpv's yt-dlp hook handles archive.org natively without needing direct URL resolution.
+
+---
+
 ## 2026-02-17 (Session 2): IPC Debugging (v0.9.1 -> v0.9.5)
 
 ### Root Cause Found

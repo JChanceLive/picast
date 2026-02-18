@@ -1,50 +1,53 @@
 # Resume: PiCast
 
-Last updated: 2026-02-17
+Last updated: 2026-02-18
 
 ## State
-v0.9.5 deployed to Pi. ROOT CAUSE FOUND: mpv IPC socket takes 2-4s to create on Pi, but code only waits 1s. All loadfile commands silently fail. Three other bugs fixed (v0.9.2-v0.9.4). Debug logging confirmed the issue. One straightforward fix remaining.
+v0.12.0 deployed to Pi. All core features working: YouTube playback with timestamp seek, Twitch, local files, and **Archive.org** (full-length public domain movies). YouTube DRM movies show graceful notice instead of silently failing. 412 tests pass.
 
 ## Next Action
-1. **FIX IPC connect**: In `player.py:_play_item()`, replace `time.sleep(1); self.mpv.connect()` with a retry loop:
-   ```python
-   # Wait for mpv IPC socket (Pi needs 2-4s)
-   for _ in range(20):  # 10 seconds max
-       if self.mpv.connect():
-           break
-       time.sleep(0.5)
-   else:
-       logger.error("Failed to connect to mpv IPC after 10s")
-   ```
-2. **TEST normal playback**: After fix, `curl -X POST http://picast.local:5050/api/play -H 'Content-Type: application/json' -d '{"url": "https://www.youtube.com/watch?v=jNQXAC9IVRw"}'`. Check journalctl for `loadfile (normal) response: {"error": "success"}` and `Playback started`.
-3. **TEST timestamp seek**: `curl -X POST http://picast.local:5050/api/play -H 'Content-Type: application/json' -d '{"url": "https://www.youtube.com/watch?v=nS0jvdng6NU&t=1502s", "start_time": 1983}'`. Verify video starts at ~33:03.
-4. **CLEANUP**: Remove debug logging (IPC connect, version check, response logs). Keep only error-level logging.
-5. **UPDATE version**: Bump to v0.10.0 (all idle-mode IPC issues resolved).
+No critical bugs. Potential enhancements:
+- Add more source handlers (Tubi, direct URLs)
+- Improve Archive.org browsing/search from web UI
+- Add timestamp seek support for archive.org videos
+
+## Resolved: YouTube Movie DRM
+
+YouTube movies (paid AND free/ad-supported) use Widevine DRM. yt-dlp can only resolve the trailer (~141s). This is **unfixable** — no open-source tool can decrypt Widevine.
+
+**v0.11.2 solution:** Detect the mismatch, show clear notice on TV (OSD) and web UI (error banner), play the trailer gracefully. No more silent failures.
+
+**v0.12.0 alternative:** Archive.org has thousands of full-length public domain films with zero DRM. Added as a first-class source.
 
 ## Key Files
 - `~/Documents/Projects/Claude/terminal/picast/CLAUDE.md` - Project guidance
-- `~/Documents/Projects/Claude/terminal/picast/DEVLOG.md` - Technical learnings (12 entries)
-- `~/Documents/Projects/Claude/terminal/picast-extension/popup.js` - Extension (timestamp capture)
-- `src/picast/server/player.py` - Player loop (THE FILE TO FIX — line ~400)
-- `src/picast/server/mpv_client.py` - mpv IPC client
+- `~/Documents/Projects/Claude/terminal/picast/DEVLOG.md` - Technical learnings (16 entries)
+- `~/Documents/Projects/Claude/terminal/picast-extension/popup.js` - Extension (YouTube, Twitch, Archive.org)
+- `src/picast/server/player.py` - Player loop with thumbnail loading + seek + DRM detection
+- `src/picast/server/sources/archive.py` - Archive.org source handler
+- `src/picast/server/sources/youtube.py` - YouTube source handler
 - `src/picast/server/app.py` - Flask routes
-- `src/picast/__about__.py` - Version (0.9.5)
+- `src/picast/__about__.py` - Version (0.12.0)
 
 ## Critical Knowledge (from debugging)
 - **mpv IPC socket creation**: Takes 2-4s on Pi (not 1s). Must poll.
-- **mpv v0.40 loadfile**: `["loadfile", url, flags, index, options]` — index (int) is required before options
+- **mpv v0.40 loadfile**: `["loadfile", url, flags, index, options]` — index (int) required before options
 - **Comma-separated options**: ytdl-raw-options and CDN URLs break loadfile option parser. Use CLI args.
 - **Two-phase idle polling**: Wait for idle=False (start), then idle=True (end). 150s timeout for Phase 1.
 - **IPC silent failures**: `command()` returns None on failure, no exception. Check return values.
-- **socat testing**: `echo '{"command": ["loadfile", "URL", "replace"]}' | socat - /tmp/mpv-socket`
+- **YouTube DRM**: ALL YouTube movies (paid + free) use Widevine. yt-dlp only gets trailer. Unfixable.
+- **Archive.org IDs**: Case-sensitive. Use exact ID from URL bar.
+- **picast-update caching**: Same version number = pip uses cached wheel.
+- **Thumbnail URL pattern**: `https://i.ytimg.com/vi/{VIDEO_ID}/hqdefault.jpg` — no API call needed
 
-## Bugs Fixed This Session
-| Version | Bug | Root Cause |
-|---------|-----|-----------|
-| v0.9.2 | loadfile parse error | mpv v0.40 expects index (int) as 4th arg |
-| v0.9.3 | Premature idle exit | Single-phase poll exits during load wait |
-| v0.9.4 | loadfile silently ignored | ytdl-raw-options commas break option parser |
-| v0.9.5 | **All IPC commands fail** | **connect() fails — 1s sleep too short** |
+## Source Handlers (v0.12.0)
+| Handler | Source Type | Detection |
+|---------|-----------|-----------|
+| YouTubeSource | youtube | youtube.com, youtu.be |
+| LocalSource | local | file://, /, media extensions |
+| TwitchSource | twitch | twitch.tv |
+| ArchiveSource | archive | archive.org |
+| (fallback) | youtube | anything unmatched |
 
 ## Decisions Made
 - Python + Flask REST API, mpv subprocess per video
@@ -52,11 +55,17 @@ v0.9.5 deployed to Pi. ROOT CAUSE FOUND: mpv IPC socket takes 2-4s to create on 
 - Web UI primary (PWA for phone)
 - Multi-Pi via mDNS discovery
 - Idle-mode mpv with IPC loadfile (v0.9.0+)
-- Direct URL resolution for timestamp seeking
+- Direct URL resolution for timestamp seeking (YouTube only)
 - ytdl options on CLI, not in loadfile IPC options
+- Thumbnail via ytimg.com URL (no API), title from Chrome extension (no yt-dlp block)
+- DRM movies: graceful notice, not silent failure
+- Archive.org for free movies (no DRM alternative to YouTube)
 
 ## Session History
-- Feb 17 (session 2): IPC debugging. Found 4 bugs (v0.9.2-v0.9.5). Root cause: mpv socket not ready after 1s. Fix is straightforward.
+- Feb 18 (session 3): v0.11.2 + v0.12.0 — DRM detection with user notice, Archive.org source handler, extension v1.5.0. All tested on Pi.
+- Feb 18 (session 2): v0.11.0 — Thumbnail loading, title from extension, duration validation. Movie seek still broken (yt-dlp trailer limitation).
+- Feb 18 (session 1): v0.10.0 — IPC connect retry fix deployed, both playback modes tested, debug logging stripped.
+- Feb 17 (session 2): IPC debugging. Found 4 bugs (v0.9.2-v0.9.5). Root cause: mpv socket not ready after 1s.
 - Feb 17 (session 1): Timestamp seek feature. 6 iterations (v0.8.1-v0.9.1). Extension captures currentTime, server resolves direct CDN URLs.
 - Feb 14: v0.8.0 done (queue loop, video ID input, watch counter, flicker fix). Deploy fixed.
 - Feb 12: Project tracker rewritten
