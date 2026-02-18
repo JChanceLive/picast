@@ -75,13 +75,22 @@ class ArchiveSource(SourceHandler):
             logger.warning("yt-dlp metadata fetch failed for archive.org: %s", e)
         return None
 
-    def search(self, genre: str = "", decade: str = "", rows: int = 50) -> list[SourceItem]:
+    def search(
+        self,
+        genre: str = "",
+        decade: str = "",
+        keyword: str = "",
+        sort: str = "downloads",
+        rows: int = 50,
+    ) -> list[SourceItem]:
         """Search Archive.org feature_films collection.
 
         Args:
             genre: Genre filter (e.g. "horror", "comedy"). Empty = any.
             decade: Decade filter (e.g. "1960s"). Empty = any.
-            rows: Max results to fetch (sorted by downloads desc).
+            keyword: Free-text title search. Empty = any.
+            sort: Sort order — "downloads", "date", "title".
+            rows: Max results to fetch.
 
         Returns list of SourceItem for matching movies.
         """
@@ -96,13 +105,22 @@ class ArchiveSource(SourceHandler):
                 query_parts.append(f"year:[{start} TO {end}]")
             except ValueError:
                 pass
+        if keyword:
+            query_parts.append(f"title:({keyword})")
+
+        sort_map = {
+            "downloads": "downloads+desc",
+            "date": "addeddate+desc",
+            "title": "titleSorter+asc",
+        }
+        sort_param = sort_map.get(sort, "downloads+desc")
 
         query = " AND ".join(query_parts)
         url = (
             f"https://archive.org/advancedsearch.php?"
             f"q={quote(query)}&output=json&rows={rows}"
             f"&fl[]=identifier&fl[]=title&fl[]=year&fl[]=downloads"
-            f"&sort[]=downloads+desc"
+            f"&sort[]={sort_param}"
         )
 
         try:

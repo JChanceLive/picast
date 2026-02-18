@@ -1007,8 +1007,60 @@ body {
     box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2);
 }
 
+.discover-input {
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.discover-input::placeholder { color: var(--muted); }
+
+.discover-input:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2);
+}
+
 .discover-actions {
     display: flex;
     gap: 0.5rem;
     justify-content: flex-end;
+}
+
+/* Discover loading screen */
+.discover-loading-content {
+    text-align: center;
+    padding: 2.5rem 1rem;
+}
+
+.discover-spinner {
+    font-size: 3rem;
+    animation: diceRoll 1s ease-in-out infinite;
+    margin-bottom: 1rem;
+}
+
+@keyframes diceRoll {
+    0% { transform: rotate(0deg) scale(1); }
+    25% { transform: rotate(90deg) scale(1.1); }
+    50% { transform: rotate(180deg) scale(1); }
+    75% { transform: rotate(270deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1); }
+}
+
+.discover-loading-title {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.4);
+    margin-bottom: 0.4rem;
+}
+
+.discover-loading-sub {
+    font-size: 0.85rem;
+    color: var(--muted);
 }

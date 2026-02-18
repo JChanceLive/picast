@@ -483,17 +483,21 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
 
     @app.route("/api/discover/roll", methods=["POST"])
     def discover_roll():
-        """Roll random movies from Archive.org and add to queue."""
+        """Roll random movies from Archive.org, clear queue, and autoplay."""
         data = request.get_json(silent=True) or {}
         genre = data.get("genre", "").strip()
         decade = data.get("decade", "").strip()
+        keyword = data.get("keyword", "").strip()
+        sort = data.get("sort", "downloads").strip()
 
         archive_handler = sources.get_handler("archive")
         if not archive_handler:
             return jsonify({"error": "Archive source not available"}), 500
 
-        # Fetch top 50 by downloads from Archive.org
-        results = archive_handler.search(genre=genre, decade=decade, rows=50)
+        # Fetch top 50 from Archive.org
+        results = archive_handler.search(
+            genre=genre, decade=decade, keyword=keyword, sort=sort, rows=50,
+        )
         if not results:
             return jsonify({"error": "No movies found for this filter"}), 404
 
@@ -511,7 +515,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         # Random sample of 10 (or fewer if pool is small)
         sample = random.sample(pool, min(10, len(pool)))
 
-        # Add to queue and history
+        # Clear existing queue, then add rolled movies
+        player.stop_playback()
+        queue.clear_all()
+
         now = time.time()
         added_movies = []
         for item in sample:
@@ -523,6 +530,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             )
             added_movies.append({"url": item.url, "title": item.title})
         db.commit()
+
+        # Autoplay the first movie
+        if added_movies:
+            player.play_now(added_movies[0]["url"], added_movies[0]["title"])
 
         return jsonify({
             "ok": True,
