@@ -19,7 +19,7 @@ from picast.server.library import Library
 from picast.server.mpv_client import MPVClient
 from picast.server.player import Player
 from picast.server.queue_manager import QueueManager
-from picast.server.sources import LocalSource, SourceRegistry, TwitchSource, YouTubeSource
+from picast.server.sources import ArchiveSource, LocalSource, SourceRegistry, TwitchSource, YouTubeSource
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +92,7 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     sources.register(YouTubeSource(config.ytdl_format, config=config))
     sources.register(LocalSource())
     sources.register(TwitchSource())
+    sources.register(ArchiveSource())
 
     # Device registry
     device_registry = DeviceRegistry(local_port=config.port)
