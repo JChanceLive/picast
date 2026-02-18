@@ -344,10 +344,14 @@ class Player:
         self._next_start_time = 0
 
         # Base mpv command — always starts idle so we get a window + OSD immediately
+        # ytdl options go on the command line (not in loadfile IPC) because
+        # ytdl-raw-options contains commas that break mpv's loadfile option parser
         cmd = [
             "mpv",
             f"--input-ipc-server={self.mpv.socket_path}",
             f"--hwdec={hwdec}",
+            f"--ytdl-format={fmt}",
+            f"--ytdl-raw-options={raw_opts}",
             "--cache=yes",
             "--demuxer-max-bytes=50MiB",
             "--log-file=/tmp/mpv-debug.log",
@@ -421,12 +425,10 @@ class Player:
                 else:
                     # Fallback: load YouTube URL normally (no seek)
                     logger.warning("Direct URL resolve failed, loading without seek")
-                    self.mpv.command("loadfile", item.url, "replace",
-                                    0, f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
+                    self.mpv.command("loadfile", item.url, "replace")
             else:
-                # Normal load via mpv's yt-dlp hook
-                self.mpv.command("loadfile", item.url, "replace",
-                                0, f"ytdl-format={fmt},ytdl-raw-options={raw_opts}")
+                # Normal load via mpv's yt-dlp hook (ytdl opts set on CLI)
+                self.mpv.command("loadfile", item.url, "replace")
 
             self._show_osd(f"Now Playing: {display_title}")
 
