@@ -114,6 +114,15 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     def close_db(exc):
         db.close()
 
+    # Global JSON error handler — prevents bare HTML 500s
+    @app.errorhandler(Exception)
+    def handle_exception(e):
+        from werkzeug.exceptions import HTTPException
+        if isinstance(e, HTTPException):
+            return e  # Let Flask handle normal HTTP errors (400, 404, etc.)
+        logger.exception("Unhandled error: %s", e)
+        return jsonify({"error": str(e)}), 500
+
     # Allow cross-origin requests (Chrome extension, etc.)
     @app.after_request
     def add_cors_headers(response):
@@ -211,7 +220,11 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         start_time = float(data.get("start_time", 0) or 0)
         if start_time > 0:
             logger.info("Play request with start_time=%ds for %s", start_time, url)
-        player.play_now(url, title, start_time=start_time)
+        try:
+            player.play_now(url, title, start_time=start_time)
+        except Exception as e:
+            logger.exception("Play failed for %s: %s", url, e)
+            return jsonify({"error": f"Play failed: {e}"}), 500
         return jsonify({"ok": True, "message": f"Playing: {url}"})
 
     @app.route("/api/pause", methods=["POST"])
@@ -295,16 +308,27 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         # Normalize bare video IDs to full YouTube URLs
         url = _normalize_youtube_input(url)
         # Validate URL before queueing
-        valid, error = sources.validate_url(url)
+        try:
+            valid, error = sources.validate_url(url)
+        except Exception as e:
+            logger.exception("URL validation failed for %s: %s", url, e)
+            return jsonify({"error": f"Validation failed: {e}"}), 500
         if not valid:
             return jsonify({"error": error}), 400
         title = data.get("title", "")
         # Use source registry for better detection
         if not title:
-            meta = sources.get_metadata(url)
-            if meta and meta.title:
-                title = meta.title
-        item = queue.add(url, title)
+            try:
+                meta = sources.get_metadata(url)
+                if meta and meta.title:
+                    title = meta.title
+            except Exception:
+                pass  # Non-critical — proceed without title
+        try:
+            item = queue.add(url, title)
+        except Exception as e:
+            logger.exception("Queue add failed for %s: %s", url, e)
+            return jsonify({"error": f"Queue add failed: {e}"}), 500
         return jsonify(item.to_dict()), 201
 
     @app.route("/api/queue/<int:item_id>", methods=["DELETE"])

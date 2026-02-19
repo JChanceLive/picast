@@ -8,6 +8,7 @@ import logging
 import os
 import sqlite3
 import threading
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -190,15 +191,23 @@ class Database:
         logger.info("Migrated database from v%d to v%d", from_version, to_version)
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """Execute a SQL statement. Retries once on I/O error with a fresh connection."""
+        """Execute a SQL statement. Retries on I/O error with backoff."""
         try:
             return self._get_conn().execute(sql, params)
         except sqlite3.OperationalError as e:
-            if "disk I/O error" in str(e) or "database is locked" in str(e):
-                logger.warning("SQLite error, reconnecting: %s", e)
+            err = str(e)
+            if "disk I/O error" not in err and "database is locked" not in err:
+                raise
+            # Retry with backoff — Pi SD cards need time to recover
+            for attempt, delay in enumerate([0.5, 2.0], start=1):
+                logger.warning("SQLite error (attempt %d): %s — retrying in %.1fs", attempt, e, delay)
                 self.close()
-                return self._get_conn().execute(sql, params)
-            raise
+                time.sleep(delay)
+                try:
+                    return self._get_conn().execute(sql, params)
+                except sqlite3.OperationalError:
+                    if attempt == 2:
+                        raise  # Give up after 2 retries
 
     def executemany(self, sql: str, params_list: list[tuple]) -> sqlite3.Cursor:
         """Execute a SQL statement with many param sets."""
