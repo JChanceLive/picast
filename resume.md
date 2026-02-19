@@ -1,15 +1,16 @@
 # Resume: PiCast
 
-Last updated: 2026-02-18
+Last updated: 2026-02-19
 
 ## State
-v0.12.0 deployed to Pi. All core features working: YouTube playback with timestamp seek, Twitch, local files, and **Archive.org** (full-length public domain movies). YouTube DRM movies show graceful notice instead of silently failing. 412 tests pass.
+v0.13.3 deployed to Pi. All core features working: YouTube playback with timestamp seek, Twitch, local files, and **Archive.org** (full-length public domain movies). YouTube DRM movies show graceful notice instead of silently failing. Database has retry-with-backoff for SD card I/O errors. All API errors return JSON. 412 tests pass.
 
 ## Next Action
 No critical bugs. Potential enhancements:
 - Add more source handlers (Tubi, direct URLs)
 - Improve Archive.org browsing/search from web UI
 - Add timestamp seek support for archive.org videos
+- Monitor SD card health (recurring I/O errors = card replacement needed)
 
 ## Resolved: YouTube Movie DRM
 
@@ -27,7 +28,8 @@ YouTube movies (paid AND free/ad-supported) use Widevine DRM. yt-dlp can only re
 - `src/picast/server/sources/archive.py` - Archive.org source handler
 - `src/picast/server/sources/youtube.py` - YouTube source handler
 - `src/picast/server/app.py` - Flask routes
-- `src/picast/__about__.py` - Version (0.12.0)
+- `src/picast/server/database.py` - SQLite with retry-backoff for SD card I/O
+- `src/picast/__about__.py` - Version (0.13.3)
 
 ## Critical Knowledge (from debugging)
 - **mpv IPC socket creation**: Takes 2-4s on Pi (not 1s). Must poll.
@@ -39,6 +41,9 @@ YouTube movies (paid AND free/ad-supported) use Widevine DRM. yt-dlp can only re
 - **Archive.org IDs**: Case-sensitive. Use exact ID from URL bar.
 - **picast-update caching**: Same version number = pip uses cached wheel.
 - **Thumbnail URL pattern**: `https://i.ytimg.com/vi/{VIDEO_ID}/hqdefault.jpg` — no API call needed
+- **SD card I/O errors**: Pi SD cards have transient failures. DB retries need delays (0.5s, 2s).
+- **Flask JSON errors**: Global `@app.errorhandler(Exception)` ensures API always returns JSON, not HTML.
+- **Extension is separate repo**: `picast-extension/` has its own git at `github.com/JChanceLive/picast-extension.git`
 
 ## Source Handlers (v0.12.0)
 | Handler | Source Type | Detection |
@@ -62,6 +67,7 @@ YouTube movies (paid AND free/ad-supported) use Widevine DRM. yt-dlp can only re
 - Archive.org for free movies (no DRM alternative to YouTube)
 
 ## Session History
+- Feb 19 (session 4): v0.13.3 — Fixed 500 errors from transient SD card I/O. DB retry with backoff, global JSON error handler, extension shows actual error messages.
 - Feb 18 (session 3): v0.11.2 + v0.12.0 — DRM detection with user notice, Archive.org source handler, extension v1.5.0. All tested on Pi.
 - Feb 18 (session 2): v0.11.0 — Thumbnail loading, title from extension, duration validation. Movie seek still broken (yt-dlp trailer limitation).
 - Feb 18 (session 1): v0.10.0 — IPC connect retry fix deployed, both playback modes tested, debug logging stripped.

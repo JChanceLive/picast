@@ -4,6 +4,44 @@ Technical learnings and debugging notes for future sessions.
 
 ---
 
+## 2026-02-19 (Session 4): Fix 500 Errors from SD Card I/O (v0.13.2 -> v0.13.3)
+
+### Problem
+
+Chrome extension showed "Error (500)" when clicking Play Now. No useful error info displayed.
+
+### Root Cause
+
+`sqlite3.OperationalError: disk I/O error` on the Pi's SD card. The database retry mechanism in `database.py` fired immediately (no delay), so the retry also hit the same I/O error before the SD card recovered. The exception propagated through `queue.add()` -> `player.play_now()` -> Flask route -> bare HTML 500 response.
+
+### Diagnosis Steps
+
+1. SSH'd into Pi: `journalctl -u picast --since '6 hours ago'`
+2. Found the exact traceback: `disk I/O error` in `database.py:execute()` -> retry also failed
+3. Verified database was healthy after the transient error: `PRAGMA integrity_check` returned `ok`
+
+### Fixes (3 files, 2 repos)
+
+| File | Change |
+|------|--------|
+| `database.py` | Retry with backoff (0.5s, 2s delays) instead of immediate retry |
+| `app.py` | Global `@app.errorhandler(Exception)` returns JSON 500 instead of HTML. Wrapped `/api/play` and `/api/queue/add` in try/except |
+| `popup.js` (extension) | Parse JSON error body to show actual message instead of bare "Error (500)" |
+
+### Key Technical Learnings (New)
+
+17. **Pi SD card transient I/O errors**: The Raspberry Pi's SD card can have momentary I/O failures. SQLite retries need a delay (0.5-2s) to let the card recover. Immediate retries fail.
+
+18. **Flask bare 500s**: Without `@app.errorhandler(Exception)`, unhandled exceptions return HTML error pages. Chrome extension couldn't parse them. Always return JSON from API routes.
+
+19. **Extension error display**: `popup.js` `fireAndClose()` was only showing HTTP status codes. Now parses `res.json()` for the server's error message, with fallback to status code if JSON parsing fails.
+
+20. **Database health check**: `sqlite3 ~/.picast/picast.db 'PRAGMA integrity_check; PRAGMA wal_checkpoint(TRUNCATE);'` — verifies database integrity and clears WAL. Use after I/O errors.
+
+21. **Two repos for PiCast**: Server at `picast/` and Chrome extension at `picast-extension/` are separate git repos. Both need commits when fixing cross-cutting issues.
+
+---
+
 ## 2026-02-18 (Session 3): DRM Detection + Archive.org (v0.11.2 -> v0.12.0)
 
 ### v0.11.2: Graceful YouTube Movie DRM Detection
