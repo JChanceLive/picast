@@ -331,6 +331,18 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             return jsonify({"error": f"Queue add failed: {e}"}), 500
         return jsonify(item.to_dict()), 201
 
+    @app.route("/api/queue/<int:item_id>/play", methods=["POST"])
+    def queue_play_item(item_id):
+        """Play an existing queue item immediately by its ID."""
+        try:
+            player.play_item_now(item_id)
+        except ValueError as e:
+            return jsonify({"error": str(e)}), 404
+        except Exception as e:
+            logger.exception("Play item failed for %d: %s", item_id, e)
+            return jsonify({"error": f"Play failed: {e}"}), 500
+        return jsonify({"ok": True})
+
     @app.route("/api/queue/<int:item_id>", methods=["DELETE"])
     def queue_remove(item_id):
         ok = queue.remove(item_id)

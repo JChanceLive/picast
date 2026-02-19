@@ -320,12 +320,13 @@ function moveItem(id, direction) {
 }
 
 function playNow(id) {
-    const item = lastQueueItems.find(i => i.id === id);
-    if (!item) return;
     const btn = event && event.target.closest('button');
     if (btn) { btn.disabled = true; btn.textContent = '...'; }
-    api('play', {url: item.url, title: item.title || ''})
-        .then(() => { showToast('Playing now'); poll(); })
+    api('queue/' + id + '/play', {})
+        .then(r => {
+            if (r.error) showToast(r.error);
+            else { showToast('Playing now'); poll(); }
+        })
         .catch(() => showToast('Play failed'))
         .finally(() => { if (btn) { btn.disabled = false; btn.textContent = '\u25B6'; } });
 }

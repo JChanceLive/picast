@@ -880,6 +880,20 @@ class Player:
         if self._current_item:
             self.skip()
 
+    def play_item_now(self, item_id: int, start_time: float = 0):
+        """Play an existing queue item immediately by its ID.
+
+        Moves the item to the front of the queue and skips the current video.
+        Unlike play_now(), this does NOT create a duplicate queue entry.
+        """
+        self._stop_requested = False
+        self._next_start_time = start_time
+        if not self.queue.move_to_front(item_id):
+            raise ValueError(f"Queue item {item_id} not found")
+        # Skip whatever is playing
+        if self._current_item:
+            self.skip()
+
     def stop_playback(self):
         """Stop playback and pause the queue (don't advance to next item).
 

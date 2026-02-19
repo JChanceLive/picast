@@ -134,6 +134,37 @@ class QueueManager:
         self._db.commit()
         return cursor.rowcount > 0
 
+    def get_by_id(self, item_id: int) -> QueueItem | None:
+        """Get a queue item by its ID."""
+        row = self._db.fetchone("SELECT * FROM queue WHERE id = ?", (item_id,))
+        return _row_to_item(row) if row else None
+
+    def move_to_front(self, item_id: int) -> bool:
+        """Move an existing item to the front of the pending queue.
+
+        If the item is in a non-pending state (played, skipped, failed),
+        resets it to pending first. Then reorders so it's first.
+        Returns True if the item was found and moved.
+        """
+        row = self._db.fetchone("SELECT * FROM queue WHERE id = ?", (item_id,))
+        if not row:
+            return False
+
+        # Reset to pending if needed
+        if row["status"] != "pending":
+            self._db.execute(
+                "UPDATE queue SET status = 'pending', played_at = NULL, "
+                "error_count = 0, last_error = '', failed_at = NULL WHERE id = ?",
+                (item_id,),
+            )
+            self._db.commit()
+
+        # Reorder so this item is first among pending
+        pending = self.get_pending()
+        ids = [item_id] + [i.id for i in pending if i.id != item_id]
+        self.reorder(ids)
+        return True
+
     def replay(self, item_id: int) -> bool:
         """Re-queue a played/skipped item at the end of the pending queue."""
         # Get the max position so we can place the replayed item at the end
