@@ -1084,6 +1084,21 @@ body {
     font-weight: 600;
 }
 
+.discover-filter-notice {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    margin-top: 0.75rem;
+    padding: 0.4rem 0.6rem;
+    background: rgba(0, 240, 255, 0.05);
+    border: 1px solid rgba(0, 240, 255, 0.12);
+    border-radius: var(--radius);
+    font-size: 0.72rem;
+    color: var(--muted);
+}
+
+.discover-filter-icon { font-size: 0.85rem; }
+
 .discover-actions {
     display: flex;
     gap: 0.5rem;

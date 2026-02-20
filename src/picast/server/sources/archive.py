@@ -10,6 +10,13 @@ from picast.server.sources.base import SourceHandler, SourceItem
 
 logger = logging.getLogger(__name__)
 
+CONTENT_BLOCKLIST = (
+    "adult", "x rated", "Sexploitation", "sexploitation",
+    "Adult Films", "Porn industry", "erotic", "softcore",
+    "xxx", "pornography", "nudity",
+)
+DISCOVER_YEAR_FLOOR = 1980
+
 
 class ArchiveSource(SourceHandler):
     """Handler for Internet Archive URLs using yt-dlp.
@@ -102,20 +109,30 @@ class ArchiveSource(SourceHandler):
         if genre:
             query_parts.append(f"subject:{genre}")
         if year_start > 0 or year_end > 0:
-            # Year range: year:[start TO end]
-            start = year_start if year_start > 0 else 1900
+            # Year range: year:[start TO end], clamped to floor
+            start = max(year_start, DISCOVER_YEAR_FLOOR) if year_start > 0 else DISCOVER_YEAR_FLOOR
             end = year_end if year_end > 0 else 2030
             query_parts.append(f"year:[{start} TO {end}]")
         elif decade:
             # Legacy decade support: "1960s" -> year:[1960 TO 1969]
             try:
-                start = int(decade.rstrip("s"))
+                start = max(int(decade.rstrip("s")), DISCOVER_YEAR_FLOOR)
                 end = start + 9
                 query_parts.append(f"year:[{start} TO {end}]")
             except ValueError:
                 pass
+        else:
+            # Default: enforce year floor even with no explicit range
+            query_parts.append(f"year:[{DISCOVER_YEAR_FLOOR} TO 2030]")
         if keyword:
             query_parts.append(f"title:({keyword})")
+
+        # Exclude explicit/adult content via subject tag blocklist
+        for tag in CONTENT_BLOCKLIST:
+            if " " in tag:
+                query_parts.append(f'NOT subject:"{tag}"')
+            else:
+                query_parts.append(f"NOT subject:{tag}")
 
         sort_map = {
             "downloads": "downloads+desc",

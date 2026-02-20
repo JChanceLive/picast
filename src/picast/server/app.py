@@ -500,16 +500,22 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     # --- Discover Endpoints ---
 
     DISCOVER_GENRES = [
-        {"id": "drama", "label": "Drama", "count": 3220},
-        {"id": "comedy", "label": "Comedy", "count": 1580},
-        {"id": "horror", "label": "Horror", "count": 1091},
-        {"id": "romance", "label": "Romance", "count": 890},
-        {"id": "mystery", "label": "Mystery", "count": 843},
-        {"id": "thriller", "label": "Thriller", "count": 674},
-        {"id": "western", "label": "Western", "count": 670},
-        {"id": "action", "label": "Action", "count": 499},
-        {"id": "adventure", "label": "Adventure", "count": 459},
-        {"id": "sci-fi", "label": "Sci-Fi", "count": 214},
+        {"id": "horror", "label": "Horror"},
+        {"id": "comedy", "label": "Comedy"},
+        {"id": "drama", "label": "Drama"},
+        {"id": "sci-fi", "label": "Sci-Fi"},
+        {"id": "thriller", "label": "Thriller"},
+        {"id": "western", "label": "Western"},
+        {"id": "mystery", "label": "Mystery"},
+        {"id": "romance", "label": "Romance"},
+        {"id": "adventure", "label": "Adventure"},
+        {"id": "action", "label": "Action"},
+        {"id": "animation", "label": "Animation"},
+        {"id": "documentary", "label": "Documentary"},
+        {"id": "war", "label": "War"},
+        {"id": "noir", "label": "Film Noir"},
+        {"id": "musical", "label": "Musical"},
+        {"id": "fantasy", "label": "Fantasy"},
     ]
 
     @app.route("/api/discover/genres")
@@ -527,6 +533,8 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
         sort = data.get("sort", "downloads").strip()
         year_start = int(data.get("year_start", 0) or 0)
         year_end = int(data.get("year_end", 0) or 0)
+        if year_start > 0 and year_start < 1980:
+            year_start = 1980
 
         archive_handler = sources.get_handler("archive")
         if not archive_handler:

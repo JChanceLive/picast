@@ -116,15 +116,18 @@
                 </select>
                 <label class="discover-label">Year Range</label>
                 <div class="discover-year-range">
-                    <input type="number" id="discover-year-start" class="discover-year-input" min="1900" max="2025" placeholder="From" value="">
+                    <input type="number" id="discover-year-start" class="discover-year-input" min="1980" max="2025" placeholder="From (1980)" value="" onchange="if(this.value && this.value < 1980) this.value = 1980">
                     <span class="discover-year-sep">to</span>
-                    <input type="number" id="discover-year-end" class="discover-year-input" min="1900" max="2025" placeholder="To" value="">
+                    <input type="number" id="discover-year-end" class="discover-year-input" min="1980" max="2025" placeholder="To" value="">
                 </div>
                 <div class="discover-year-presets">
-                    <button type="button" class="discover-preset" onclick="setYearPreset(0,0)">Any</button>
-                    <button type="button" class="discover-preset" onclick="setYearPreset(1980,2025)">1980+</button>
+                    <button type="button" class="discover-preset active" onclick="setYearPreset(1980,2025)">1980+</button>
+                    <button type="button" class="discover-preset" onclick="setYearPreset(1990,2025)">90s+</button>
                     <button type="button" class="discover-preset" onclick="setYearPreset(2000,2025)">2000+</button>
-                    <button type="button" class="discover-preset" onclick="setYearPreset(1920,1969)">Classic</button>
+                    <button type="button" class="discover-preset" onclick="setYearPreset(2010,2025)">2010+</button>
+                </div>
+                <div class="discover-filter-notice">
+                    <span class="discover-filter-icon">&#x1F6E1;</span> Explicit content filtered
                 </div>
                 <label class="discover-label">Sort by</label>
                 <select id="discover-sort" class="discover-select">
@@ -684,8 +687,9 @@ function rollMovies() {
     const genre = document.getElementById('discover-genre').value;
     const keyword = document.getElementById('discover-keyword').value.trim();
     const sort = document.getElementById('discover-sort').value;
-    const yearStart = document.getElementById('discover-year-start').value;
+    let yearStart = document.getElementById('discover-year-start').value;
     const yearEnd = document.getElementById('discover-year-end').value;
+    if (yearStart && parseInt(yearStart) < 1980) yearStart = '1980';
 
     // Switch to loading screen
     document.getElementById('discover-form').style.display = 'none';
