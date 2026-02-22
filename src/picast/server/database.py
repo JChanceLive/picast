@@ -190,32 +190,47 @@ class Database:
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)
 
-    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
-        """Execute a SQL statement. Retries on I/O error with backoff."""
+    # SD card controller errors (mmc1: Controller never released inhibit bit(s))
+    # can persist for 10+ seconds. Exponential backoff: 0.5, 1, 2, 4, 8 = 15.5s total.
+    _RETRY_DELAYS = [0.5, 1.0, 2.0, 4.0, 8.0]
+
+    def _retry_on_io_error(self, operation, description: str = "DB operation"):
+        """Run a DB operation with retry+backoff for SD card I/O errors."""
         try:
-            return self._get_conn().execute(sql, params)
+            return operation(self._get_conn())
         except sqlite3.OperationalError as e:
             err = str(e)
             if "disk I/O error" not in err and "database is locked" not in err:
                 raise
-            # Retry with backoff — Pi SD cards need time to recover
-            for attempt, delay in enumerate([0.5, 2.0], start=1):
-                logger.warning("SQLite error (attempt %d): %s — retrying in %.1fs", attempt, e, delay)
+            last_exc = e
+            for attempt, delay in enumerate(self._RETRY_DELAYS, start=1):
+                logger.warning(
+                    "SQLite %s error (attempt %d/%d): %s — retrying in %.1fs",
+                    description, attempt, len(self._RETRY_DELAYS), e, delay,
+                )
                 self.close()
                 time.sleep(delay)
                 try:
-                    return self._get_conn().execute(sql, params)
-                except sqlite3.OperationalError:
-                    if attempt == 2:
-                        raise  # Give up after 2 retries
+                    return operation(self._get_conn())
+                except sqlite3.OperationalError as retry_e:
+                    last_exc = retry_e
+            raise last_exc
+
+    def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
+        """Execute a SQL statement. Retries on I/O error with backoff."""
+        return self._retry_on_io_error(
+            lambda conn: conn.execute(sql, params), "execute"
+        )
 
     def executemany(self, sql: str, params_list: list[tuple]) -> sqlite3.Cursor:
         """Execute a SQL statement with many param sets."""
-        return self._get_conn().executemany(sql, params_list)
+        return self._retry_on_io_error(
+            lambda conn: conn.executemany(sql, params_list), "executemany"
+        )
 
     def commit(self):
         """Commit the current transaction."""
-        self._get_conn().commit()
+        self._retry_on_io_error(lambda conn: conn.commit(), "commit")
 
     def fetchone(self, sql: str, params: tuple = ()) -> dict | None:
         """Execute and fetch one row as dict."""
