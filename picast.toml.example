@@ -16,6 +16,15 @@ mpv_socket = "/tmp/mpv-socket"
 # allowed_users = [123456789]  # Your Telegram user ID (empty = allow all)
 # enabled = true
 
+# ntfy.sh push notifications (replaces Telegram)
+# Self-hosted ntfy server on PiPulse Pi
+# [ntfy]
+# enabled = true
+# server_url = "http://10.0.0.103:5555"
+# alert_topic = "picast-alerts"
+# summary_topic = "picast-health"
+# daily_summary_hour = 8
+
 # Device registry for multi-Pi support
 # Devices appear in TUI (Tab key) and Web UI device selector
 # mDNS auto-discovery also finds other PiCast instances on your network

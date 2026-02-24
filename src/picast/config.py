@@ -22,6 +22,17 @@ class TelegramConfig:
 
 
 @dataclass
+class NtfyConfig:
+    """Configuration for ntfy.sh push notifications."""
+
+    enabled: bool = False
+    server_url: str = "http://10.0.0.103:5555"
+    alert_topic: str = "picast-alerts"
+    summary_topic: str = "picast-health"
+    daily_summary_hour: int = 8
+
+
+@dataclass
 class DeviceConfig:
     """Configuration for a single Pi device."""
 
@@ -62,6 +73,7 @@ class Config:
 
     server: ServerConfig = field(default_factory=ServerConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
+    ntfy: NtfyConfig = field(default_factory=NtfyConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
 
     def get_default_device(self) -> DeviceConfig:
@@ -133,6 +145,16 @@ def _parse_config(data: dict) -> Config:
             enabled=t.get("enabled", bool(t.get("bot_token"))),
             notification_chat_id=t.get("notification_chat_id", 0),
             daily_summary_hour=t.get("daily_summary_hour", 8),
+        )
+
+    if "ntfy" in data:
+        n = data["ntfy"]
+        config.ntfy = NtfyConfig(
+            enabled=n.get("enabled", False),
+            server_url=n.get("server_url", config.ntfy.server_url),
+            alert_topic=n.get("alert_topic", config.ntfy.alert_topic),
+            summary_topic=n.get("summary_topic", config.ntfy.summary_topic),
+            daily_summary_hour=n.get("daily_summary_hour", config.ntfy.daily_summary_hour),
         )
 
     if "devices" in data:

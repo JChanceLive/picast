@@ -141,6 +141,40 @@ def run_server():
                     'Install with: pip install "picast[telegram]"'
                 )
 
+    # Start ntfy notification manager if configured
+    if config.ntfy.enabled:
+        from picast.server.ntfy_adapter import create_ntfy_send_fn
+        from picast.server.notifications import NotificationManager
+
+        ntfy_send_fn = create_ntfy_send_fn(
+            server_url=config.ntfy.server_url,
+            alert_topic=config.ntfy.alert_topic,
+            summary_topic=config.ntfy.summary_topic,
+        )
+
+        if hasattr(app, 'notification_manager') and app.notification_manager:
+            # Telegram already created a NotificationManager — swap transport
+            app.notification_manager._send_fn = ntfy_send_fn
+            logging.getLogger("picast").info(
+                "ntfy replaced Telegram transport (server=%s)",
+                config.ntfy.server_url,
+            )
+        else:
+            # No Telegram — create a fresh NotificationManager with ntfy
+            notif_manager = NotificationManager(
+                db=app.db,
+                send_fn=ntfy_send_fn,
+                chat_id=1,  # Dummy — ntfy ignores chat_id
+                daily_summary_hour=config.ntfy.daily_summary_hour,
+            )
+            notif_manager.start()
+            app.db.set_notification_manager(notif_manager)
+            app.notification_manager = notif_manager
+            logging.getLogger("picast").info(
+                "ntfy notification manager enabled (server=%s)",
+                config.ntfy.server_url,
+            )
+
     # Notify systemd that we're ready (if running as a service)
     _notify_systemd("READY=1")
 
