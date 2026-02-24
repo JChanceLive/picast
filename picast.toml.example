@@ -16,13 +16,12 @@ mpv_socket = "/tmp/mpv-socket"
 # allowed_users = [123456789]  # Your Telegram user ID (empty = allow all)
 # enabled = true
 
-# ntfy.sh push notifications (replaces Telegram)
-# Self-hosted ntfy server on PiPulse Pi
-# [ntfy]
+# Pushover push notifications (iOS + Android)
+# Create app at https://pushover.net/apps/build
+# [pushover]
 # enabled = true
-# server_url = "http://10.0.0.103:5555"
-# alert_topic = "picast-alerts"
-# summary_topic = "picast-health"
+# api_token = "your-app-api-token"
+# user_key = "your-user-key"
 # daily_summary_hour = 8
 
 # Device registry for multi-Pi support

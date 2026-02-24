@@ -22,13 +22,12 @@ class TelegramConfig:
 
 
 @dataclass
-class NtfyConfig:
-    """Configuration for ntfy.sh push notifications."""
+class PushoverConfig:
+    """Configuration for Pushover push notifications."""
 
     enabled: bool = False
-    server_url: str = "http://10.0.0.103:5555"
-    alert_topic: str = "picast-alerts"
-    summary_topic: str = "picast-health"
+    api_token: str = ""
+    user_key: str = ""
     daily_summary_hour: int = 8
 
 
@@ -73,7 +72,7 @@ class Config:
 
     server: ServerConfig = field(default_factory=ServerConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
-    ntfy: NtfyConfig = field(default_factory=NtfyConfig)
+    pushover: PushoverConfig = field(default_factory=PushoverConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
 
     def get_default_device(self) -> DeviceConfig:
@@ -147,14 +146,13 @@ def _parse_config(data: dict) -> Config:
             daily_summary_hour=t.get("daily_summary_hour", 8),
         )
 
-    if "ntfy" in data:
-        n = data["ntfy"]
-        config.ntfy = NtfyConfig(
-            enabled=n.get("enabled", False),
-            server_url=n.get("server_url", config.ntfy.server_url),
-            alert_topic=n.get("alert_topic", config.ntfy.alert_topic),
-            summary_topic=n.get("summary_topic", config.ntfy.summary_topic),
-            daily_summary_hour=n.get("daily_summary_hour", config.ntfy.daily_summary_hour),
+    if "pushover" in data:
+        p = data["pushover"]
+        config.pushover = PushoverConfig(
+            enabled=p.get("enabled", False),
+            api_token=p.get("api_token", ""),
+            user_key=p.get("user_key", ""),
+            daily_summary_hour=p.get("daily_summary_hour", config.pushover.daily_summary_hour),
         )
 
     if "devices" in data:

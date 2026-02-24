@@ -134,21 +134,21 @@ class TestAnalyticsAPI:
         assert data["hours"] == 48
 
 
-class TestNtfyIntegration:
-    """Test NotificationManager with ntfy adapter."""
+class TestPushoverIntegration:
+    """Test NotificationManager with Pushover adapter."""
 
-    @patch("picast.server.ntfy_adapter.urllib.request.urlopen")
-    def test_sd_threshold_triggers_ntfy_send(self, mock_urlopen, db):
+    @patch("picast.server.pushover_adapter.urllib.request.urlopen")
+    def test_sd_threshold_triggers_pushover_send(self, mock_urlopen, db):
         mock_urlopen.return_value.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=b"")))
         mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
 
-        from picast.server.ntfy_adapter import create_ntfy_send_fn
+        from picast.server.pushover_adapter import create_pushover_send_fn
 
-        send_fn = create_ntfy_send_fn("http://10.0.0.103:5555")
+        send_fn = create_pushover_send_fn("tok_abc", "user_xyz")
         mgr = NotificationManager(
             db=db,
             send_fn=send_fn,
-            chat_id=1,  # Dummy — ntfy ignores it
+            chat_id=1,  # Dummy — Pushover ignores it
         )
 
         for i in range(SD_ERROR_THRESHOLD):
@@ -156,8 +156,9 @@ class TestNtfyIntegration:
 
         assert mock_urlopen.call_count == 1
         req = mock_urlopen.call_args[0][0]
-        assert "picast-alerts" in req.full_url
-        assert req.get_header("Priority") == "4"
+        body = req.data.decode("utf-8")
+        assert "priority=1" in body
+        assert "title=PiCast+SD+Alert" in body
 
 
 class TestHealthEndpointSD:
