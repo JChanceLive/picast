@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -99,6 +99,33 @@ CREATE TABLE IF NOT EXISTS discover_history (
 
 CREATE INDEX IF NOT EXISTS idx_discover_history_url ON discover_history(url);
 CREATE INDEX IF NOT EXISTS idx_discover_history_rolled ON discover_history(rolled_at);
+
+CREATE TABLE IF NOT EXISTS catalog_progress (
+    series_id TEXT UNIQUE NOT NULL,
+    last_episode_index INTEGER NOT NULL DEFAULT 0,
+    updated_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS watch_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    url TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    source_type TEXT NOT NULL DEFAULT 'unknown',
+    started_at REAL NOT NULL,
+    ended_at REAL NOT NULL,
+    duration_watched REAL NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_watch_sessions_started ON watch_sessions(started_at);
+
+CREATE TABLE IF NOT EXISTS sd_errors (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    error_type TEXT NOT NULL,
+    detail TEXT NOT NULL DEFAULT '',
+    occurred_at REAL NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sd_errors_occurred ON sd_errors(occurred_at);
 """
 
 
@@ -108,8 +135,13 @@ class Database:
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
+        self._notification_manager = None
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self._init_schema()
+
+    def set_notification_manager(self, manager):
+        """Set the notification manager for SD error alerts."""
+        self._notification_manager = manager
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local connection."""
@@ -186,6 +218,35 @@ class Database:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_discover_history_url ON discover_history(url)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_discover_history_rolled ON discover_history(rolled_at)")
+        if from_version < 5:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS catalog_progress (
+                    series_id TEXT UNIQUE NOT NULL,
+                    last_episode_index INTEGER NOT NULL DEFAULT 0,
+                    updated_at REAL NOT NULL
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS watch_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    url TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    source_type TEXT NOT NULL DEFAULT 'unknown',
+                    started_at REAL NOT NULL,
+                    ended_at REAL NOT NULL,
+                    duration_watched REAL NOT NULL DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_sessions_started ON watch_sessions(started_at)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS sd_errors (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    error_type TEXT NOT NULL,
+                    detail TEXT NOT NULL DEFAULT '',
+                    occurred_at REAL NOT NULL
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_sd_errors_occurred ON sd_errors(occurred_at)")
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)
@@ -202,6 +263,12 @@ class Database:
             err = str(e)
             if "disk I/O error" not in err and "database is locked" not in err:
                 raise
+            # Record SD error for notification manager
+            if self._notification_manager and "disk I/O error" in err:
+                try:
+                    self._notification_manager.record_sd_error("disk_io", err)
+                except Exception:
+                    pass  # Don't let notification failures block retries
             last_exc = e
             for attempt, delay in enumerate(self._RETRY_DELAYS, start=1):
                 logger.warning(

@@ -1137,3 +1137,78 @@ body {
     font-size: 0.85rem;
     color: var(--muted);
 }
+
+/* Catalog */
+.catalog-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-bottom: 0.75rem;
+    font-size: 0.85rem;
+}
+
+.crumb-link {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.crumb-link:hover { text-decoration: underline; }
+
+.crumb-sep { color: var(--muted); }
+
+.crumb-active {
+    color: var(--text);
+    font-weight: 600;
+}
+
+.crumb-root {
+    color: var(--accent);
+    cursor: pointer;
+    font-weight: 600;
+}
+
+.crumb-root:hover { text-decoration: underline; }
+
+.catalog-series-header {
+    margin-bottom: 1rem;
+}
+
+.catalog-season-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    margin-top: 0.75rem;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.1);
+}
+
+.catalog-season-header h3 {
+    font-size: 0.95rem;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
+}
+
+.catalog-continue-badge {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
+    margin-bottom: 0.75rem;
+    background: rgba(0, 240, 255, 0.05);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    border-radius: var(--radius);
+    font-size: 0.85rem;
+    color: var(--accent);
+}
+
+#continue-section {
+    margin-bottom: 1rem;
+}
+
+#continue-section h2 {
+    font-size: 1rem;
+    margin-bottom: 0.5rem;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
+}

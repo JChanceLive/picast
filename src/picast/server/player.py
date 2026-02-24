@@ -32,6 +32,12 @@ try:
 except ImportError:
     Library = None
 
+# Optional catalog import - auto-next works only when available
+try:
+    from picast.server.catalog import find_series_by_url
+except ImportError:
+    find_series_by_url = None
+
 logger = logging.getLogger(__name__)
 
 # Cascade protection thresholds
@@ -641,8 +647,13 @@ class Player:
                 self._emit("playback", f"Completed: {display_title}", item.url, item.id)
 
             # Auto-save to library (only for real plays, not stop/retry/failed)
-            if (not self._stop_requested and cascade_action not in ("retry", "failed")
-                    and self.library):
+            is_real_play = (
+                not self._stop_requested
+                and cascade_action not in ("retry", "failed")
+                and play_duration >= MIN_PLAY_SECONDS
+            )
+
+            if is_real_play and self.library:
                 try:
                     self.library.record_play(
                         url=item.url,
@@ -651,6 +662,54 @@ class Player:
                     )
                 except Exception as e:
                     logger.warning("Failed to save to library: %s", e)
+
+            # Record watch session (for analytics)
+            if is_real_play:
+                try:
+                    end_time_epoch = time.time()
+                    start_time_epoch = end_time_epoch - play_duration
+                    self.queue._db.execute(
+                        "INSERT INTO watch_sessions "
+                        "(url, title, source_type, started_at, ended_at, duration_watched) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (item.url, item.title or "", item.source_type,
+                         start_time_epoch, end_time_epoch, play_duration),
+                    )
+                    self.queue._db.commit()
+                except Exception as e:
+                    logger.warning("Failed to record watch session: %s", e)
+
+            # Auto-next-episode for catalog series
+            if is_real_play and not self._skip_requested and find_series_by_url:
+                try:
+                    result = find_series_by_url(item.url)
+                    if result:
+                        series, ep_index = result
+                        # Update catalog progress
+                        now = time.time()
+                        self.queue._db.execute(
+                            "INSERT OR REPLACE INTO catalog_progress "
+                            "(series_id, last_episode_index, updated_at) "
+                            "VALUES (?, ?, ?)",
+                            (series.id, ep_index, now),
+                        )
+                        self.queue._db.commit()
+                        # Queue next episode
+                        next_ep = series.get_next_episode(ep_index)
+                        if next_ep:
+                            next_title = f"{series.title} - {next_ep.title}"
+                            self.queue.add(next_ep.url, next_title)
+                            self._emit(
+                                "playback",
+                                f"Auto-queued: {next_title}",
+                                next_ep.url,
+                            )
+                            logger.info(
+                                "Auto-queued next episode: %s (index %d)",
+                                next_title, ep_index + 1,
+                            )
+                except Exception as e:
+                    logger.warning("Auto-next-episode failed: %s", e)
 
             self._current_item = None
             logger.info(

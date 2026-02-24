@@ -115,6 +115,22 @@ class TestWebPages:
         resp = client.get("/static/style.css")
         assert b".queue-search" in resp.data
 
+    def test_catalog_page(self, client):
+        resp = client.get("/catalog")
+        assert resp.status_code == 200
+        assert b"Catalog" in resp.data
+
+    def test_catalog_nav_pill_on_all_pages(self, client):
+        for path in ["/", "/history", "/collections", "/catalog"]:
+            resp = client.get(path)
+            assert b'href="/catalog"' in resp.data, f"Missing catalog nav on {path}"
+
+    def test_css_has_catalog_styles(self, client):
+        resp = client.get("/static/style.css")
+        assert b".catalog-breadcrumb" in resp.data
+        assert b".catalog-season-header" in resp.data
+        assert b".catalog-continue-badge" in resp.data
+
 
 class TestLibraryAPI:
     def test_library_browse_empty(self, client):

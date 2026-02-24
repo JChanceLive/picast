@@ -137,14 +137,14 @@ class TestMigrationV2ToV3:
         assert rows[1]["played_at"] == 1002.0
 
     def test_migration_updates_schema_version(self, tmp_path):
-        """v2→v3→v4 migration bumps schema_version to 4."""
+        """v2→v3→v4→v5 migration bumps schema_version to 5."""
         db_path = str(tmp_path / "migrate.db")
         self._create_v2_db(db_path)
 
         db = Database(db_path)
 
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 4
+        assert row["version"] == 5
 
     def test_migration_events_indices_exist(self, tmp_path):
         """v2→v3 migration creates indices on events table."""
@@ -177,3 +177,157 @@ class TestMigrationV2ToV3:
             "SELECT name FROM sqlite_master WHERE type='table' AND name='events'"
         )
         assert len(tables) == 1
+
+
+class TestMigrationV4ToV5:
+    """Test migrating from schema v4 to v5."""
+
+    def _create_v4_db(self, db_path: str):
+        """Create a database with v4 schema."""
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA foreign_keys=ON")
+        conn.executescript("""
+            CREATE TABLE schema_version (version INTEGER NOT NULL);
+            INSERT INTO schema_version (version) VALUES (4);
+
+            CREATE TABLE library (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'youtube',
+                duration REAL DEFAULT 0,
+                notes TEXT NOT NULL DEFAULT '',
+                play_count INTEGER NOT NULL DEFAULT 0,
+                first_played_at REAL,
+                last_played_at REAL,
+                added_at REAL NOT NULL,
+                favorite INTEGER NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE playlist_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id INTEGER NOT NULL,
+                library_id INTEGER NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                added_at REAL NOT NULL
+            );
+
+            CREATE TABLE queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'youtube',
+                status TEXT NOT NULL DEFAULT 'pending',
+                position INTEGER NOT NULL DEFAULT 0,
+                added_at REAL NOT NULL,
+                played_at REAL,
+                error_count INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT '',
+                failed_at REAL
+            );
+
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                queue_item_id INTEGER,
+                title TEXT NOT NULL DEFAULT '',
+                detail TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL
+            );
+
+            CREATE TABLE discover_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                genre TEXT NOT NULL DEFAULT '',
+                decade TEXT NOT NULL DEFAULT '',
+                rolled_at REAL NOT NULL
+            );
+        """)
+        conn.commit()
+
+        # Insert test data
+        conn.execute(
+            "INSERT INTO library (url, title, added_at) VALUES (?, ?, ?)",
+            ("https://youtube.com/watch?v=test", "Test Video", 1000.0),
+        )
+        conn.commit()
+        conn.close()
+
+    def test_v4_to_v5_creates_catalog_progress(self, tmp_path):
+        """v4→v5 migration creates catalog_progress table."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v4_db(db_path)
+        db = Database(db_path)
+
+        tables = db.fetchall(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='catalog_progress'"
+        )
+        assert len(tables) == 1
+
+    def test_v4_to_v5_creates_watch_sessions(self, tmp_path):
+        """v4→v5 migration creates watch_sessions table."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v4_db(db_path)
+        db = Database(db_path)
+
+        tables = db.fetchall(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='watch_sessions'"
+        )
+        assert len(tables) == 1
+
+    def test_v4_to_v5_creates_sd_errors(self, tmp_path):
+        """v4→v5 migration creates sd_errors table."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v4_db(db_path)
+        db = Database(db_path)
+
+        tables = db.fetchall(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='sd_errors'"
+        )
+        assert len(tables) == 1
+
+    def test_v4_to_v5_preserves_data(self, tmp_path):
+        """v4→v5 migration preserves existing library data."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v4_db(db_path)
+        db = Database(db_path)
+
+        rows = db.fetchall("SELECT * FROM library")
+        assert len(rows) == 1
+        assert rows[0]["title"] == "Test Video"
+
+    def test_v4_to_v5_updates_version(self, tmp_path):
+        """v4→v5 migration bumps schema_version to 5."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v4_db(db_path)
+        db = Database(db_path)
+
+        row = db.fetchone("SELECT version FROM schema_version")
+        assert row["version"] == 5
+
+    def test_fresh_db_has_v5_tables(self, tmp_path):
+        """A fresh database should have all v5 tables."""
+        db = Database(str(tmp_path / "fresh.db"))
+
+        for table_name in ("catalog_progress", "watch_sessions", "sd_errors"):
+            tables = db.fetchall(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+            assert len(tables) == 1, f"Missing table: {table_name}"
+
+    def test_fresh_db_schema_version_is_5(self, tmp_path):
+        """A fresh database should have schema version 5."""
+        db = Database(str(tmp_path / "fresh.db"))
+        row = db.fetchone("SELECT version FROM schema_version")
+        assert row["version"] == 5

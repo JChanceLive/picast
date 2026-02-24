@@ -21,6 +21,7 @@ from picast.server.library import Library
 from picast.server.mpv_client import MPVClient
 from picast.server.player import Player
 from picast.server.queue_manager import QueueManager
+from picast.server.catalog import CATEGORIES, CATALOG, get_series_by_category, get_series_by_id
 from picast.server.sources import ArchiveSource, LocalSource, SourceRegistry, TwitchSource, YouTubeSource
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,13 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     def web_collections():
         return render_template(
             "collections.html", active="collections",
+            devices=device_registry.list_devices(),
+        )
+
+    @app.route("/catalog")
+    def web_catalog():
+        return render_template(
+            "catalog.html", active="catalog",
             devices=device_registry.list_devices(),
         )
 
@@ -590,6 +598,124 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             "movies": added_movies,
         })
 
+    # --- Catalog Endpoints ---
+
+    @app.route("/api/catalog/categories")
+    def catalog_categories():
+        return jsonify(CATEGORIES)
+
+    @app.route("/api/catalog/categories/<category_id>")
+    def catalog_category(category_id):
+        series = get_series_by_category(category_id)
+        return jsonify([s.to_dict() for s in series])
+
+    @app.route("/api/catalog/series/<series_id>")
+    def catalog_series(series_id):
+        series = get_series_by_id(series_id)
+        if not series:
+            return jsonify({"error": "series not found"}), 404
+        data = series.to_dict(include_episodes=True)
+        # Include progress if available
+        row = db.fetchone(
+            "SELECT last_episode_index FROM catalog_progress WHERE series_id = ?",
+            (series_id,),
+        )
+        data["progress"] = row["last_episode_index"] if row else None
+        return jsonify(data)
+
+    @app.route("/api/catalog/series/<series_id>/queue-all", methods=["POST"])
+    def catalog_queue_all(series_id):
+        series = get_series_by_id(series_id)
+        if not series:
+            return jsonify({"error": "series not found"}), 404
+        added = 0
+        for season in series.seasons:
+            for ep in season.episodes:
+                queue.add(ep.url, f"{series.title} - {ep.title}")
+                added += 1
+        return jsonify({"ok": True, "added": added})
+
+    @app.route("/api/catalog/series/<series_id>/queue-season", methods=["POST"])
+    def catalog_queue_season(series_id):
+        series = get_series_by_id(series_id)
+        if not series:
+            return jsonify({"error": "series not found"}), 404
+        data = request.get_json(silent=True) or {}
+        season_num = data.get("season")
+        if season_num is None:
+            return jsonify({"error": "season required"}), 400
+        added = 0
+        for season in series.seasons:
+            if season.number == int(season_num):
+                for ep in season.episodes:
+                    queue.add(ep.url, f"{series.title} - {ep.title}")
+                    added += 1
+                break
+        return jsonify({"ok": True, "added": added})
+
+    @app.route("/api/catalog/progress")
+    def catalog_progress():
+        rows = db.fetchall(
+            "SELECT series_id, last_episode_index, updated_at FROM catalog_progress "
+            "ORDER BY updated_at DESC"
+        )
+        result = []
+        for row in rows:
+            series = get_series_by_id(row["series_id"])
+            if series:
+                result.append({
+                    "series_id": row["series_id"],
+                    "series_title": series.title,
+                    "last_episode_index": row["last_episode_index"],
+                    "total_episodes": series.total_episodes,
+                    "updated_at": row["updated_at"],
+                })
+        return jsonify(result)
+
+    @app.route("/api/catalog/series/<series_id>/continue", methods=["POST"])
+    def catalog_continue(series_id):
+        series = get_series_by_id(series_id)
+        if not series:
+            return jsonify({"error": "series not found"}), 404
+        row = db.fetchone(
+            "SELECT last_episode_index FROM catalog_progress WHERE series_id = ?",
+            (series_id,),
+        )
+        next_idx = (row["last_episode_index"] + 1) if row else 0
+        ep = series.get_episode_by_index(next_idx)
+        if not ep:
+            return jsonify({"error": "No more episodes"}), 404
+        title = f"{series.title} - {ep.title}"
+        player.play_now(ep.url, title)
+        return jsonify({
+            "ok": True,
+            "episode": {"title": title, "url": ep.url, "index": next_idx},
+        })
+
+    # --- Analytics Endpoint ---
+
+    @app.route("/api/analytics")
+    def analytics():
+        """Get watch analytics for the given time window."""
+        hours = int(request.args.get("hours", 24))
+        notif = getattr(app, "notification_manager", None)
+        if notif:
+            return jsonify(notif.get_watch_analytics(hours))
+        # Fallback: basic analytics from DB directly
+        cutoff = time.time() - (hours * 3600)
+        total_row = db.fetchone(
+            "SELECT COUNT(*) as cnt, COALESCE(SUM(duration_watched), 0) as total "
+            "FROM watch_sessions WHERE started_at >= ?",
+            (cutoff,),
+        )
+        return jsonify({
+            "hours": hours,
+            "total_sessions": total_row["cnt"] if total_row else 0,
+            "total_duration": total_row["total"] if total_row else 0,
+            "top_by_time": [],
+            "top_by_count": [],
+        })
+
     # --- Health Check ---
 
     @app.route("/api/health")
@@ -602,6 +728,15 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             "queue_pending": len(queue.get_pending()),
             "queue_total": len(queue.get_all()),
         }
+        # SD error count (last hour)
+        try:
+            sd_row = db.fetchone(
+                "SELECT COUNT(*) as cnt FROM sd_errors WHERE occurred_at >= ?",
+                (time.time() - 3600,),
+            )
+            resp["sd_errors_1h"] = sd_row["cnt"] if sd_row else 0
+        except Exception:
+            resp["sd_errors_1h"] = 0
         # Include last auto-update status if available
         update_log = os.path.join(config.data_dir, "update.log")
         if os.path.exists(update_log):

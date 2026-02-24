@@ -17,6 +17,8 @@ class TelegramConfig:
     bot_token: str = ""
     allowed_users: list[int] = field(default_factory=list)
     enabled: bool = False
+    notification_chat_id: int = 0     # Chat ID for push notifications
+    daily_summary_hour: int = 8       # Hour (0-23) for daily summary
 
 
 @dataclass
@@ -129,6 +131,8 @@ def _parse_config(data: dict) -> Config:
             bot_token=t.get("bot_token", ""),
             allowed_users=t.get("allowed_users", []),
             enabled=t.get("enabled", bool(t.get("bot_token"))),
+            notification_chat_id=t.get("notification_chat_id", 0),
+            daily_summary_hour=t.get("daily_summary_hour", 8),
         )
 
     if "devices" in data:

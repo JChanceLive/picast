@@ -601,6 +601,26 @@ class PiCastBot:
             loop.run_until_complete(app.shutdown())
             loop.close()
 
+    def send_notification_sync(self, chat_id: int, text: str):
+        """Send a message synchronously (for NotificationManager background thread).
+
+        This creates a short-lived httpx client to call the Telegram Bot API
+        directly, avoiding the need for an asyncio event loop.
+        """
+        url = f"https://api.telegram.org/bot{self.token}/sendMessage"
+        try:
+            import httpx
+            with httpx.Client(timeout=10) as client:
+                resp = client.post(url, json={
+                    "chat_id": chat_id,
+                    "text": text,
+                    "parse_mode": "HTML",
+                })
+                if resp.status_code != 200:
+                    logger.warning("Telegram notification failed: %s", resp.text[:200])
+        except Exception as e:
+            logger.warning("Telegram notification error: %s", e)
+
     def stop_background(self):
         """Stop the background bot thread."""
         if self._thread and self._thread.is_alive():

@@ -118,6 +118,23 @@ def run_server():
                 )
                 bot.start_background()
                 logging.getLogger("picast").info("Telegram bot enabled")
+
+                # Start notification manager if chat_id configured
+                if config.telegram.notification_chat_id:
+                    from picast.server.notifications import NotificationManager
+                    notif_manager = NotificationManager(
+                        db=app.db,
+                        send_fn=bot.send_notification_sync,
+                        chat_id=config.telegram.notification_chat_id,
+                        daily_summary_hour=config.telegram.daily_summary_hour,
+                    )
+                    notif_manager.start()
+                    app.db.set_notification_manager(notif_manager)
+                    app.notification_manager = notif_manager
+                    logging.getLogger("picast").info(
+                        "Notification manager enabled (chat_id=%d)",
+                        config.telegram.notification_chat_id,
+                    )
             except ImportError:
                 logging.getLogger("picast").error(
                     "Telegram dependencies not installed. "

@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Catalog{% endblock %}
+
+{% block content %}
+<div id="catalog-view">
+    <!-- Continue Watching (shown if user has progress) -->
+    <div id="continue-section" style="display:none">
+        <h2>Continue Watching</h2>
+        <div id="continue-list"></div>
+    </div>
+
+    <!-- Breadcrumb navigation -->
+    <div class="catalog-breadcrumb" id="breadcrumb">
+        <span class="crumb-root" onclick="loadCategories()">Catalog</span>
+    </div>
+
+    <!-- Dynamic content area -->
+    <div id="catalog-content"></div>
+</div>
+
+<script>
+let currentView = 'categories'; // categories | category | series
+
+function loadCategories() {
+    currentView = 'categories';
+    document.getElementById('breadcrumb').innerHTML = '<span class="crumb-active">Catalog</span>';
+    fetch('/api/catalog/categories')
+        .then(r => r.json())
+        .then(cats => {
+            let html = '';
+            cats.forEach(c => {
+                html += `<div class="playlist-card" onclick="openCategory('${esc(c.id)}', '${esc(c.label)}')">
+                    <div class="pc-name">${esc(c.label)}</div>
+                </div>`;
+            });
+            document.getElementById('catalog-content').innerHTML = html;
+        });
+    loadContinueWatching();
+}
+
+function openCategory(id, label) {
+    currentView = 'category';
+    document.getElementById('breadcrumb').innerHTML =
+        `<span class="crumb-link" onclick="loadCategories()">Catalog</span>` +
+        `<span class="crumb-sep">/</span>` +
+        `<span class="crumb-active">${esc(label)}</span>`;
+
+    fetch(`/api/catalog/categories/${id}`)
+        .then(r => r.json())
+        .then(series => {
+            let html = '';
+            series.forEach(s => {
+                html += `<div class="playlist-card" onclick="openSeries('${esc(s.id)}')">
+                    <div class="pc-name">${esc(s.title)}</div>
+                    <div class="pc-meta">${s.total_episodes} episodes</div>
+                    <div class="pc-meta" style="margin-top:0.25rem;font-size:0.8rem">${esc(s.description)}</div>
+                    <div class="pc-actions">
+                        <button class="btn btn-sm" onclick="event.stopPropagation(); queueSeries('${esc(s.id)}')">Queue All</button>
+                    </div>
+                </div>`;
+            });
+            if (!series.length) html = '<div class="empty">No series in this category yet.</div>';
+            document.getElementById('catalog-content').innerHTML = html;
+        });
+}
+
+function openSeries(id) {
+    currentView = 'series';
+    fetch(`/api/catalog/series/${id}`)
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('breadcrumb').innerHTML =
+                `<span class="crumb-link" onclick="loadCategories()">Catalog</span>` +
+                `<span class="crumb-sep">/</span>` +
+                `<span class="crumb-link" onclick="openCategory('${esc(data.category)}', '${esc(data.category)}')">${esc(data.category)}</span>` +
+                `<span class="crumb-sep">/</span>` +
+                `<span class="crumb-active">${esc(data.title)}</span>`;
+
+            let html = `<div class="catalog-series-header">
+                <h2>${esc(data.title)}</h2>
+                <p style="color:var(--muted);font-size:0.85rem;margin:0.25rem 0">${esc(data.description)}</p>
+                <div style="display:flex;gap:0.5rem;margin-top:0.5rem">
+                    <button class="btn btn-sm btn-primary" onclick="queueSeries('${esc(data.id)}')">Queue All (${data.total_episodes})</button>
+                </div>
+            </div>`;
+
+            // Progress badge
+            if (data.progress !== undefined && data.progress !== null) {
+                const ep = data.progress + 1;
+                html += `<div class="catalog-continue-badge">
+                    <span>Last watched: Episode ${ep}</span>
+                    <button class="btn btn-sm" onclick="continueSeries('${esc(data.id)}')">Continue</button>
+                </div>`;
+            }
+
+            data.seasons.forEach(season => {
+                html += `<div class="catalog-season-header">
+                    <h3>Season ${season.number}</h3>
+                    <button class="btn btn-sm" onclick="queueSeason('${esc(data.id)}', ${season.number})">Queue Season</button>
+                </div>`;
+
+                season.episodes.forEach((ep, idx) => {
+                    html += `<div class="pd-item">
+                        <span class="pdi-num">E${ep.episode}</span>
+                        <div class="pdi-info">
+                            <span class="pdi-title">${esc(ep.title)}</span>
+                        </div>
+                        <div class="pdi-actions">
+                            <button class="qi-circle qi-play" onclick="playEpisode('${esc(ep.url)}', '${esc(ep.title)}')" title="Play">&#9654;</button>
+                            <button class="qi-circle qi-add" onclick="queueEpisode('${esc(ep.url)}', '${esc(ep.title)}')" title="Queue">+</button>
+                        </div>
+                    </div>`;
+                });
+            });
+
+            document.getElementById('catalog-content').innerHTML = html;
+        });
+}
+
+function queueSeries(id) {
+    fetch(`/api/catalog/series/${id}/queue-all`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) showToast(`Added ${data.added} episodes to queue`);
+        });
+}
+
+function queueSeason(seriesId, seasonNum) {
+    fetch(`/api/catalog/series/${seriesId}/queue-season`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ season: seasonNum }),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) showToast(`Added ${data.added} episodes to queue`);
+        });
+}
+
+function playEpisode(url, title) {
+    fetch('/api/play', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, title }),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok) showToast('Playing: ' + title);
+        });
+}
+
+function queueEpisode(url, title) {
+    fetch('/api/queue/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url, title }),
+    })
+        .then(r => r.json())
+        .then(data => {
+            if (data.id || data.ok) showToast('Queued: ' + title);
+        });
+}
+
+function continueSeries(id) {
+    fetch(`/api/catalog/series/${id}/continue`, { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.ok && data.episode) showToast('Playing: ' + data.episode.title);
+            else if (data.error) showToast(data.error);
+        });
+}
+
+function loadContinueWatching() {
+    fetch('/api/catalog/progress')
+        .then(r => r.json())
+        .then(items => {
+            const section = document.getElementById('continue-section');
+            const list = document.getElementById('continue-list');
+            if (!items || !items.length) {
+                section.style.display = 'none';
+                return;
+            }
+            section.style.display = 'block';
+            let html = '';
+            items.forEach(item => {
+                html += `<div class="playlist-card" onclick="openSeries('${esc(item.series_id)}')">
+                    <div class="pc-name">${esc(item.series_title)}</div>
+                    <div class="pc-meta">Episode ${item.last_episode_index + 1} of ${item.total_episodes}</div>
+                    <div class="pc-actions">
+                        <button class="btn btn-sm btn-primary" onclick="event.stopPropagation(); continueSeries('${esc(item.series_id)}')">Continue</button>
+                    </div>
+                </div>`;
+            });
+            list.innerHTML = html;
+        });
+}
+
+// Initialize
+loadCategories();
+</script>
+{% endblock %}
