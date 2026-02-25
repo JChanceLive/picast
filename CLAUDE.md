@@ -136,7 +136,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-02-25 | 34 active memories, 64 total_
+_Last updated: 2026-02-25 | 36 active memories, 67 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -159,6 +159,7 @@ _Last updated: 2026-02-25 | 34 active memories, 64 total_
 - /done command captures session metadata for dashboard visibility and structured handoff. User workflow: auto-save hoo... [workflow, session-management, dashboard, aoe, session-history]
 - PiCast autoplay pool initialization requires two-stage deployment: (1) Enable pool_mode in picast.toml [autoplay] sec... [picast, autoplay, deployment, pool-mode, configuration]
 - Direct SQLite insertion via Python on Pi (systemctl stop → sqlite3.connect() → insert rows → systemctl restart) is fa... [picast, deployment, sqlite, performance]
+- picast-update binary path requires direct SSH call via ~/.local/bin/picast-update (not in system PATH via SSH), sugge... [picast, deployment, ssh, pip-install]
 
 ## Gotchas & Pitfalls
 - Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
@@ -172,15 +173,16 @@ _Last updated: 2026-02-25 | 34 active memories, 64 total_
 - PiCast autoplay pool mode DB locking resolved in v0.18.2 via two fixes: (1) changed add_video() to use INSERT OR IGNO... [picast, autoplay, database, sqlite, locking, fix]
 
 ## Current Progress
+- PiCast v0.19.0 autoplay web UI and CLI deployed and verified: pool management page (/pool route) with full CRUD opera... [picast, autoplay, web-ui, cli, deployment]
 - PiCast autoplay pool system fully verified and operational: all 10 TIM blocks mapped with 4-5 videos each (41 total),... [picast, autoplay, pool-mode, verification, testing]
 - PiCast autoplay pool mode FIXED (v0.18.2): identified and resolved permanent DB lock from unclosed transaction in see... [picast, autoplay, pool-mode, debugging, fix, deployment]
-- PiCast autoplay v1 implementation COMPLETE: 10 TIM blocks mapped to real YouTube videos (oldies/lofi/focus/classical/... [picast, autoplay, v0.18.0, deployment-ready]
 - PiCast Pushover migration complete (v0.16.0→v0.16.1): replaced ntfy with Pushover across PiCast (pushover_adapter.py ... [picast, picam, pipulse, pushover, migration, deployment, sound-system]
 - Terminal ecosystem cleanup completed: gitignore patterns (.mcp.json, .claude/, docs/CLAUDE.md) added across 15 repos ... [cleanup, git, gitignore, starcouncil, terminal-ecosystem, deployment]
 - Pushover sound tier system live across all 3 Pis (PiCast v0.16.1, PiCam, PiPulse): SoundTier enum with CASUAL/MEDIUM/... [pushover, notifications, sound-system, picast, picam, pipulse, deployment]
 - Ultra Claude Stack (3-layer automation: Memory Extractor + TUI/MCP integration + brain.md sync) is COMPLETE and live.... [ultra-claude-stack, automation, system-architecture]
 
 ## Context
+- PiCast autoplay roadmap: Sessions 1-2 complete (pool system + web UI); Session 3 (optional) proposes YouTube discover... [picast, autoplay, roadmap, discovery-agent]
 - User preference clarified: /done is the systematic session checkpoint (replaces /save); build full integration (JSONL... [workflow, preferences, priorities, session-management]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-history]
 
