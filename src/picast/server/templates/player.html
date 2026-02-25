@@ -169,6 +169,8 @@ let isPlaylistUrl = false;
 let importTarget = 'queue';
 let loopEnabled = false;
 let autoplayEnabled = false;
+let autoplayVideoId = null;
+let autoplayBlockName = null;
 let idleStreak = 0;
 
 function poll() {
@@ -245,10 +247,15 @@ function updateNowPlaying(s) {
     const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]', archive: '[Archive]'};
     document.getElementById('np-source').textContent = tags[s.source_type] || '';
 
-    // Show/hide autoplay rating buttons
+    // Show/hide autoplay rating buttons and capture context
     const ratingBar = document.getElementById('np-rating');
     if (s.autoplay_current && s.autoplay_current.video_id) {
+        autoplayVideoId = s.autoplay_current.video_id;
+        autoplayBlockName = s.autoplay_current.block_name;
         ratingBar.style.display = '';
+        // Reset active state for new video
+        document.getElementById('btn-rate-up').classList.remove('btn-rate-active-up');
+        document.getElementById('btn-rate-down').classList.remove('btn-rate-active-down');
     } else {
         ratingBar.style.display = 'none';
     }
@@ -555,7 +562,11 @@ function updateAutoplayUI() {
 }
 
 function rateAutoplay(rating) {
-    api('autoplay/rate', {rating})
+    const payload = {rating};
+    // Pass explicit IDs captured when rating bar appeared
+    if (autoplayVideoId) payload.video_id = autoplayVideoId;
+    if (autoplayBlockName) payload.block_name = autoplayBlockName;
+    api('autoplay/rate', payload)
         .then(data => {
             if (data.ok) {
                 const label = rating === 1 ? 'Liked' : 'Disliked';

@@ -334,4 +334,187 @@ class TestNavPills:
 
     def test_pool_pill_active_on_pool_page(self, client):
         resp = client.get("/pool")
-        assert b'class="pill active">Pool' in resp.data
+        assert b'btn-dice-active' in resp.data
+
+
+# --- Self-Learning: record_completion ---
+
+class TestRecordCompletion:
+    def test_increments_completion_count(self, pool):
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
+        ok = pool.record_completion("test", "abc12345678")
+        assert ok is True
+        video = pool.get_video("test", "abc12345678")
+        assert video["completion_count"] == 1
+
+    def test_multiple_completions(self, pool):
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
+        pool.record_completion("test", "abc12345678")
+        pool.record_completion("test", "abc12345678")
+        pool.record_completion("test", "abc12345678")
+        video = pool.get_video("test", "abc12345678")
+        assert video["completion_count"] == 3
+
+    def test_nonexistent_returns_false(self, pool):
+        assert pool.record_completion("nope", "nope") is False
+
+
+# --- Self-Learning: record_skip ---
+
+class TestRecordSkip:
+    def test_increments_skip_count(self, pool):
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
+        count = pool.record_skip("test", "abc12345678")
+        assert count == 1
+        video = pool.get_video("test", "abc12345678")
+        assert video["skip_count"] == 1
+
+    def test_nonexistent_returns_negative(self, pool):
+        assert pool.record_skip("nope", "nope") == -1
+
+    def test_auto_shelve_at_threshold(self, pool):
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
+        for _ in range(5):
+            pool.record_skip("test", "abc12345678")
+        # Video should be auto-shelved (active=0)
+        active = pool.get_pool("test")
+        assert len(active) == 0
+        # But still exists when including retired
+        all_vids = pool.get_pool("test", include_retired=True)
+        assert len(all_vids) == 1
+        assert all_vids[0]["skip_count"] == 5
+
+    def test_no_auto_shelve_below_threshold(self, pool):
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
+        for _ in range(4):
+            pool.record_skip("test", "abc12345678")
+        active = pool.get_pool("test")
+        assert len(active) == 1
+
+
+# --- Self-Learning: update_last_history ---
+
+class TestUpdateLastHistory:
+    def test_updates_most_recent_history(self, pool):
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
+        pool.select_video("test")  # creates a history row
+        ok = pool.update_last_history(
+            "abc12345678", "test",
+            duration_watched=120, completed=1, stop_reason="completed",
+        )
+        assert ok is True
+        history = pool.get_history("test")
+        assert history[0]["duration_watched"] == 120
+        assert history[0]["completed"] == 1
+        assert history[0]["stop_reason"] == "completed"
+
+    def test_nonexistent_returns_false(self, pool):
+        assert pool.update_last_history("nope", "nope") is False
+
+
+# --- Self-Learning: weight formula ---
+
+class TestSelfLearningWeights:
+    def test_skip_penalty_reduces_selection(self, pool):
+        """Videos with skips should be selected less often."""
+        pool.add_video("test", "https://www.youtube.com/watch?v=skipped1111", "Skipped")
+        pool.add_video("test", "https://www.youtube.com/watch?v=normal11111", "Normal")
+        # Add 3 skips to one video
+        for _ in range(3):
+            pool.record_skip("test", "skipped1111")
+        pool.avoid_recent = 0
+
+        counts = {"skipped1111": 0, "normal11111": 0}
+        for _ in range(200):
+            result = pool.select_video("test")
+            counts[result["video_id"]] += 1
+
+        # Normal (weight 1.0) should heavily dominate skipped (weight 1.0 * 0.7^3 = 0.343)
+        assert counts["normal11111"] > counts["skipped1111"]
+
+    def test_completion_boost_increases_selection(self, pool):
+        """Videos with completions should be selected more often."""
+        pool.add_video("test", "https://www.youtube.com/watch?v=complet1111", "Completed")
+        pool.add_video("test", "https://www.youtube.com/watch?v=normal11111", "Normal")
+        for _ in range(5):
+            pool.record_completion("test", "complet1111")
+        pool.avoid_recent = 0
+
+        counts = {"complet1111": 0, "normal11111": 0}
+        for _ in range(200):
+            result = pool.select_video("test")
+            counts[result["video_id"]] += 1
+
+        # Completed (weight 1.0 * 2.0 cap) should dominate normal (weight 1.0)
+        assert counts["complet1111"] > counts["normal11111"]
+
+    def test_completion_boost_capped_at_2x(self, pool):
+        """Completion boost caps at 2.0x regardless of count."""
+        pool.add_video("test", "https://www.youtube.com/watch?v=complet1111", "Completed")
+        pool.add_video("test", "https://www.youtube.com/watch?v=normal11111", "Normal")
+        # 100 completions should still cap at 2.0x
+        for _ in range(100):
+            pool.record_completion("test", "complet1111")
+        pool.avoid_recent = 0
+
+        counts = {"complet1111": 0, "normal11111": 0}
+        for _ in range(300):
+            result = pool.select_video("test")
+            counts[result["video_id"]] += 1
+
+        # With 2:1 weight ratio, completed should get roughly 2/3 of selections
+        ratio = counts["complet1111"] / max(counts["normal11111"], 1)
+        assert 1.2 < ratio < 4.0, f"Ratio {ratio} outside expected 2:1 range"
+
+
+# --- Schema v7 Migration ---
+
+class TestSchemaV7:
+    def test_new_columns_exist(self, db):
+        """Verify schema v7 columns exist."""
+        row = db.fetchone("SELECT skip_count, completion_count, duration FROM autoplay_videos LIMIT 0")
+        # No error means columns exist (empty table returns None)
+
+    def test_history_stop_reason_exists(self, db):
+        """Verify stop_reason column in autoplay_history."""
+        row = db.fetchone("SELECT stop_reason FROM autoplay_history LIMIT 0")
+
+    def test_add_video_with_duration(self, pool):
+        result = pool.add_video(
+            "test", "https://www.youtube.com/watch?v=abc12345678",
+            "Test", duration=3600,
+        )
+        assert result is not None
+        assert result["duration"] == 3600
+
+
+# --- Player Callback ---
+
+class TestPlayerCallback:
+    def test_on_item_complete_attribute(self):
+        """Verify Player has on_item_complete attribute."""
+        from picast.server.player import Player
+        from unittest.mock import MagicMock
+        mpv = MagicMock()
+        queue = MagicMock()
+        p = Player(mpv, queue)
+        assert hasattr(p, "on_item_complete")
+        assert p.on_item_complete is None
+
+
+# --- Autoplay Snapshot (API) ---
+
+class TestAutoplaySnapshot:
+    def test_skip_clears_autoplay_current(self, client):
+        """Verify /api/skip clears autoplay_current."""
+        client.post("/api/skip")
+        resp = client.get("/api/status")
+        data = json.loads(resp.data)
+        assert data["autoplay_current"]["video_id"] is None
+
+    def test_stop_clears_autoplay_current(self, client):
+        """Verify /api/stop clears autoplay_current."""
+        client.post("/api/stop")
+        resp = client.get("/api/status")
+        data = json.loads(resp.data)
+        assert data["autoplay_current"]["video_id"] is None

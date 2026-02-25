@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -139,6 +139,9 @@ CREATE TABLE IF NOT EXISTS autoplay_videos (
     added_date TEXT NOT NULL,
     source TEXT NOT NULL DEFAULT 'manual',
     active INTEGER NOT NULL DEFAULT 1,
+    skip_count INTEGER NOT NULL DEFAULT 0,
+    completion_count INTEGER NOT NULL DEFAULT 0,
+    duration INTEGER NOT NULL DEFAULT 0,
     UNIQUE(video_id, block_name)
 );
 
@@ -151,7 +154,8 @@ CREATE TABLE IF NOT EXISTS autoplay_history (
     block_name TEXT NOT NULL,
     played_at TEXT NOT NULL,
     duration_watched INTEGER NOT NULL DEFAULT 0,
-    completed INTEGER NOT NULL DEFAULT 0
+    completed INTEGER NOT NULL DEFAULT 0,
+    stop_reason TEXT NOT NULL DEFAULT ''
 );
 
 CREATE INDEX IF NOT EXISTS idx_autoplay_history_block ON autoplay_history(block_name);
@@ -309,6 +313,18 @@ class Database:
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_history_block ON autoplay_history(block_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_history_played ON autoplay_history(played_at)")
+        if from_version < 7:
+            # Self-learning columns for autoplay
+            for col in [
+                "ALTER TABLE autoplay_videos ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE autoplay_videos ADD COLUMN completion_count INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE autoplay_videos ADD COLUMN duration INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE autoplay_history ADD COLUMN stop_reason TEXT NOT NULL DEFAULT ''",
+            ]:
+                try:
+                    conn.execute(col)
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)

@@ -155,6 +155,7 @@ class DiscoveryAgent:
             for r in results:
                 added = self.pool.add_video(
                     block_name, r.url, r.title, source="discovery",
+                    duration=r.duration,
                 )
                 if added:
                     stats["added"] += 1

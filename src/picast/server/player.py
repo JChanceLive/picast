@@ -16,6 +16,7 @@ import signal
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
@@ -145,6 +146,9 @@ class Player:
 
         # Start position for next play_now item (seconds)
         self._next_start_time: float = 0
+
+        # Callback when an item finishes playing (for autoplay self-learning)
+        self.on_item_complete: Callable | None = None
 
         # Cascade protection state
         self._consecutive_failures = 0
@@ -710,6 +714,16 @@ class Player:
                             )
                 except Exception as e:
                     logger.warning("Auto-next-episode failed: %s", e)
+
+            # Fire completion callback for autoplay self-learning
+            if self.on_item_complete:
+                try:
+                    self.on_item_complete(
+                        item, play_duration,
+                        self._skip_requested, self._stop_requested,
+                    )
+                except Exception as cb_e:
+                    logger.warning("on_item_complete callback failed: %s", cb_e)
 
             self._current_item = None
             logger.info(

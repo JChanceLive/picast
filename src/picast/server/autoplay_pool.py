@@ -36,6 +36,9 @@ class AutoPlayPool:
         self.db = db
         self.avoid_recent = avoid_recent
 
+    # Auto-shelve threshold: videos skipped this many times get deactivated
+    AUTO_SHELVE_SKIP_COUNT = 5
+
     def add_video(
         self,
         block_name: str,
@@ -43,6 +46,7 @@ class AutoPlayPool:
         title: str = "",
         tags: str = "",
         source: str = "manual",
+        duration: int = 0,
     ) -> dict | None:
         """Add a video to a block's pool. Returns the row or None if duplicate."""
         video_id = extract_video_id(url)
@@ -53,9 +57,9 @@ class AutoPlayPool:
         now = datetime.now(timezone.utc).isoformat()
         cursor = self.db.execute(
             "INSERT OR IGNORE INTO autoplay_videos "
-            "(video_id, title, block_name, tags, added_date, source) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
-            (video_id, title, block_name, tags, now, source),
+            "(video_id, title, block_name, tags, added_date, source, duration) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (video_id, title, block_name, tags, now, source, duration),
         )
         self.db.commit()
         if cursor.rowcount == 0:
@@ -168,15 +172,20 @@ class AutoPlayPool:
         if not candidates:
             candidates = pool
 
-        # Weighted random selection
+        # Weighted random selection with self-learning modifiers
         weights = []
         for v in candidates:
             if v["rating"] == 1:
-                weights.append(self.WEIGHT_LIKED)
+                base = self.WEIGHT_LIKED
             elif v["rating"] == -1:
-                weights.append(self.WEIGHT_DISLIKED)
+                base = self.WEIGHT_DISLIKED
             else:
-                weights.append(self.WEIGHT_NEUTRAL)
+                base = self.WEIGHT_NEUTRAL
+            # Skip penalty: each skip reduces weight by 30%
+            skip_penalty = 0.7 ** v.get("skip_count", 0)
+            # Completion boost: each completion adds 20%, capped at 2x
+            completion_boost = min(1.0 + v.get("completion_count", 0) * 0.2, 2.0)
+            weights.append(base * skip_penalty * completion_boost)
 
         selected = random.choices(candidates, weights=weights, k=1)[0]
 
@@ -226,6 +235,72 @@ class AutoPlayPool:
             "LEFT JOIN autoplay_videos v ON h.video_id = v.video_id AND h.block_name = v.block_name "
             "ORDER BY h.played_at DESC LIMIT 1"
         )
+
+    def record_completion(self, block_name: str, video_id: str) -> bool:
+        """Increment completion_count for a video. Returns True if found."""
+        row = self.db.fetchone(
+            "SELECT id FROM autoplay_videos WHERE block_name = ? AND video_id = ?",
+            (block_name, video_id),
+        )
+        if not row:
+            return False
+        self.db.execute(
+            "UPDATE autoplay_videos SET completion_count = completion_count + 1 "
+            "WHERE id = ?",
+            (row["id"],),
+        )
+        self.db.commit()
+        logger.debug("Recorded completion for %s in %s", video_id, block_name)
+        return True
+
+    def record_skip(self, block_name: str, video_id: str) -> int:
+        """Increment skip_count for a video. Auto-shelves at threshold.
+
+        Returns new skip_count, or -1 if not found.
+        """
+        row = self.db.fetchone(
+            "SELECT id, skip_count FROM autoplay_videos "
+            "WHERE block_name = ? AND video_id = ?",
+            (block_name, video_id),
+        )
+        if not row:
+            return -1
+        new_count = row["skip_count"] + 1
+        self.db.execute(
+            "UPDATE autoplay_videos SET skip_count = ? WHERE id = ?",
+            (new_count, row["id"]),
+        )
+        self.db.commit()
+        logger.debug("Recorded skip for %s in %s (count=%d)", video_id, block_name, new_count)
+        # Auto-shelve if threshold reached
+        if new_count >= self.AUTO_SHELVE_SKIP_COUNT:
+            self.remove_video(block_name, video_id)
+            logger.info("Auto-shelved %s in %s after %d skips", video_id, block_name, new_count)
+        return new_count
+
+    def update_last_history(
+        self,
+        video_id: str,
+        block_name: str,
+        duration_watched: int = 0,
+        completed: int = 0,
+        stop_reason: str = "",
+    ) -> bool:
+        """Update the most recent history row for a video with completion data."""
+        row = self.db.fetchone(
+            "SELECT id FROM autoplay_history "
+            "WHERE video_id = ? AND block_name = ? ORDER BY played_at DESC LIMIT 1",
+            (video_id, block_name),
+        )
+        if not row:
+            return False
+        self.db.execute(
+            "UPDATE autoplay_history SET duration_watched = ?, completed = ?, "
+            "stop_reason = ? WHERE id = ?",
+            (duration_watched, completed, stop_reason, row["id"]),
+        )
+        self.db.commit()
+        return True
 
     def seed_from_mappings(self, mappings: dict[str, str]) -> int:
         """Import legacy single-URL mappings as pool entries. Returns count added."""

@@ -156,6 +156,75 @@ def create_app(
     _autoplay_enabled = _autoplay_config.enabled
     _autoplay_pool = AutoPlayPool(db, avoid_recent=_autoplay_config.avoid_recent)
     _autoplay_current = {"video_id": None, "block_name": None, "title": None}
+    _autoplay_start_time = {"value": None}  # monotonic() when autoplay video started
+    _autoplay_completing = {"value": None}  # snapshot for deferred completion processing
+
+    def _snapshot_autoplay_for_completion(reason: str):
+        """Snapshot current autoplay context and clear it. Used by endpoints."""
+        if _autoplay_current["video_id"]:
+            _autoplay_completing["value"] = {
+                "video_id": _autoplay_current["video_id"],
+                "block_name": _autoplay_current["block_name"],
+                "start_time": _autoplay_start_time["value"],
+                "stop_reason": reason,
+            }
+            _autoplay_current["video_id"] = None
+            _autoplay_current["block_name"] = None
+            _autoplay_current["title"] = None
+            _autoplay_start_time["value"] = None
+
+    def _handle_item_complete(item, play_duration, was_skipped, was_stopped):
+        """Process autoplay completion with context-aware self-learning."""
+        # Determine context: endpoint snapshot (skip/stop/play/trigger) or natural end
+        ctx = _autoplay_completing["value"]
+        if ctx:
+            _autoplay_completing["value"] = None
+            video_id = ctx["video_id"]
+            block_name = ctx["block_name"]
+            stop_reason = ctx["stop_reason"]
+        elif _autoplay_current["video_id"]:
+            # Natural completion (no endpoint intervention)
+            video_id = _autoplay_current["video_id"]
+            block_name = _autoplay_current["block_name"]
+            stop_reason = "completed"
+            _autoplay_current["video_id"] = None
+            _autoplay_current["block_name"] = None
+            _autoplay_current["title"] = None
+            _autoplay_start_time["value"] = None
+        else:
+            # Not an autoplay video
+            return
+
+        # Determine if video was completed (natural end or >80% of known duration)
+        video_data = _autoplay_pool.get_video(block_name, video_id)
+        known_duration = video_data.get("duration", 0) if video_data else 0
+        is_completed = (
+            stop_reason == "completed"
+            or (known_duration > 0 and play_duration >= known_duration * 0.8)
+        )
+
+        if is_completed:
+            stop_reason = "completed"
+
+        # Update history with watch data
+        duration_watched = int(play_duration)
+        _autoplay_pool.update_last_history(
+            video_id, block_name,
+            duration_watched=duration_watched,
+            completed=1 if is_completed else 0,
+            stop_reason=stop_reason,
+        )
+
+        # Apply implicit rating
+        if is_completed:
+            _autoplay_pool.record_completion(block_name, video_id)
+            logger.info("AutoPlay self-learn: completed %s in %s (%ds)", video_id, block_name, duration_watched)
+        elif stop_reason == "user_skip" and play_duration < 30:
+            _autoplay_pool.record_skip(block_name, video_id)
+            logger.info("AutoPlay self-learn: skipped %s in %s after %ds", video_id, block_name, duration_watched)
+        # block_transition, manual_override, user_stop: no implicit rating change
+
+    player.on_item_complete = _handle_item_complete
 
     # Auto-seed pool from legacy mappings on first run
     if _autoplay_config.pool_mode and _autoplay_config.mappings:
@@ -275,10 +344,8 @@ def create_app(
         start_time = float(data.get("start_time", 0) or 0)
         if start_time > 0:
             logger.info("Play request with start_time=%ds for %s", start_time, url)
-        # Clear autoplay context on manual play
-        _autoplay_current["video_id"] = None
-        _autoplay_current["block_name"] = None
-        _autoplay_current["title"] = None
+        # Snapshot autoplay context before clearing (manual override)
+        _snapshot_autoplay_for_completion("manual_override")
         try:
             player.play_now(url, title, start_time=start_time)
         except Exception as e:
@@ -303,15 +370,15 @@ def create_app(
 
     @app.route("/api/skip", methods=["POST"])
     def skip():
+        # Snapshot autoplay context before skip (user_skip)
+        _snapshot_autoplay_for_completion("user_skip")
         player.skip()
         return jsonify({"ok": True})
 
     @app.route("/api/stop", methods=["POST"])
     def stop():
-        # Clear autoplay context on stop
-        _autoplay_current["video_id"] = None
-        _autoplay_current["block_name"] = None
-        _autoplay_current["title"] = None
+        # Snapshot autoplay context before stop (user_stop)
+        _snapshot_autoplay_for_completion("user_stop")
         player.stop_playback()
         return jsonify({"ok": True})
 
@@ -607,11 +674,14 @@ def create_app(
                 vid_title = selected["title"] or selected["video_id"]
                 title = f"AutoPlay: {display_name} - {vid_title}"
                 try:
+                    # Snapshot previous autoplay before block transition
+                    _snapshot_autoplay_for_completion("block_transition")
                     player.play_now(url, title)
                     # Track current autoplay video for UI rating buttons
                     _autoplay_current["video_id"] = selected["video_id"]
                     _autoplay_current["block_name"] = block_name
                     _autoplay_current["title"] = vid_title
+                    _autoplay_start_time["value"] = time.monotonic()
                     logger.info("AutoPlay pool: %s -> %s (%s)", block_name, selected["video_id"], vid_title)
                     return jsonify({
                         "ok": True, "played": url, "block": block_name,
@@ -631,12 +701,14 @@ def create_app(
 
         title = f"AutoPlay: {display_name}"
         try:
+            _snapshot_autoplay_for_completion("block_transition")
             player.play_now(url, title)
             # Track current autoplay video for UI
             vid_id = extract_video_id(url) or url
             _autoplay_current["video_id"] = vid_id
             _autoplay_current["block_name"] = block_name
             _autoplay_current["title"] = display_name
+            _autoplay_start_time["value"] = time.monotonic()
             logger.info("AutoPlay trigger: %s -> %s", block_name, url)
             return jsonify({"ok": True, "played": url, "block": block_name})
         except Exception as e:

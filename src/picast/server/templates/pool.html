@@ -82,7 +82,7 @@ function closeDetail() {
 }
 
 function loadBlockVideos(blockName) {
-    fetch('/api/autoplay/pool/' + encodeURIComponent(blockName))
+    fetch('/api/autoplay/pool/' + encodeURIComponent(blockName) + '?retired=1')
         .then(r => r.json())
         .then(videos => {
             const el = document.getElementById('pool-video-list');
@@ -93,20 +93,28 @@ function loadBlockVideos(blockName) {
             el.innerHTML = videos.map(v => {
                 const thumb = ytThumb(v.video_id);
                 const thumbHtml = thumb ? `<img class="pv-thumb" src="${thumb}" alt="">` : '';
-                const ratingClass = v.rating === 1 ? 'btn-rate-active-up' : v.rating === -1 ? 'btn-rate-active-down' : '';
                 const plays = v.play_count || 0;
-                return `<div class="pool-video">
+                const skips = v.skip_count || 0;
+                const completions = v.completion_count || 0;
+                const shelved = !v.active;
+                let metaParts = [esc(v.video_id), plays + ' play' + (plays !== 1 ? 's' : '')];
+                if (completions > 0) metaParts.push(completions + ' completed');
+                if (skips > 0) metaParts.push(skips + ' skip' + (skips !== 1 ? 's' : ''));
+                return `<div class="pool-video${shelved ? ' pool-video-shelved' : ''}">
                     ${thumbHtml}
                     <div class="pv-info">
-                        <div class="pv-title">${esc(v.title || v.video_id)}</div>
-                        <div class="pv-meta">${esc(v.video_id)} &middot; ${plays} play${plays !== 1 ? 's' : ''}</div>
+                        <div class="pv-title">${esc(v.title || v.video_id)}${shelved ? ' <span class="pv-badge-shelved">auto-shelved</span>' : ''}</div>
+                        <div class="pv-meta">${metaParts.join(' &middot; ')}</div>
                     </div>
                     <div class="pv-rating">
                         <button onclick="ratePoolVideo('${esc(blockName)}','${esc(v.video_id)}',1)" class="qi-circle btn-rate${v.rating === 1 ? ' btn-rate-active-up' : ''}" title="Like">&#x1F44D;</button>
                         <button onclick="ratePoolVideo('${esc(blockName)}','${esc(v.video_id)}',-1)" class="qi-circle btn-rate${v.rating === -1 ? ' btn-rate-active-down' : ''}" title="Dislike">&#x1F44E;</button>
                     </div>
                     <div class="pv-actions">
-                        <button onclick="removePoolVideo('${esc(blockName)}','${esc(v.video_id)}')" class="qi-circle qi-remove" title="Remove">&times;</button>
+                        ${shelved
+                            ? `<button onclick="restorePoolVideo('${esc(blockName)}','${esc(v.video_id)}')" class="qi-circle" title="Restore">&#x267B;</button>`
+                            : `<button onclick="removePoolVideo('${esc(blockName)}','${esc(v.video_id)}')" class="qi-circle qi-remove" title="Remove">&times;</button>`
+                        }
                     </div>
                 </div>`;
             }).join('');
@@ -143,6 +151,22 @@ function removePoolVideo(block, videoId) {
             loadBlocks();
         } else {
             showToast(data.error || 'Remove failed');
+        }
+    });
+}
+
+function restorePoolVideo(block, videoId) {
+    fetch('/api/autoplay/pool/' + encodeURIComponent(block) + '/' + encodeURIComponent(videoId) + '/restore', {
+        method: 'POST',
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            showToast('Restored');
+            loadBlockVideos(block);
+            loadBlocks();
+        } else {
+            showToast(data.error || 'Restore failed');
         }
     });
 }
