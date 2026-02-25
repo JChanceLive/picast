@@ -134,31 +134,44 @@ async function loadDisplay() {
     }
 }
 
-async function saveRotation() {
-    const val = parseInt(document.getElementById('rotation-select').value);
-    if (!confirm('This will reboot the Pi. Continue?')) return;
+let rotationArmed = false;
+function saveRotation() {
     const btn = document.getElementById('btn-save-rotation');
+    if (!rotationArmed) {
+        rotationArmed = true;
+        btn.textContent = 'Tap again to reboot';
+        btn.classList.add('btn-danger');
+        setTimeout(() => {
+            if (rotationArmed) {
+                rotationArmed = false;
+                btn.textContent = 'Save & Reboot';
+                btn.classList.remove('btn-danger');
+            }
+        }, 4000);
+        return;
+    }
+    rotationArmed = false;
+    const val = parseInt(document.getElementById('rotation-select').value);
     btn.disabled = true;
     btn.textContent = 'Rebooting...';
-    try {
-        const r = await fetch('/api/system/display', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({rotate: val})
-        });
-        const d = await r.json();
+    btn.classList.remove('btn-danger');
+    fetch('/api/system/display', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({rotate: val})
+    }).then(r => r.json()).then(d => {
         if (d.error) {
             showToast('Error: ' + d.error);
             btn.disabled = false;
             btn.textContent = 'Save & Reboot';
         } else {
-            showToast('Rebooting...');
+            showToast('Rebooting Pi...');
         }
-    } catch(e) {
+    }).catch(() => {
         showToast('Failed to save rotation');
         btn.disabled = false;
         btn.textContent = 'Save & Reboot';
-    }
+    });
 }
 
 async function loadOsd() {
@@ -212,19 +225,26 @@ async function loadSysinfo() {
     }
 }
 
-async function restartService() {
-    if (!confirm('Restart PiCast service? Playback will stop.')) return;
+let restartArmed = false;
+function restartService() {
     const btn = document.getElementById('btn-restart');
+    if (!restartArmed) {
+        restartArmed = true;
+        btn.textContent = 'Tap again to restart';
+        setTimeout(() => {
+            if (restartArmed) {
+                restartArmed = false;
+                btn.textContent = 'Restart PiCast';
+            }
+        }, 4000);
+        return;
+    }
+    restartArmed = false;
     btn.disabled = true;
     btn.textContent = 'Restarting...';
-    try {
-        await fetch('/api/system/restart', {method: 'POST'});
-        showToast('Restarting service...');
-        setTimeout(() => location.reload(), 5000);
-    } catch(e) {
-        showToast('Restart command sent');
-        setTimeout(() => location.reload(), 5000);
-    }
+    fetch('/api/system/restart', {method: 'POST'}).catch(() => {});
+    showToast('Restarting service...');
+    setTimeout(() => location.reload(), 5000);
 }
 
 // Load all on page load
