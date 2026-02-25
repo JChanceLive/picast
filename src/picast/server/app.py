@@ -1314,85 +1314,47 @@ def create_app(
 
     # --- System Settings Endpoints ---
 
-    def _detect_alsa_mixer():
-        """Auto-detect available ALSA mixer name."""
-        for name in ("Master", "PCM", "Headphone", "HDMI"):
-            try:
-                result = subprocess.run(
-                    ["amixer", "sget", name],
-                    capture_output=True, text=True, timeout=5,
-                )
-                if result.returncode == 0:
-                    return name
-            except (FileNotFoundError, subprocess.TimeoutExpired):
-                return None
-        return None
-
-    def _parse_amixer_volume(output: str) -> int | None:
-        """Parse volume percentage from amixer output."""
-        m = re.search(r'\[(\d+)%\]', output)
-        return int(m.group(1)) if m else None
-
     @app.route("/api/system/volume")
     def system_volume_get():
-        """Read current ALSA volume."""
-        mixer = _detect_alsa_mixer()
-        if not mixer:
-            return jsonify({"volume": 0, "error": "No ALSA mixer found (not a Pi?)"})
-        try:
-            result = subprocess.run(
-                ["amixer", "sget", mixer],
-                capture_output=True, text=True, timeout=5,
-            )
-            vol = _parse_amixer_volume(result.stdout)
-            if vol is None:
-                return jsonify({"volume": 0, "error": "Could not parse volume"})
-            return jsonify({"volume": vol, "mixer": mixer})
-        except Exception as e:
-            return jsonify({"volume": 0, "error": str(e)})
+        """Read current mpv software volume."""
+        vol = mpv.get_property("volume", 100)
+        return jsonify({"volume": round(vol)})
 
     @app.route("/api/system/volume", methods=["POST"])
     def system_volume_set():
-        """Set ALSA volume."""
+        """Set mpv software volume."""
         data = request.get_json(silent=True) or {}
         vol = data.get("volume")
         if vol is None:
             return jsonify({"error": "volume required"}), 400
         vol = max(0, min(100, int(vol)))
-        mixer = _detect_alsa_mixer()
-        if not mixer:
-            return jsonify({"error": "No ALSA mixer found (not a Pi?)"}), 500
+        ok = mpv.set_volume(vol)
+        return jsonify({"ok": ok, "volume": vol})
+
+    def _get_display_transform() -> str:
+        """Read current display transform via wlr-randr."""
         try:
-            subprocess.run(
-                ["amixer", "sset", mixer, f"{vol}%"],
+            result = subprocess.run(
+                ["wlr-randr"],
                 capture_output=True, text=True, timeout=5,
             )
-            return jsonify({"ok": True, "volume": vol})
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+            if result.returncode == 0:
+                m = re.search(r'Transform:\s+(\S+)', result.stdout)
+                return m.group(1) if m else "normal"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+        return "normal"
 
     @app.route("/api/system/display")
     def system_display_get():
-        """Read display rotation from boot config."""
-        config_path = None
-        for p in ("/boot/firmware/config.txt", "/boot/config.txt"):
-            if os.path.exists(p):
-                config_path = p
-                break
-        if not config_path:
-            return jsonify({"rotate": 0, "error": "No boot config found (not a Pi?)"})
-        try:
-            with open(config_path) as f:
-                content = f.read()
-            m = re.search(r'^display_hdmi_rotate=(\d+)', content, re.MULTILINE)
-            rotate = int(m.group(1)) if m else 0
-            return jsonify({"rotate": rotate, "config_path": config_path})
-        except Exception as e:
-            return jsonify({"rotate": 0, "error": str(e)})
+        """Read display rotation via wlr-randr."""
+        transform = _get_display_transform()
+        rotate = 2 if transform == "180" else 0
+        return jsonify({"rotate": rotate, "transform": transform})
 
     @app.route("/api/system/display", methods=["POST"])
     def system_display_set():
-        """Write display rotation and reboot."""
+        """Set display rotation via wlr-randr (instant, no reboot)."""
         data = request.get_json(silent=True) or {}
         rotate = data.get("rotate")
         if rotate is None:
@@ -1401,40 +1363,17 @@ def create_app(
         if rotate not in (0, 2):
             return jsonify({"error": "rotate must be 0 (normal) or 2 (180)"}), 400
 
-        config_path = None
-        for p in ("/boot/firmware/config.txt", "/boot/config.txt"):
-            if os.path.exists(p):
-                config_path = p
-                break
-        if not config_path:
-            return jsonify({"error": "No boot config found (not a Pi?)"}), 500
-
+        transform = "180" if rotate == 2 else "normal"
         try:
-            with open(config_path) as f:
-                content = f.read()
-
-            # Update or add display_hdmi_rotate
-            if re.search(r'^display_hdmi_rotate=', content, re.MULTILINE):
-                content = re.sub(
-                    r'^display_hdmi_rotate=\d+',
-                    f'display_hdmi_rotate={rotate}',
-                    content,
-                    flags=re.MULTILINE,
-                )
-            else:
-                content = content.rstrip() + f'\ndisplay_hdmi_rotate={rotate}\n'
-
-            # Write via sudo tee
-            proc = subprocess.run(
-                ["sudo", "tee", config_path],
-                input=content, capture_output=True, text=True, timeout=10,
+            result = subprocess.run(
+                ["wlr-randr", "--output", "HDMI-A-1", "--transform", transform],
+                capture_output=True, text=True, timeout=10,
             )
-            if proc.returncode != 0:
-                return jsonify({"error": f"Failed to write config: {proc.stderr}"}), 500
-
-            # Reboot
-            subprocess.Popen(["sudo", "reboot"])
-            return jsonify({"ok": True, "rotate": rotate, "rebooting": True})
+            if result.returncode != 0:
+                return jsonify({"error": f"wlr-randr failed: {result.stderr}"}), 500
+            return jsonify({"ok": True, "rotate": rotate, "transform": transform})
+        except FileNotFoundError:
+            return jsonify({"error": "wlr-randr not found"}), 500
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
@@ -1500,14 +1439,17 @@ def create_app(
 
     @app.route("/api/system/osd")
     def system_osd_get():
-        """Get OSD enabled state."""
-        return jsonify({"enabled": config.osd_enabled})
+        """Get OSD enabled state from mpv."""
+        level = mpv.get_property("osd-level", 1)
+        return jsonify({"enabled": level > 0, "level": level})
 
     @app.route("/api/system/osd", methods=["POST"])
     def system_osd_set():
-        """Toggle OSD enabled state."""
-        config.osd_enabled = not config.osd_enabled
-        return jsonify({"ok": True, "enabled": config.osd_enabled})
+        """Toggle mpv OSD on/off."""
+        level = mpv.get_property("osd-level", 1)
+        new_level = 0 if level > 0 else 1
+        ok = mpv.set_property("osd-level", new_level)
+        return jsonify({"ok": ok, "enabled": new_level > 0, "level": new_level})
 
     @app.route("/api/system/restart", methods=["POST"])
     def system_restart():

@@ -4,18 +4,18 @@
 {% block content %}
 <h2 style="margin-bottom: 1rem;">Settings</h2>
 
-<!-- System Volume -->
+<!-- Volume -->
 <div class="settings-card">
     <div class="settings-card-header">
         <span class="settings-card-icon">&#x1F50A;</span>
-        <h3>System Volume</h3>
+        <h3>Volume</h3>
     </div>
     <div class="settings-card-body">
         <div class="volume-control">
             <input type="range" id="volume-slider" class="settings-slider" min="0" max="100" value="0">
             <span class="volume-label" id="volume-label">--%</span>
         </div>
-        <div class="settings-note" id="volume-note"></div>
+        <div class="settings-note" id="volume-note">Controls mpv playback volume</div>
     </div>
 </div>
 
@@ -34,7 +34,7 @@
             </select>
         </div>
         <div class="settings-note" id="display-note"></div>
-        <button class="btn btn-sm" id="btn-save-rotation" onclick="saveRotation()">Save &amp; Reboot</button>
+        <button class="btn btn-sm" id="btn-save-rotation" onclick="saveRotation()">Apply Rotation</button>
     </div>
 </div>
 
@@ -49,6 +49,7 @@
             <label>OSD Overlay</label>
             <button class="btn btn-sm" id="btn-osd" onclick="toggleOsd()">--</button>
         </div>
+        <div class="settings-note">On-screen display (progress bar, volume indicator)</div>
     </div>
 </div>
 
@@ -88,14 +89,12 @@ async function loadVolume() {
         const d = await r.json();
         const slider = document.getElementById('volume-slider');
         const label = document.getElementById('volume-label');
-        const note = document.getElementById('volume-note');
         if (d.error) {
-            note.textContent = d.error;
+            document.getElementById('volume-note').textContent = d.error;
             slider.disabled = true;
         } else {
             slider.value = d.volume;
             label.textContent = d.volume + '%';
-            note.textContent = d.mixer ? 'Mixer: ' + d.mixer : '';
         }
     } catch(e) {
         document.getElementById('volume-note').textContent = 'Failed to load volume';
@@ -134,27 +133,11 @@ async function loadDisplay() {
     }
 }
 
-let rotationArmed = false;
 function saveRotation() {
     const btn = document.getElementById('btn-save-rotation');
-    if (!rotationArmed) {
-        rotationArmed = true;
-        btn.textContent = 'Tap again to reboot';
-        btn.classList.add('btn-danger');
-        setTimeout(() => {
-            if (rotationArmed) {
-                rotationArmed = false;
-                btn.textContent = 'Save & Reboot';
-                btn.classList.remove('btn-danger');
-            }
-        }, 4000);
-        return;
-    }
-    rotationArmed = false;
     const val = parseInt(document.getElementById('rotation-select').value);
     btn.disabled = true;
-    btn.textContent = 'Rebooting...';
-    btn.classList.remove('btn-danger');
+    btn.textContent = 'Applying...';
     fetch('/api/system/display', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -162,15 +145,15 @@ function saveRotation() {
     }).then(r => r.json()).then(d => {
         if (d.error) {
             showToast('Error: ' + d.error);
-            btn.disabled = false;
-            btn.textContent = 'Save & Reboot';
         } else {
-            showToast('Rebooting Pi...');
+            showToast('Rotation applied');
         }
-    }).catch(() => {
-        showToast('Failed to save rotation');
         btn.disabled = false;
-        btn.textContent = 'Save & Reboot';
+        btn.textContent = 'Apply Rotation';
+    }).catch(() => {
+        showToast('Failed to apply rotation');
+        btn.disabled = false;
+        btn.textContent = 'Apply Rotation';
     });
 }
 
