@@ -1403,12 +1403,19 @@ def create_app(
         ok = mpv.set_volume(vol)
         return jsonify({"ok": ok, "volume": vol})
 
+    _wlr_env = {
+        **os.environ,
+        "XDG_RUNTIME_DIR": "/run/user/1000",
+        "WAYLAND_DISPLAY": "wayland-0",
+    }
+
     def _get_display_transform() -> str:
         """Read current display transform via wlr-randr."""
         try:
             result = subprocess.run(
                 ["wlr-randr"],
                 capture_output=True, text=True, timeout=5,
+                env=_wlr_env,
             )
             if result.returncode == 0:
                 m = re.search(r'Transform:\s+(\S+)', result.stdout)
@@ -1440,6 +1447,7 @@ def create_app(
             result = subprocess.run(
                 ["wlr-randr", "--output", "HDMI-A-1", "--transform", transform],
                 capture_output=True, text=True, timeout=10,
+                env=_wlr_env,
             )
             if result.returncode != 0:
                 return jsonify({"error": f"wlr-randr failed: {result.stderr}"}), 500
