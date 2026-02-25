@@ -18,7 +18,7 @@ class TestDatabase:
 
     def test_schema_version(self, db):
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 5
+        assert row["version"] == 6
 
     def test_fetchone_returns_dict(self, db):
         db.execute(

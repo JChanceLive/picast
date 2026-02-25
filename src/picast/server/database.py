@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -126,6 +126,36 @@ CREATE TABLE IF NOT EXISTS sd_errors (
 );
 
 CREATE INDEX IF NOT EXISTS idx_sd_errors_occurred ON sd_errors(occurred_at);
+
+CREATE TABLE IF NOT EXISTS autoplay_videos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    block_name TEXT NOT NULL,
+    tags TEXT NOT NULL DEFAULT '',
+    rating INTEGER NOT NULL DEFAULT 0,
+    play_count INTEGER NOT NULL DEFAULT 0,
+    last_played TEXT,
+    added_date TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'manual',
+    active INTEGER NOT NULL DEFAULT 1,
+    UNIQUE(video_id, block_name)
+);
+
+CREATE INDEX IF NOT EXISTS idx_autoplay_videos_block ON autoplay_videos(block_name);
+CREATE INDEX IF NOT EXISTS idx_autoplay_videos_active ON autoplay_videos(active);
+
+CREATE TABLE IF NOT EXISTS autoplay_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    block_name TEXT NOT NULL,
+    played_at TEXT NOT NULL,
+    duration_watched INTEGER NOT NULL DEFAULT 0,
+    completed INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_autoplay_history_block ON autoplay_history(block_name);
+CREATE INDEX IF NOT EXISTS idx_autoplay_history_played ON autoplay_history(played_at);
 """
 
 
@@ -247,6 +277,37 @@ class Database:
                 )
             """)
             conn.execute("CREATE INDEX IF NOT EXISTS idx_sd_errors_occurred ON sd_errors(occurred_at)")
+        if from_version < 6:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS autoplay_videos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    video_id TEXT NOT NULL,
+                    title TEXT NOT NULL DEFAULT '',
+                    block_name TEXT NOT NULL,
+                    tags TEXT NOT NULL DEFAULT '',
+                    rating INTEGER NOT NULL DEFAULT 0,
+                    play_count INTEGER NOT NULL DEFAULT 0,
+                    last_played TEXT,
+                    added_date TEXT NOT NULL,
+                    source TEXT NOT NULL DEFAULT 'manual',
+                    active INTEGER NOT NULL DEFAULT 1,
+                    UNIQUE(video_id, block_name)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_videos_block ON autoplay_videos(block_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_videos_active ON autoplay_videos(active)")
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS autoplay_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    video_id TEXT NOT NULL,
+                    block_name TEXT NOT NULL,
+                    played_at TEXT NOT NULL,
+                    duration_watched INTEGER NOT NULL DEFAULT 0,
+                    completed INTEGER NOT NULL DEFAULT 0
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_history_block ON autoplay_history(block_name)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_history_played ON autoplay_history(played_at)")
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)

@@ -132,3 +132,51 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 - `app.py` has a global `@app.errorhandler(Exception)` that converts unhandled exceptions to JSON `{"error": "..."}` responses
 - `/api/play` and `/api/queue/add` have explicit try/except for clear error messages
 - Extension parses error response body to show actual error text (not just "Error (500)")
+
+<!-- MEMORY:START -->
+# picast
+
+_Last updated: 2026-02-25 | 28 active memories, 39 total_
+
+## Architecture
+- PiCast v0.14.0 NotificationManager requires `notification_chat_id` configuration for SD card health alerts and daily ... [picast, pipulse, notifications, telegram]
+- AoE wrapper script (`~/.claude/scripts/aoe-session-wrapper.sh`) captures post-session state: reads tool-count.json, e... [ultra-claude-stack, aoe, wrapper, session-management]
+- Session history integration uses 3-layer pipeline: /done command writes handoff data → wrapper script generates JSONL... [aoe, session-history, wrapper, dashboard]
+- PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
+- PiCam multi-backend notification pattern: pushover_util.py exports send_pushover_alert() factory function that accept... [picam, pushover, notifications, architecture]
+
+## Key Decisions
+- Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
+- PiPulse (10.0.0.103, Pi 4+) chosen as best candidate for ntfy.sh self-hosting migration over other fleet members due ... [pipulse, telegram, notifications, infrastructure]
+- Pushover chosen as ntfy replacement: provides proper APNS infrastructure for reliable iOS background push, one-time $... [pushover, ntfy, notifications, ios-push, decision, trade-offs]
+
+## Patterns & Conventions
+- AoE `command` field completely replaces default `tool: "claude"` behavior when set (not run alongside). All 19 AoE se... [ultra-claude-stack, aoe, configuration]
+- Empty python3 output in wrapper arithmetic expressions breaks bash ($(( - 0)) errors); all python variable assignment... [aoe, wrapper, bash, error-handling]
+- User preference: single-line session logs with dense metadata (tool counts, memory diffs, key actions) for reference ... [session-history, logging, workflow]
+- /done command should be used systematically to capture session metadata for dashboard visibility; both automatic savi... [workflow, session-management, dashboard, aoe]
+- Session history integration prioritizes /history command for AoE layer 4 reference, with Command Center dashboard Pro... [aoe, dashboard, command-center, session-history, architecture]
+- PiCast NotificationManager initialization in cli.py occurs after telegram_bot is started, injected with bot reference... [picast, notifications, initialization]
+- PiCam notification refactoring maintains consistent pattern across all alert points: motion_scan.py (_send_alert + ch... [picam, pushover, notifications, pattern]
+- GitHub raw CDN caches __about__.py for ~5 minutes after push; for immediate Pi deployment after version bumps, use di... [picast, deployment, git, github]
+
+## Gotchas & Pitfalls
+- Telegram bots can be frozen (not deleted) by Telegram enforcement for message volume violations — PiRelay bot was fro... [picast, pipulse, telegram, notifications]
+- Telegram does NOT automatically delete bot accounts due to owner inactivity or lack of interaction with @BotFather — ... [picast, pipulse, telegram, notifications]
+- Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
+- /save and auto-save hooks serve different purposes: /save forces immediate snapshot for explicit handoff (multi-sessi... [aoe, workflow, session-management]
+- picast-update compares __version__ in src/picast/__about__.py against installed version and silently skips update if ... [picast, deployment, version-management]
+
+## Current Progress
+- Pushover sound tier system live across all 3 Pis (PiCast v0.16.1, PiCam, PiPulse): SoundTier enum with CASUAL/MEDIUM/... [pushover, notifications, sound-system, picast, picam, pipulse, deployment]
+- PiCam Pushover migration (Session 2): pushover_util.py factory created, motion_scan.py refactored (ntfy removed from ... [picam, pushover, migration, progress]
+- PiCast ntfy→Pushover migration complete: replaced NtfyConfig with PushoverConfig, created pushover_adapter.py with as... [picast, pushover, notifications, migration, release]
+- Ultra Claude Stack (3-layer automation: Memory Extractor + TUI/MCP integration + brain.md sync) is COMPLETE and live.... [ultra-claude-stack, automation, system-architecture]
+- PiCast v0.14.0 released and deployed to Pi: curated catalog with Archive.org public domain shows, Telegram notificati... [picast, release, deployment]
+
+## Context
+- User preference clarified: /done is the systematic session checkpoint (replaces /save); build full integration (JSONL... [workflow, preferences, priorities, session-management]
+- User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-history]
+
+_For deeper context, use memory_search, memory_related, or memory_ask tools._
+<!-- MEMORY:END -->

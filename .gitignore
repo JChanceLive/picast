@@ -36,3 +36,10 @@ CLAUDE.md
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Memory MCP
+.memory/
+
+# Claude Code (local config)
+.mcp.json
+.claude/

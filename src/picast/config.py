@@ -36,8 +36,11 @@ class AutoplayConfig:
     """Block-to-video autoplay triggered by PiPulse webhooks."""
 
     enabled: bool = False
+    pool_mode: bool = False
+    avoid_recent: int = 3  # Don't repeat last N plays per block
+    min_pool_size: int = 3  # Warn if pool drops below this
     mappings: dict[str, str] = field(default_factory=dict)
-    # mappings: block_name -> URL (YouTube, Archive.org, local file, etc.)
+    # mappings: block_name -> URL (legacy single-URL fallback)
 
 
 @dataclass
@@ -169,6 +172,9 @@ def _parse_config(data: dict) -> Config:
         a = data["autoplay"]
         config.autoplay = AutoplayConfig(
             enabled=a.get("enabled", config.autoplay.enabled),
+            pool_mode=a.get("pool_mode", config.autoplay.pool_mode),
+            avoid_recent=a.get("avoid_recent", config.autoplay.avoid_recent),
+            min_pool_size=a.get("min_pool_size", config.autoplay.min_pool_size),
             mappings=dict(a.get("mappings", {})),
         )
 

@@ -14,6 +14,7 @@ import time
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
 from picast.config import AutoplayConfig, ServerConfig
+from picast.server.autoplay_pool import AutoPlayPool, extract_video_id
 from picast.server.database import Database
 from picast.server.discovery import DeviceRegistry
 from picast.server.events import EventBus
@@ -150,6 +151,13 @@ def create_app(
     # Autoplay state (ephemeral, like loop_enabled)
     _autoplay_config = autoplay_config or AutoplayConfig()
     _autoplay_enabled = _autoplay_config.enabled
+    _autoplay_pool = AutoPlayPool(db, avoid_recent=_autoplay_config.avoid_recent)
+
+    # Auto-seed pool from legacy mappings on first run
+    if _autoplay_config.pool_mode and _autoplay_config.mappings:
+        seeded = _autoplay_pool.seed_from_mappings(_autoplay_config.mappings)
+        if seeded:
+            logger.info("AutoPlay pool: seeded %d videos from legacy mappings", seeded)
 
     # --- Web UI Pages ---
 
@@ -523,10 +531,15 @@ def create_app(
     def autoplay_status():
         """Get autoplay config and state."""
         nonlocal _autoplay_enabled
-        return jsonify({
+        resp = {
             "enabled": _autoplay_enabled,
+            "pool_mode": _autoplay_config.pool_mode,
+            "avoid_recent": _autoplay_config.avoid_recent,
             "mappings": _autoplay_config.mappings,
-        })
+        }
+        if _autoplay_config.pool_mode:
+            resp["pools"] = _autoplay_pool.get_all_blocks()
+        return jsonify(resp)
 
     @app.route("/api/autoplay/toggle", methods=["POST"])
     def autoplay_toggle():
@@ -551,6 +564,27 @@ def create_app(
             logger.info("AutoPlay trigger: %s (disabled)", block_name)
             return jsonify({"ok": True, "skipped": "autoplay disabled"})
 
+        # Pool mode: weighted random selection from pool
+        if _autoplay_config.pool_mode:
+            selected = _autoplay_pool.select_video(block_name)
+            if selected:
+                url = _autoplay_pool.video_id_to_url(selected["video_id"])
+                vid_title = selected["title"] or selected["video_id"]
+                title = f"AutoPlay: {display_name} - {vid_title}"
+                try:
+                    player.play_now(url, title)
+                    logger.info("AutoPlay pool: %s -> %s (%s)", block_name, selected["video_id"], vid_title)
+                    return jsonify({
+                        "ok": True, "played": url, "block": block_name,
+                        "video_id": selected["video_id"], "pool_mode": True,
+                    })
+                except Exception as e:
+                    logger.exception("AutoPlay pool trigger failed for %s: %s", block_name, e)
+                    return jsonify({"ok": False, "error": str(e)}), 500
+            # Pool empty — fall through to legacy mapping
+            logger.info("AutoPlay pool empty for %s, trying legacy mapping", block_name)
+
+        # Legacy mode: single URL from config
         url = _autoplay_config.mappings.get(block_name)
         if not url:
             logger.info("AutoPlay trigger: %s (no mapping)", block_name)
@@ -564,6 +598,92 @@ def create_app(
         except Exception as e:
             logger.exception("AutoPlay trigger failed for %s: %s", block_name, e)
             return jsonify({"ok": False, "error": str(e)}), 500
+
+    # --- AutoPlay Pool Endpoints ---
+
+    @app.route("/api/autoplay/pool")
+    def autoplay_pool_summary():
+        """Get summary of all block pools."""
+        blocks = _autoplay_pool.get_all_blocks()
+        return jsonify(blocks)
+
+    @app.route("/api/autoplay/pool/<block_name>")
+    def autoplay_pool_get(block_name):
+        """Get all videos in a block's pool."""
+        include_retired = request.args.get("retired") == "1"
+        pool = _autoplay_pool.get_pool(block_name, include_retired=include_retired)
+        return jsonify(pool)
+
+    @app.route("/api/autoplay/pool/<block_name>", methods=["POST"])
+    def autoplay_pool_add(block_name):
+        """Add a video to a block's pool."""
+        data = request.get_json(silent=True) or {}
+        url = data.get("url", "").strip()
+        if not url:
+            return jsonify({"error": "url required"}), 400
+        title = data.get("title", "")
+        tags = data.get("tags", "")
+        source = data.get("source", "manual")
+        result = _autoplay_pool.add_video(block_name, url, title, tags, source)
+        if result is None:
+            return jsonify({"error": "video already in pool"}), 409
+        return jsonify(result), 201
+
+    @app.route("/api/autoplay/pool/<block_name>/<video_id>", methods=["DELETE"])
+    def autoplay_pool_remove(block_name, video_id):
+        """Retire a video from a block's pool."""
+        ok = _autoplay_pool.remove_video(block_name, video_id)
+        if not ok:
+            return jsonify({"error": "video not found in pool"}), 404
+        return jsonify({"ok": True})
+
+    @app.route("/api/autoplay/pool/<block_name>/<video_id>/restore", methods=["POST"])
+    def autoplay_pool_restore(block_name, video_id):
+        """Restore a retired video."""
+        ok = _autoplay_pool.restore_video(block_name, video_id)
+        if not ok:
+            return jsonify({"error": "video not found or not retired"}), 404
+        return jsonify({"ok": True})
+
+    @app.route("/api/autoplay/rate", methods=["POST"])
+    def autoplay_rate():
+        """Rate a video. Accepts video_id+block_name, or rates the last played."""
+        data = request.get_json(silent=True) or {}
+        rating = data.get("rating")
+        if rating is None:
+            return jsonify({"error": "rating required (-1, 0, or 1)"}), 400
+        rating = int(rating)
+
+        video_id = data.get("video_id")
+        block_name = data.get("block_name")
+
+        # If no video specified, rate the last played
+        if not video_id or not block_name:
+            last = _autoplay_pool.get_last_played()
+            if not last:
+                return jsonify({"error": "no recent autoplay to rate"}), 404
+            video_id = last["video_id"]
+            block_name = last["block_name"]
+
+        ok = _autoplay_pool.rate_video(block_name, video_id, rating)
+        if not ok:
+            return jsonify({"error": "video not found"}), 404
+        label = {-1: "disliked", 0: "neutral", 1: "liked"}.get(rating, str(rating))
+        return jsonify({"ok": True, "video_id": video_id, "block": block_name, "rating": label})
+
+    @app.route("/api/autoplay/history")
+    def autoplay_history():
+        """Get autoplay play history."""
+        block = request.args.get("block")
+        limit = int(request.args.get("limit", 20))
+        history = _autoplay_pool.get_history(block_name=block, limit=limit)
+        return jsonify(history)
+
+    @app.route("/api/autoplay/seed", methods=["POST"])
+    def autoplay_seed():
+        """Seed pools from legacy mappings in config."""
+        count = _autoplay_pool.seed_from_mappings(_autoplay_config.mappings)
+        return jsonify({"ok": True, "seeded": count})
 
     # --- Discover Endpoints ---
 
