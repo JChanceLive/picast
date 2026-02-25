@@ -192,11 +192,11 @@ class Database:
         row = conn.execute("SELECT version FROM schema_version").fetchone()
         if row is None:
             conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
-            conn.commit()
         else:
             current = row["version"]
             if current < SCHEMA_VERSION:
                 self._migrate(current, SCHEMA_VERSION)
+        conn.commit()  # Ensure no open transaction after init
 
         logger.info("Database initialized at %s (schema v%d)", self.db_path, SCHEMA_VERSION)
 

@@ -51,21 +51,18 @@ class AutoPlayPool:
             video_id = url
 
         now = datetime.now(timezone.utc).isoformat()
-        try:
-            self.db.execute(
-                "INSERT INTO autoplay_videos "
-                "(video_id, title, block_name, tags, added_date, source) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (video_id, title, block_name, tags, now, source),
-            )
-            self.db.commit()
-            logger.info("Added video %s to pool '%s'", video_id, block_name)
-            return self.get_video(block_name, video_id)
-        except Exception as e:
-            if "UNIQUE constraint" in str(e):
-                logger.debug("Video %s already in pool '%s'", video_id, block_name)
-                return None
-            raise
+        cursor = self.db.execute(
+            "INSERT OR IGNORE INTO autoplay_videos "
+            "(video_id, title, block_name, tags, added_date, source) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (video_id, title, block_name, tags, now, source),
+        )
+        self.db.commit()
+        if cursor.rowcount == 0:
+            logger.debug("Video %s already in pool '%s'", video_id, block_name)
+            return None
+        logger.info("Added video %s to pool '%s'", video_id, block_name)
+        return self.get_video(block_name, video_id)
 
     def remove_video(self, block_name: str, video_id: str) -> bool:
         """Retire a video (set active=0). Returns True if found."""
