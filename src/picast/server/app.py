@@ -9,6 +9,8 @@ import logging
 import os
 import random
 import re
+import shutil
+import subprocess
 import time
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
@@ -203,6 +205,13 @@ def create_app(
     def web_pool():
         return render_template(
             "pool.html", active="pool",
+            devices=device_registry.list_devices(),
+        )
+
+    @app.route("/settings")
+    def web_settings():
+        return render_template(
+            "settings.html", active="settings",
             devices=device_registry.list_devices(),
         )
 
@@ -1302,6 +1311,215 @@ def create_app(
             return jsonify({"error": f"File not found: {path}"}), 404
         count = queue.import_queue_txt(path)
         return jsonify({"ok": True, "imported": count})
+
+    # --- System Settings Endpoints ---
+
+    def _detect_alsa_mixer():
+        """Auto-detect available ALSA mixer name."""
+        for name in ("Master", "PCM", "Headphone", "HDMI"):
+            try:
+                result = subprocess.run(
+                    ["amixer", "sget", name],
+                    capture_output=True, text=True, timeout=5,
+                )
+                if result.returncode == 0:
+                    return name
+            except (FileNotFoundError, subprocess.TimeoutExpired):
+                return None
+        return None
+
+    def _parse_amixer_volume(output: str) -> int | None:
+        """Parse volume percentage from amixer output."""
+        m = re.search(r'\[(\d+)%\]', output)
+        return int(m.group(1)) if m else None
+
+    @app.route("/api/system/volume")
+    def system_volume_get():
+        """Read current ALSA volume."""
+        mixer = _detect_alsa_mixer()
+        if not mixer:
+            return jsonify({"volume": 0, "error": "No ALSA mixer found (not a Pi?)"})
+        try:
+            result = subprocess.run(
+                ["amixer", "sget", mixer],
+                capture_output=True, text=True, timeout=5,
+            )
+            vol = _parse_amixer_volume(result.stdout)
+            if vol is None:
+                return jsonify({"volume": 0, "error": "Could not parse volume"})
+            return jsonify({"volume": vol, "mixer": mixer})
+        except Exception as e:
+            return jsonify({"volume": 0, "error": str(e)})
+
+    @app.route("/api/system/volume", methods=["POST"])
+    def system_volume_set():
+        """Set ALSA volume."""
+        data = request.get_json(silent=True) or {}
+        vol = data.get("volume")
+        if vol is None:
+            return jsonify({"error": "volume required"}), 400
+        vol = max(0, min(100, int(vol)))
+        mixer = _detect_alsa_mixer()
+        if not mixer:
+            return jsonify({"error": "No ALSA mixer found (not a Pi?)"}), 500
+        try:
+            subprocess.run(
+                ["amixer", "sset", mixer, f"{vol}%"],
+                capture_output=True, text=True, timeout=5,
+            )
+            return jsonify({"ok": True, "volume": vol})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/system/display")
+    def system_display_get():
+        """Read display rotation from boot config."""
+        config_path = None
+        for p in ("/boot/firmware/config.txt", "/boot/config.txt"):
+            if os.path.exists(p):
+                config_path = p
+                break
+        if not config_path:
+            return jsonify({"rotate": 0, "error": "No boot config found (not a Pi?)"})
+        try:
+            with open(config_path) as f:
+                content = f.read()
+            m = re.search(r'^display_hdmi_rotate=(\d+)', content, re.MULTILINE)
+            rotate = int(m.group(1)) if m else 0
+            return jsonify({"rotate": rotate, "config_path": config_path})
+        except Exception as e:
+            return jsonify({"rotate": 0, "error": str(e)})
+
+    @app.route("/api/system/display", methods=["POST"])
+    def system_display_set():
+        """Write display rotation and reboot."""
+        data = request.get_json(silent=True) or {}
+        rotate = data.get("rotate")
+        if rotate is None:
+            return jsonify({"error": "rotate required"}), 400
+        rotate = int(rotate)
+        if rotate not in (0, 2):
+            return jsonify({"error": "rotate must be 0 (normal) or 2 (180)"}), 400
+
+        config_path = None
+        for p in ("/boot/firmware/config.txt", "/boot/config.txt"):
+            if os.path.exists(p):
+                config_path = p
+                break
+        if not config_path:
+            return jsonify({"error": "No boot config found (not a Pi?)"}), 500
+
+        try:
+            with open(config_path) as f:
+                content = f.read()
+
+            # Update or add display_hdmi_rotate
+            if re.search(r'^display_hdmi_rotate=', content, re.MULTILINE):
+                content = re.sub(
+                    r'^display_hdmi_rotate=\d+',
+                    f'display_hdmi_rotate={rotate}',
+                    content,
+                    flags=re.MULTILINE,
+                )
+            else:
+                content = content.rstrip() + f'\ndisplay_hdmi_rotate={rotate}\n'
+
+            # Write via sudo tee
+            proc = subprocess.run(
+                ["sudo", "tee", config_path],
+                input=content, capture_output=True, text=True, timeout=10,
+            )
+            if proc.returncode != 0:
+                return jsonify({"error": f"Failed to write config: {proc.stderr}"}), 500
+
+            # Reboot
+            subprocess.Popen(["sudo", "reboot"])
+            return jsonify({"ok": True, "rotate": rotate, "rebooting": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/system/info")
+    def system_info():
+        """Get system information."""
+        info = {"version": _get_version()}
+
+        # Hostname
+        try:
+            info["hostname"] = os.uname().nodename
+        except Exception:
+            info["hostname"] = "unknown"
+
+        # IP address
+        try:
+            import socket
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(("8.8.8.8", 80))
+            info["ip"] = s.getsockname()[0]
+            s.close()
+        except Exception:
+            info["ip"] = "unknown"
+
+        # Uptime
+        try:
+            result = subprocess.run(
+                ["uptime", "-p"], capture_output=True, text=True, timeout=5,
+            )
+            info["uptime"] = result.stdout.strip() if result.returncode == 0 else None
+        except Exception:
+            info["uptime"] = None
+
+        # CPU temperature
+        try:
+            with open("/sys/class/thermal/thermal_zone0/temp") as f:
+                temp_raw = int(f.read().strip())
+            info["cpu_temp"] = f"{temp_raw / 1000:.1f}°C"
+        except Exception:
+            info["cpu_temp"] = None
+
+        # Disk usage
+        try:
+            total, used, free = shutil.disk_usage("/")
+            info["disk"] = f"{used // (1024**3)}GB / {total // (1024**3)}GB ({100 * used // total}%)"
+        except Exception:
+            info["disk"] = None
+
+        # Audio device
+        try:
+            result = subprocess.run(
+                ["aplay", "-l"], capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                lines = [l for l in result.stdout.splitlines() if l.startswith("card")]
+                info["audio_device"] = lines[0] if lines else "No audio devices"
+            else:
+                info["audio_device"] = None
+        except Exception:
+            info["audio_device"] = None
+
+        return jsonify(info)
+
+    @app.route("/api/system/osd")
+    def system_osd_get():
+        """Get OSD enabled state."""
+        return jsonify({"enabled": config.osd_enabled})
+
+    @app.route("/api/system/osd", methods=["POST"])
+    def system_osd_set():
+        """Toggle OSD enabled state."""
+        config.osd_enabled = not config.osd_enabled
+        return jsonify({"ok": True, "enabled": config.osd_enabled})
+
+    @app.route("/api/system/restart", methods=["POST"])
+    def system_restart():
+        """Restart the PiCast service."""
+        try:
+            subprocess.Popen(
+                ["sudo", "systemctl", "restart", "picast"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return jsonify({"ok": True, "message": "Restart initiated"})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     return app
 

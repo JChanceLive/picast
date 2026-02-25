@@ -347,3 +347,103 @@ class TestTimerEndpoints:
         data = resp.get_json()
         assert "stop_after_current" in data
         assert "stop_timer_remaining" in data
+
+
+class TestSystemVolumeEndpoints:
+    def test_volume_get(self, client):
+        """Volume GET returns volume or error (no amixer on Mac)."""
+        resp = client.get("/api/system/volume")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "volume" in data
+        # On Mac, will have error since no amixer
+        assert isinstance(data["volume"], int)
+
+    def test_volume_set_requires_volume(self, client):
+        resp = client.post("/api/system/volume", json={})
+        assert resp.status_code == 400
+        assert "volume required" in resp.get_json()["error"]
+
+    def test_volume_set_clamps_values(self, client):
+        """Volume POST should accept values and clamp to 0-100."""
+        # Will fail on Mac (no amixer) but should not crash
+        resp = client.post("/api/system/volume", json={"volume": 150})
+        assert resp.status_code in (200, 500)
+
+    def test_volume_set_negative_clamps(self, client):
+        resp = client.post("/api/system/volume", json={"volume": -10})
+        assert resp.status_code in (200, 500)
+
+
+class TestSystemDisplayEndpoints:
+    def test_display_get(self, client):
+        """Display GET returns rotation or error (no boot config on Mac)."""
+        resp = client.get("/api/system/display")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "rotate" in data
+
+    def test_display_set_requires_rotate(self, client):
+        resp = client.post("/api/system/display", json={})
+        assert resp.status_code == 400
+
+    def test_display_set_rejects_invalid_value(self, client):
+        resp = client.post("/api/system/display", json={"rotate": 3})
+        assert resp.status_code == 400
+        assert "must be 0" in resp.get_json()["error"]
+
+
+class TestSystemInfoEndpoint:
+    def test_info(self, client):
+        """System info returns basic fields."""
+        resp = client.get("/api/system/info")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "version" in data
+        assert "hostname" in data
+        assert "ip" in data
+        assert "disk" in data
+
+    def test_info_version_matches(self, client):
+        """Version from system info should match __about__."""
+        resp = client.get("/api/system/info")
+        data = resp.get_json()
+        from picast.__about__ import __version__
+        assert data["version"] == __version__
+
+
+class TestSystemOsdEndpoints:
+    def test_osd_get(self, client):
+        resp = client.get("/api/system/osd")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert "enabled" in data
+        assert isinstance(data["enabled"], bool)
+
+    def test_osd_toggle(self, client):
+        """Toggle OSD flips the state."""
+        initial = client.get("/api/system/osd").get_json()["enabled"]
+        resp = client.post("/api/system/osd", json={})
+        assert resp.status_code == 200
+        assert resp.get_json()["enabled"] is not initial
+        # Toggle again to restore
+        resp2 = client.post("/api/system/osd", json={})
+        assert resp2.get_json()["enabled"] is initial
+
+
+class TestSystemRestartEndpoint:
+    def test_restart(self, client, monkeypatch):
+        """Restart should attempt to run systemctl restart."""
+        import subprocess
+
+        calls = []
+
+        def mock_popen(*args, **kwargs):
+            calls.append(args)
+            return None
+
+        monkeypatch.setattr(subprocess, "Popen", mock_popen)
+        resp = client.post("/api/system/restart")
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+        assert len(calls) == 1

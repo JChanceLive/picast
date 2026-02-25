@@ -120,7 +120,7 @@ class TestWebPages:
         assert resp.status_code == 200
         assert b"Catalog" in resp.data
 
-    def test_catalog_nav_pill_on_all_pages(self, client):
+    def test_catalog_nav_link_on_all_pages(self, client):
         for path in ["/", "/history", "/collections", "/catalog"]:
             resp = client.get(path)
             assert b'href="/catalog"' in resp.data, f"Missing catalog nav on {path}"
@@ -130,6 +130,46 @@ class TestWebPages:
         assert b".catalog-breadcrumb" in resp.data
         assert b".catalog-season-header" in resp.data
         assert b".catalog-continue-badge" in resp.data
+
+    def test_settings_page(self, client):
+        resp = client.get("/settings")
+        assert resp.status_code == 200
+        assert b"Settings" in resp.data
+        assert b"volume-slider" in resp.data
+        assert b"rotation-select" in resp.data
+        assert b"sysinfo-grid" in resp.data
+
+    def test_settings_nav_link_on_all_pages(self, client):
+        for path in ["/", "/history", "/collections", "/catalog", "/pool", "/settings"]:
+            resp = client.get(path)
+            assert b'href="/settings"' in resp.data, f"Missing settings nav on {path}"
+
+    def test_hamburger_menu_on_all_pages(self, client):
+        for path in ["/", "/history", "/collections", "/catalog", "/settings"]:
+            resp = client.get(path)
+            assert b"toggleMenu" in resp.data, f"Missing hamburger on {path}"
+            assert b"nav-menu" in resp.data, f"Missing nav-menu on {path}"
+
+    def test_pool_icon_in_nav(self, client):
+        resp = client.get("/")
+        assert b'href="/pool"' in resp.data
+
+    def test_settings_has_volume_slider(self, client):
+        resp = client.get("/settings")
+        assert b"loadVolume" in resp.data
+        assert b"settings-slider" in resp.data
+
+    def test_settings_has_restart_button(self, client):
+        resp = client.get("/settings")
+        assert b"restartService" in resp.data
+        assert b"btn-restart" in resp.data
+
+    def test_css_has_settings_styles(self, client):
+        resp = client.get("/static/style.css")
+        assert b".settings-card" in resp.data
+        assert b".settings-slider" in resp.data
+        assert b".sysinfo-grid" in resp.data
+        assert b".volume-control" in resp.data
 
 
 class TestLibraryAPI:

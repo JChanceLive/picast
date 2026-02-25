@@ -55,6 +55,21 @@ function retryFailed(itemId) {
         .catch(() => showToast('Retry failed'));
 }
 
+// Hamburger menu toggle
+function toggleMenu() {
+    const menu = document.getElementById('navMenu');
+    menu.classList.toggle('open');
+}
+
+// Close menu when clicking outside
+document.addEventListener('click', function(e) {
+    const menu = document.getElementById('navMenu');
+    const btn = document.getElementById('btnMenu');
+    if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+        menu.classList.remove('open');
+    }
+});
+
 // Device switcher - redirect to another Pi's web UI
 function switchDevice(url) {
     if (url && !url.includes('localhost') && !url.includes('127.0.0.1')) {

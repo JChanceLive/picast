@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Settings{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom: 1rem;">Settings</h2>
+
+<!-- System Volume -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F50A;</span>
+        <h3>System Volume</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="volume-control">
+            <input type="range" id="volume-slider" class="settings-slider" min="0" max="100" value="0">
+            <span class="volume-label" id="volume-label">--%</span>
+        </div>
+        <div class="settings-note" id="volume-note"></div>
+    </div>
+</div>
+
+<!-- Display -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F5A5;</span>
+        <h3>Display</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="settings-row">
+            <label for="rotation-select">Rotation</label>
+            <select id="rotation-select" class="settings-select">
+                <option value="0">Normal</option>
+                <option value="2">Upside-down (180&deg;)</option>
+            </select>
+        </div>
+        <div class="settings-note" id="display-note"></div>
+        <button class="btn btn-sm" id="btn-save-rotation" onclick="saveRotation()">Save &amp; Reboot</button>
+    </div>
+</div>
+
+<!-- Player -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x25B6;</span>
+        <h3>Player</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="settings-row">
+            <label>OSD Overlay</label>
+            <button class="btn btn-sm" id="btn-osd" onclick="toggleOsd()">--</button>
+        </div>
+    </div>
+</div>
+
+<!-- System Info -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x2139;</span>
+        <h3>System Info</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="sysinfo-grid" id="sysinfo-grid">
+            <div class="sysinfo-loading">Loading...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Service -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F504;</span>
+        <h3>Service</h3>
+    </div>
+    <div class="settings-card-body">
+        <button class="btn btn-danger btn-sm" id="btn-restart" onclick="restartService()">Restart PiCast</button>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let volumeDebounce = null;
+
+async function loadVolume() {
+    try {
+        const r = await fetch('/api/system/volume');
+        const d = await r.json();
+        const slider = document.getElementById('volume-slider');
+        const label = document.getElementById('volume-label');
+        const note = document.getElementById('volume-note');
+        if (d.error) {
+            note.textContent = d.error;
+            slider.disabled = true;
+        } else {
+            slider.value = d.volume;
+            label.textContent = d.volume + '%';
+            note.textContent = d.mixer ? 'Mixer: ' + d.mixer : '';
+        }
+    } catch(e) {
+        document.getElementById('volume-note').textContent = 'Failed to load volume';
+    }
+}
+
+document.getElementById('volume-slider').addEventListener('input', function() {
+    document.getElementById('volume-label').textContent = this.value + '%';
+    clearTimeout(volumeDebounce);
+    volumeDebounce = setTimeout(() => {
+        fetch('/api/system/volume', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({volume: parseInt(this.value)})
+        }).then(r => r.json()).then(d => {
+            if (d.error) showToast('Volume error: ' + d.error);
+        }).catch(() => showToast('Failed to set volume'));
+    }, 200);
+});
+
+async function loadDisplay() {
+    try {
+        const r = await fetch('/api/system/display');
+        const d = await r.json();
+        const sel = document.getElementById('rotation-select');
+        const note = document.getElementById('display-note');
+        if (d.error) {
+            note.textContent = d.error;
+            sel.disabled = true;
+            document.getElementById('btn-save-rotation').disabled = true;
+        } else {
+            sel.value = String(d.rotate);
+        }
+    } catch(e) {
+        document.getElementById('display-note').textContent = 'Failed to load display settings';
+    }
+}
+
+async function saveRotation() {
+    const val = parseInt(document.getElementById('rotation-select').value);
+    if (!confirm('This will reboot the Pi. Continue?')) return;
+    const btn = document.getElementById('btn-save-rotation');
+    btn.disabled = true;
+    btn.textContent = 'Rebooting...';
+    try {
+        const r = await fetch('/api/system/display', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({rotate: val})
+        });
+        const d = await r.json();
+        if (d.error) {
+            showToast('Error: ' + d.error);
+            btn.disabled = false;
+            btn.textContent = 'Save & Reboot';
+        } else {
+            showToast('Rebooting...');
+        }
+    } catch(e) {
+        showToast('Failed to save rotation');
+        btn.disabled = false;
+        btn.textContent = 'Save & Reboot';
+    }
+}
+
+async function loadOsd() {
+    try {
+        const r = await fetch('/api/system/osd');
+        const d = await r.json();
+        document.getElementById('btn-osd').textContent = d.enabled ? 'Enabled' : 'Disabled';
+        document.getElementById('btn-osd').className = 'btn btn-sm' + (d.enabled ? ' btn-icon-active' : '');
+    } catch(e) {}
+}
+
+async function toggleOsd() {
+    try {
+        const r = await fetch('/api/system/osd', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({})
+        });
+        const d = await r.json();
+        document.getElementById('btn-osd').textContent = d.enabled ? 'Enabled' : 'Disabled';
+        document.getElementById('btn-osd').className = 'btn btn-sm' + (d.enabled ? ' btn-icon-active' : '');
+        showToast('OSD ' + (d.enabled ? 'enabled' : 'disabled'));
+    } catch(e) {
+        showToast('Failed to toggle OSD');
+    }
+}
+
+async function loadSysinfo() {
+    try {
+        const r = await fetch('/api/system/info');
+        const d = await r.json();
+        const grid = document.getElementById('sysinfo-grid');
+        let html = '';
+        const items = [
+            ['Version', d.version],
+            ['Hostname', d.hostname],
+            ['IP', d.ip],
+            ['Uptime', d.uptime],
+            ['CPU Temp', d.cpu_temp],
+            ['Disk', d.disk],
+            ['Audio', d.audio_device],
+        ];
+        for (const [label, val] of items) {
+            if (val) {
+                html += '<div class="sysinfo-item"><span class="sysinfo-label">' + esc(label) + '</span><span class="sysinfo-value">' + esc(val) + '</span></div>';
+            }
+        }
+        grid.innerHTML = html || '<div class="sysinfo-loading">No info available</div>';
+    } catch(e) {
+        document.getElementById('sysinfo-grid').innerHTML = '<div class="sysinfo-loading">Failed to load</div>';
+    }
+}
+
+async function restartService() {
+    if (!confirm('Restart PiCast service? Playback will stop.')) return;
+    const btn = document.getElementById('btn-restart');
+    btn.disabled = true;
+    btn.textContent = 'Restarting...';
+    try {
+        await fetch('/api/system/restart', {method: 'POST'});
+        showToast('Restarting service...');
+        setTimeout(() => location.reload(), 5000);
+    } catch(e) {
+        showToast('Restart command sent');
+        setTimeout(() => location.reload(), 5000);
+    }
+}
+
+// Load all on page load
+loadVolume();
+loadDisplay();
+loadOsd();
+loadSysinfo();
+</script>
+{% endblock %}
