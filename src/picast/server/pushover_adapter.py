@@ -13,6 +13,16 @@ logger = logging.getLogger(__name__)
 PUSHOVER_API_URL = "https://api.pushover.net/1/messages.json"
 
 
+class SoundTier:
+    """Pushover sound tiers for notification severity."""
+    CASUAL   = {"sound": "classical", "priority": 0}
+    ROUTINE  = {"sound": "gamelan",   "priority": 0}
+    MEDIUM   = {"sound": "pushover",  "priority": 1}
+    ALERT    = {"sound": "falling",   "priority": 1}
+    URGENT   = {"sound": "siren",     "priority": 2}
+    CRITICAL = {"sound": "alien",     "priority": 2}
+
+
 def create_pushover_send_fn(api_token: str, user_key: str):
     """Create a send_fn compatible with NotificationManager.
 
@@ -29,18 +39,19 @@ def create_pushover_send_fn(api_token: str, user_key: str):
 
     def send_fn(chat_id, text: str):
         is_alert = "SD Card Alert" in text
+        tier = SoundTier.ALERT if is_alert else SoundTier.CASUAL
         title = "PiCast SD Alert" if is_alert else "PiCast"
-        priority = 1 if is_alert else 0
 
         params = {
             "token": api_token,
             "user": user_key,
             "message": text,
             "title": title,
-            "priority": priority,
+            "priority": tier["priority"],
+            "sound": tier["sound"],
         }
         # Emergency priority requires retry/expire
-        if priority == 2:
+        if tier["priority"] == 2:
             params["retry"] = 120
             params["expire"] = 3600
 

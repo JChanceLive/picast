@@ -3,14 +3,14 @@
 import urllib.request
 from unittest.mock import MagicMock, patch
 
-from picast.server.pushover_adapter import PUSHOVER_API_URL, create_pushover_send_fn
+from picast.server.pushover_adapter import PUSHOVER_API_URL, SoundTier, create_pushover_send_fn
 
 
 class TestPushoverAdapter:
     """Test create_pushover_send_fn routing and behavior."""
 
     @patch("picast.server.pushover_adapter.urllib.request.urlopen")
-    def test_alert_sends_with_priority_1(self, mock_urlopen):
+    def test_alert_sends_with_alert_tier(self, mock_urlopen):
         mock_urlopen.return_value.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=b"")))
         mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -23,10 +23,11 @@ class TestPushoverAdapter:
         assert "token=tok_abc" in body
         assert "user=user_xyz" in body
         assert "priority=1" in body
+        assert "sound=falling" in body
         assert "title=PiCast+SD+Alert" in body
 
     @patch("picast.server.pushover_adapter.urllib.request.urlopen")
-    def test_summary_sends_with_priority_0(self, mock_urlopen):
+    def test_summary_sends_with_casual_tier(self, mock_urlopen):
         mock_urlopen.return_value.__enter__ = MagicMock(return_value=MagicMock(read=MagicMock(return_value=b"")))
         mock_urlopen.return_value.__exit__ = MagicMock(return_value=False)
 
@@ -36,6 +37,7 @@ class TestPushoverAdapter:
         req = mock_urlopen.call_args[0][0]
         body = req.data.decode("utf-8")
         assert "priority=0" in body
+        assert "sound=classical" in body
         assert "title=PiCast" in body
 
     @patch("picast.server.pushover_adapter.urllib.request.urlopen")
@@ -67,3 +69,15 @@ class TestPushoverAdapter:
         req = mock_urlopen.call_args[0][0]
         body = req.data.decode("utf-8")
         assert "message=Hello+from+PiCast" in body
+
+
+class TestSoundTier:
+    """Test SoundTier definitions."""
+
+    def test_alert_tier_uses_falling(self):
+        assert SoundTier.ALERT["sound"] == "falling"
+        assert SoundTier.ALERT["priority"] == 1
+
+    def test_casual_tier_uses_classical(self):
+        assert SoundTier.CASUAL["sound"] == "classical"
+        assert SoundTier.CASUAL["priority"] == 0
