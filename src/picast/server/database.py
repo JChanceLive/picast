@@ -180,6 +180,7 @@ class Database:
             self._local.conn.row_factory = sqlite3.Row
             self._local.conn.execute("PRAGMA journal_mode=WAL")
             self._local.conn.execute("PRAGMA foreign_keys=ON")
+            self._local.conn.execute("PRAGMA busy_timeout=5000")
         return self._local.conn
 
     def _init_schema(self):
