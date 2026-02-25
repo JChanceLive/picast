@@ -32,6 +32,16 @@ class PushoverConfig:
 
 
 @dataclass
+class ThemeConfig:
+    """Per-block search theme for the discovery agent."""
+
+    queries: list[str] = field(default_factory=list)
+    min_duration: int = 0      # seconds (0 = no minimum)
+    max_duration: int = 0      # seconds (0 = no maximum)
+    max_results: int = 5       # per query
+
+
+@dataclass
 class AutoplayConfig:
     """Block-to-video autoplay triggered by PiPulse webhooks."""
 
@@ -41,6 +51,8 @@ class AutoplayConfig:
     min_pool_size: int = 3  # Warn if pool drops below this
     mappings: dict[str, str] = field(default_factory=dict)
     # mappings: block_name -> URL (legacy single-URL fallback)
+    themes: dict[str, ThemeConfig] = field(default_factory=dict)
+    discovery_delay: float = 5.0  # seconds between yt-dlp calls
 
 
 @dataclass
@@ -170,12 +182,22 @@ def _parse_config(data: dict) -> Config:
 
     if "autoplay" in data:
         a = data["autoplay"]
+        themes = {}
+        for block_name, t in a.get("themes", {}).items():
+            themes[block_name] = ThemeConfig(
+                queries=t.get("queries", []),
+                min_duration=t.get("min_duration", 0),
+                max_duration=t.get("max_duration", 0),
+                max_results=t.get("max_results", 5),
+            )
         config.autoplay = AutoplayConfig(
             enabled=a.get("enabled", config.autoplay.enabled),
             pool_mode=a.get("pool_mode", config.autoplay.pool_mode),
             avoid_recent=a.get("avoid_recent", config.autoplay.avoid_recent),
             min_pool_size=a.get("min_pool_size", config.autoplay.min_pool_size),
             mappings=dict(a.get("mappings", {})),
+            themes=themes,
+            discovery_delay=a.get("discovery_delay", config.autoplay.discovery_delay),
         )
 
     if "devices" in data:

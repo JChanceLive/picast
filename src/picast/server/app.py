@@ -13,7 +13,7 @@ import time
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
-from picast.config import AutoplayConfig, ServerConfig
+from picast.config import AutoplayConfig, ServerConfig, ThemeConfig
 from picast.server.autoplay_pool import AutoPlayPool, extract_video_id
 from picast.server.database import Database
 from picast.server.discovery import DeviceRegistry
@@ -24,6 +24,7 @@ from picast.server.player import Player
 from picast.server.queue_manager import QueueManager
 from picast.server.catalog import CATEGORIES, CATALOG, get_series_by_category, get_series_by_id
 from picast.server.sources import ArchiveSource, LocalSource, SourceRegistry, TwitchSource, YouTubeSource
+from picast.server.youtube_discovery import DiscoveryAgent
 
 logger = logging.getLogger(__name__)
 
@@ -159,6 +160,14 @@ def create_app(
         seeded = _autoplay_pool.seed_from_mappings(_autoplay_config.mappings)
         if seeded:
             logger.info("AutoPlay pool: seeded %d videos from legacy mappings", seeded)
+
+    # Discovery agent for pool enrichment
+    _discovery_agent = DiscoveryAgent(
+        pool=_autoplay_pool,
+        server_config=config,
+        delay=_autoplay_config.discovery_delay,
+    )
+    _discovery_themes = _autoplay_config.themes
 
     # --- Web UI Pages ---
 
@@ -710,6 +719,45 @@ def create_app(
         """Seed pools from legacy mappings in config."""
         count = _autoplay_pool.seed_from_mappings(_autoplay_config.mappings)
         return jsonify({"ok": True, "seeded": count})
+
+    # --- AutoPlay Discovery Endpoints ---
+
+    @app.route("/api/autoplay/discover/<block_name>", methods=["POST"])
+    def autoplay_discover_block(block_name):
+        """Run YouTube discovery for a single block.
+
+        Uses configured theme or accepts JSON overrides:
+        {queries, min_duration, max_duration, max_results}
+        """
+        if block_name not in _discovery_themes:
+            return jsonify({"error": f"No theme configured for block '{block_name}'"}), 404
+
+        base_theme = _discovery_themes[block_name]
+        data = request.get_json(silent=True) or {}
+
+        # Allow overrides from request body
+        theme = ThemeConfig(
+            queries=data.get("queries", base_theme.queries),
+            min_duration=data.get("min_duration", base_theme.min_duration),
+            max_duration=data.get("max_duration", base_theme.max_duration),
+            max_results=data.get("max_results", base_theme.max_results),
+        )
+
+        stats = _discovery_agent.discover_for_block(block_name, theme)
+        return jsonify(stats)
+
+    @app.route("/api/autoplay/discover", methods=["POST"])
+    def autoplay_discover_all():
+        """Run YouTube discovery for all configured blocks."""
+        all_stats = _discovery_agent.discover_all(_discovery_themes)
+        total_found = sum(s["found"] for s in all_stats)
+        total_added = sum(s["added"] for s in all_stats)
+        return jsonify({
+            "ok": True,
+            "blocks": all_stats,
+            "total_found": total_found,
+            "total_added": total_added,
+        })
 
     # --- Discover Endpoints ---
 

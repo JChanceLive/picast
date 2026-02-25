@@ -305,6 +305,14 @@ def run_pool_cli():
     p_import.add_argument("block", help="Block name")
     p_import.add_argument("file", help="Text file with one URL per line")
 
+    # discover
+    p_discover = sub.add_parser("discover", help="Discover new videos via YouTube search")
+    p_discover.add_argument("block", nargs="?", help="Block name (omit for all blocks)")
+    p_discover.add_argument("--query", default=None, help="Override search query")
+    p_discover.add_argument("--min-duration", type=int, default=None, help="Min duration (seconds)")
+    p_discover.add_argument("--max-duration", type=int, default=None, help="Max duration (seconds)")
+    p_discover.add_argument("--max-results", type=int, default=None, help="Max results per query")
+
     args = parser.parse_args()
     base = args.server.rstrip("/")
 
@@ -318,13 +326,13 @@ def run_pool_cli():
             print(f"Error: Could not connect to {base} - {e}")
             sys.exit(1)
 
-    def api_post(path, data=None):
+    def api_post(path, data=None, timeout=10):
         url = f"{base}{path}"
         body = json.dumps(data or {}).encode()
         try:
             req = urllib.request.Request(url, data=body, method="POST",
                                         headers={"Content-Type": "application/json"})
-            with urllib.request.urlopen(req, timeout=10) as resp:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
             return json.loads(e.read())
@@ -420,6 +428,42 @@ def run_pool_cli():
                 print(f"  Skip: {url} ({result.get('error', 'unknown')})")
         print(f"Imported {added}/{len(urls)} videos to '{args.block}'" +
               (f" ({failed} failed)" if failed else ""))
+
+    elif args.command == "discover":
+        if args.block:
+            # Single block discovery
+            body = {}
+            if args.query:
+                body["queries"] = [args.query]
+            if args.min_duration is not None:
+                body["min_duration"] = args.min_duration
+            if args.max_duration is not None:
+                body["max_duration"] = args.max_duration
+            if args.max_results is not None:
+                body["max_results"] = args.max_results
+            print(f"Discovering videos for '{args.block}'...")
+            result = api_post(f"/api/autoplay/discover/{args.block}", body, timeout=120)
+            if result.get("error"):
+                print(f"Error: {result['error']}")
+            else:
+                print(f"  Queries: {result.get('queries_run', 0)}, "
+                      f"Found: {result.get('found', 0)}, "
+                      f"Added: {result.get('added', 0)}, "
+                      f"Skipped: {result.get('skipped', 0)}")
+        else:
+            # All blocks
+            print("Discovering videos for all configured blocks...")
+            result = api_post("/api/autoplay/discover", timeout=300)
+            if result.get("error"):
+                print(f"Error: {result['error']}")
+            else:
+                for block_stats in result.get("blocks", []):
+                    print(f"  {block_stats['block']}: "
+                          f"found={block_stats['found']}, "
+                          f"added={block_stats['added']}, "
+                          f"skipped={block_stats['skipped']}")
+                print(f"\nTotal: found={result.get('total_found', 0)}, "
+                      f"added={result.get('total_added', 0)}")
 
     else:
         parser.print_help()

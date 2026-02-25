@@ -35,3 +35,23 @@ default = true
 # [devices.bedroom]
 # host = "picast-bedroom.local"
 # port = 5000
+
+# AutoPlay pool mode with YouTube discovery
+# [autoplay]
+# enabled = true
+# pool_mode = true
+# avoid_recent = 3
+# discovery_delay = 5.0  # seconds between yt-dlp searches
+
+# Per-block search themes for the discovery agent
+# Run: picast-pool discover [block]
+# [autoplay.themes.focus]
+# queries = ["lofi beats study", "focus music ambient"]
+# min_duration = 1800   # 30 minutes minimum
+# max_duration = 14400  # 4 hours maximum
+# max_results = 5       # per query
+
+# [autoplay.themes.clean-mama]
+# queries = ["cleaning motivation music", "upbeat cleaning playlist"]
+# min_duration = 600
+# max_results = 3

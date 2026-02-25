@@ -136,49 +136,46 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-02-25 | 36 active memories, 67 total_
+_Last updated: 2026-02-25 | 33 active memories, 80 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - AoE wrapper script (`~/.claude/scripts/aoe-session-wrapper.sh`) orchestrates session continuity: reads tool-count.jso... [ultra-claude-stack, aoe, wrapper, session-management, session-history]
 - Multi-backend notification pattern across Pi fleet: PiCast v0.14.0 NotificationManager requires `notification_chat_id... [picast, picam, pipulse, notifications, telegram, pushover, architecture]
+- PiCast Discovery Agent uses YouTube API (yt-dlp) to populate autoplay pools based on theme-based search queries confi... [picast, autoplay, discovery, youtube, architecture]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
 - PiPulse (10.0.0.103, Pi 4+) chosen as best candidate for ntfy.sh self-hosting migration over other fleet members due ... [pipulse, telegram, notifications, infrastructure]
 - Pushover chosen as ntfy replacement: provides proper APNS infrastructure for reliable iOS background push, one-time $... [pushover, ntfy, notifications, ios-push, decision, trade-offs]
+- Discovery Agent implemented as separate class in new `src/picast/server/sources/discovery.py` (not integrated into Yo... [picast, autoplay, discovery, design, separation-of-concerns]
 
 ## Patterns & Conventions
 - AoE `command` field completely replaces default `tool: "claude"` behavior when set (not run alongside). All 19 AoE se... [ultra-claude-stack, aoe, configuration]
 - Empty python3 output in wrapper arithmetic expressions breaks bash ($(( - 0)) errors); all python variable assignment... [aoe, wrapper, bash, error-handling]
 - User preference: single-line session logs with dense metadata (tool counts, memory diffs, key actions) for reference ... [session-history, logging, workflow]
 - PiCam notification refactoring maintains consistent pattern across all alert points: motion_scan.py (_send_alert + ch... [picam, pushover, notifications, pattern]
-- GitHub raw CDN caches __about__.py for ~5 minutes after push; for immediate Pi deployment after version bumps, use di... [picast, deployment, git, github]
 - Bulk git operations across terminal ecosystem follow 3-tier structure: Tier 1 (gitignore only), Tier 2 (gitignore + d... [git, workflow, infrastructure]
 - Git branch cleanup protocol: branches created during development are deleted after merge because they serve scaffoldi... [git, workflow, safety]
 - /done command captures session metadata for dashboard visibility and structured handoff. User workflow: auto-save hoo... [workflow, session-management, dashboard, aoe, session-history]
-- PiCast autoplay pool initialization requires two-stage deployment: (1) Enable pool_mode in picast.toml [autoplay] sec... [picast, autoplay, deployment, pool-mode, configuration]
-- Direct SQLite insertion via Python on Pi (systemctl stop → sqlite3.connect() → insert rows → systemctl restart) is fa... [picast, deployment, sqlite, performance]
-- picast-update binary path requires direct SSH call via ~/.local/bin/picast-update (not in system PATH via SSH), sugge... [picast, deployment, ssh, pip-install]
+- DiscoveryAgent uses same `APIClient` and `YouTubeAPI` pattern as YouTubeSource for code reuse; search_and_add() metho... [picast, autoplay, discovery, api-client, pattern]
+- PiCast autoplay pool initialization requires two-stage deployment: (1) Enable pool_mode in picast.toml [autoplay] sec... [picast, autoplay, deployment, pool-mode, configuration, sqlite, performance]
+- picast-update binary path requires direct SSH call via ~/.local/bin/picast-update (not in system PATH via SSH), sugge... [picast, deployment, ssh, pip-install, git, github, performance]
+- YouTube Discovery Agent module-level mocking pattern: @patch decorator targets 'picast.server.youtube_discovery.subpr... [picast, testing, mocking, pattern]
 
 ## Gotchas & Pitfalls
 - Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
-- /save and auto-save hooks serve different purposes: /save forces immediate snapshot for explicit handoff (multi-sessi... [aoe, workflow, session-management]
 - picast-update compares __version__ in src/picast/__about__.py against installed version and silently skips update if ... [picast, deployment, version-management]
 - Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
 - SQLite WAL/SHM files (.db-wal, .db-shm) can become stale after direct SQLite writes while systemd service is running,... [picast, sqlite, deployment, database]
-- PiCast autoplay pool /trigger endpoint can hang indefinitely if there is DB contention between concurrent SELECT quer... [picast, autoplay, database, performance, debugging]
-- busy_timeout=5000 pragma alone is insufficient to resolve pool mode DB locking—player thread appears to hold uncommit... [picast, autoplay, database, locking, debugging]
-- SQLite implicit transaction from SELECT in _init_schema never committed when no migration is needed, causing idle con... [picast, database, sqlite, startup]
 - PiCast autoplay pool mode DB locking resolved in v0.18.2 via two fixes: (1) changed add_video() to use INSERT OR IGNO... [picast, autoplay, database, sqlite, locking, fix]
+- Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 
 ## Current Progress
-- PiCast v0.19.0 autoplay web UI and CLI deployed and verified: pool management page (/pool route) with full CRUD opera... [picast, autoplay, web-ui, cli, deployment]
-- PiCast autoplay pool system fully verified and operational: all 10 TIM blocks mapped with 4-5 videos each (41 total),... [picast, autoplay, pool-mode, verification, testing]
-- PiCast autoplay pool mode FIXED (v0.18.2): identified and resolved permanent DB lock from unclosed transaction in see... [picast, autoplay, pool-mode, debugging, fix, deployment]
+- PiCast v0.20.0 YouTube Discovery Agent implementation complete: DiscoveryAgent class in youtube_discovery.py with yt-... [picast, autoplay, discovery-agent, testing, deployment, v0.20.0]
+- YouTube Discovery Agent (Session 3) COMPLETE: 554 tests passing (up from 522 in v0.19.0), zero regressions; youtube_d... [picast, autoplay, discovery-agent, testing, deployment]
 - PiCast Pushover migration complete (v0.16.0→v0.16.1): replaced ntfy with Pushover across PiCast (pushover_adapter.py ... [picast, picam, pipulse, pushover, migration, deployment, sound-system]
-- Terminal ecosystem cleanup completed: gitignore patterns (.mcp.json, .claude/, docs/CLAUDE.md) added across 15 repos ... [cleanup, git, gitignore, starcouncil, terminal-ecosystem, deployment]
-- Pushover sound tier system live across all 3 Pis (PiCast v0.16.1, PiCam, PiPulse): SoundTier enum with CASUAL/MEDIUM/... [pushover, notifications, sound-system, picast, picam, pipulse, deployment]
+- PiCast v0.19.0 autoplay pool system complete and deployed: fixed permanent DB lock from unclosed transaction in seed_... [picast, autoplay, pool-mode, web-ui, cli, deployment, fix]
 - Ultra Claude Stack (3-layer automation: Memory Extractor + TUI/MCP integration + brain.md sync) is COMPLETE and live.... [ultra-claude-stack, automation, system-architecture]
 
 ## Context
