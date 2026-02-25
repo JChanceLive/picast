@@ -1212,3 +1212,207 @@ body {
     color: var(--neon-cyan);
     text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
 }
+
+/* AutoPlay Rating */
+.np-rating {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(0, 240, 255, 0.08);
+}
+
+.np-rating-label {
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.btn-rate {
+    width: 36px;
+    height: 36px;
+    font-size: 1rem;
+    transition: all 0.2s;
+}
+
+.btn-rate-active-up {
+    background: rgba(57, 255, 20, 0.15);
+    border-color: var(--success);
+    box-shadow: var(--glow-sm) rgba(57, 255, 20, 0.4);
+}
+
+.btn-rate-active-down {
+    background: rgba(255, 42, 109, 0.15);
+    border-color: var(--danger);
+    box-shadow: var(--glow-sm) rgba(255, 42, 109, 0.4);
+}
+
+/* Pool Management Page */
+.pool-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.pool-header h2 {
+    font-size: 1.1rem;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
+}
+
+.pool-blocks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+    margin-bottom: 1.5rem;
+}
+
+.pool-block-card {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 0.75rem;
+    cursor: pointer;
+    border: 1px solid rgba(0, 240, 255, 0.08);
+    transition: all 0.2s;
+}
+
+.pool-block-card:hover {
+    border-color: var(--accent);
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.15);
+}
+
+.pool-block-card.active {
+    border-color: var(--accent);
+    background: var(--card);
+}
+
+.pbc-name {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-bottom: 0.25rem;
+}
+
+.pbc-stats {
+    font-size: 0.75rem;
+    color: var(--muted);
+}
+
+.pbc-stat-liked { color: var(--success); }
+.pbc-stat-disliked { color: var(--danger); }
+
+.pool-detail { margin-bottom: 1.5rem; }
+
+.pool-detail-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.5rem;
+}
+
+.pool-detail-header h3 {
+    font-size: 1rem;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
+}
+
+.pool-video {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--surface);
+    border-radius: var(--radius);
+    margin-bottom: 0.25rem;
+    border: 1px solid rgba(0, 240, 255, 0.08);
+    font-size: 0.85rem;
+}
+
+.pool-video:hover {
+    border-color: rgba(0, 240, 255, 0.2);
+}
+
+.pv-thumb {
+    width: 56px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.pv-info { flex: 1; min-width: 0; }
+.pv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-meta { color: var(--muted); font-size: 0.7rem; }
+
+.pv-rating {
+    display: flex;
+    gap: 0.2rem;
+    flex-shrink: 0;
+}
+
+.pv-actions {
+    display: flex;
+    gap: 0.2rem;
+    flex-shrink: 0;
+}
+
+.pool-add-form {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.pool-add-form input {
+    flex: 1;
+    min-height: 40px;
+    padding: 0.4rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 0.85rem;
+    transition: all 0.2s;
+}
+
+.pool-add-form input::placeholder { color: var(--muted); }
+.pool-add-form input:focus { outline: none; border-color: var(--accent); box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2); }
+
+.pool-history { margin-top: 1.5rem; }
+
+.pool-history h3 {
+    font-size: 1rem;
+    color: var(--muted);
+    margin-bottom: 0.5rem;
+}
+
+.pool-history-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.35rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--muted);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+.phi-block {
+    color: var(--accent);
+    font-size: 0.7rem;
+    font-weight: 600;
+    flex-shrink: 0;
+    min-width: 80px;
+}
+
+.phi-title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.phi-time {
+    font-size: 0.7rem;
+    flex-shrink: 0;
+    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+}
+
+@media (max-width: 480px) {
+    .pool-blocks { grid-template-columns: 1fr; }
+    .pool-video { flex-wrap: wrap; }
+    .pv-actions { width: 100%; justify-content: flex-end; margin-top: 0.25rem; }
+}

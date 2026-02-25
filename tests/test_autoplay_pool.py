@@ -1,5 +1,7 @@
 """Tests for AutoPlay pool system."""
 
+import json
+
 import pytest
 
 from picast.server.autoplay_pool import AutoPlayPool, extract_video_id
@@ -266,3 +268,70 @@ class TestVideoIdToUrl:
 
     def test_local_path_passthrough(self, pool):
         assert pool.video_id_to_url("/local/file.mp4") == "/local/file.mp4"
+
+
+# --- Web UI integration tests ---
+
+class TestAutoplayCurrentTracking:
+    """Test that autoplay_current is set/cleared in status."""
+
+    def test_status_includes_autoplay_current(self, client):
+        resp = client.get("/api/status")
+        data = json.loads(resp.data)
+        assert "autoplay_current" in data
+        assert data["autoplay_current"]["video_id"] is None
+
+    def test_autoplay_current_cleared_on_manual_play(self, client):
+        # Play something manually
+        resp = client.post("/api/play", json={"url": "https://www.youtube.com/watch?v=test1234567"})
+        data = json.loads(resp.data)
+        # Check status - autoplay_current should be None
+        resp = client.get("/api/status")
+        data = json.loads(resp.data)
+        assert data["autoplay_current"]["video_id"] is None
+
+    def test_autoplay_current_cleared_on_stop(self, client):
+        resp = client.post("/api/stop")
+        data = json.loads(resp.data)
+        assert data["ok"]
+        resp = client.get("/api/status")
+        data = json.loads(resp.data)
+        assert data["autoplay_current"]["video_id"] is None
+
+
+class TestPoolPage:
+    """Test pool management page rendering."""
+
+    def test_pool_page_renders(self, client):
+        resp = client.get("/pool")
+        assert resp.status_code == 200
+        assert b"AutoPlay Pool" in resp.data
+
+    def test_pool_page_has_pool_blocks_section(self, client):
+        resp = client.get("/pool")
+        assert b"pool-blocks" in resp.data
+
+    def test_pool_page_has_history_section(self, client):
+        resp = client.get("/pool")
+        assert b"pool-history" in resp.data
+
+
+class TestPoolCLIParsing:
+    """Test CLI argument parsing (no server needed)."""
+
+    def test_import_exists(self):
+        """Verify the run_pool_cli entry point is importable."""
+        from picast.cli import run_pool_cli
+        assert callable(run_pool_cli)
+
+
+class TestNavPills:
+    """Test that Pool nav pill appears on all pages."""
+
+    def test_pool_pill_on_queue_page(self, client):
+        resp = client.get("/")
+        assert b'href="/pool"' in resp.data
+
+    def test_pool_pill_active_on_pool_page(self, client):
+        resp = client.get("/pool")
+        assert b'class="pill active">Pool' in resp.data

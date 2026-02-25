@@ -152,6 +152,7 @@ def create_app(
     _autoplay_config = autoplay_config or AutoplayConfig()
     _autoplay_enabled = _autoplay_config.enabled
     _autoplay_pool = AutoPlayPool(db, avoid_recent=_autoplay_config.avoid_recent)
+    _autoplay_current = {"video_id": None, "block_name": None, "title": None}
 
     # Auto-seed pool from legacy mappings on first run
     if _autoplay_config.pool_mode and _autoplay_config.mappings:
@@ -186,6 +187,13 @@ def create_app(
     def web_catalog():
         return render_template(
             "catalog.html", active="catalog",
+            devices=device_registry.list_devices(),
+        )
+
+    @app.route("/pool")
+    def web_pool():
+        return render_template(
+            "pool.html", active="pool",
             devices=device_registry.list_devices(),
         )
 
@@ -234,6 +242,7 @@ def create_app(
         nonlocal _autoplay_enabled
         s = player.get_status()
         s["autoplay_enabled"] = _autoplay_enabled
+        s["autoplay_current"] = _autoplay_current
         return jsonify(s)
 
     @app.route("/api/play", methods=["POST"])
@@ -248,6 +257,10 @@ def create_app(
         start_time = float(data.get("start_time", 0) or 0)
         if start_time > 0:
             logger.info("Play request with start_time=%ds for %s", start_time, url)
+        # Clear autoplay context on manual play
+        _autoplay_current["video_id"] = None
+        _autoplay_current["block_name"] = None
+        _autoplay_current["title"] = None
         try:
             player.play_now(url, title, start_time=start_time)
         except Exception as e:
@@ -277,6 +290,10 @@ def create_app(
 
     @app.route("/api/stop", methods=["POST"])
     def stop():
+        # Clear autoplay context on stop
+        _autoplay_current["video_id"] = None
+        _autoplay_current["block_name"] = None
+        _autoplay_current["title"] = None
         player.stop_playback()
         return jsonify({"ok": True})
 
@@ -573,6 +590,10 @@ def create_app(
                 title = f"AutoPlay: {display_name} - {vid_title}"
                 try:
                     player.play_now(url, title)
+                    # Track current autoplay video for UI rating buttons
+                    _autoplay_current["video_id"] = selected["video_id"]
+                    _autoplay_current["block_name"] = block_name
+                    _autoplay_current["title"] = vid_title
                     logger.info("AutoPlay pool: %s -> %s (%s)", block_name, selected["video_id"], vid_title)
                     return jsonify({
                         "ok": True, "played": url, "block": block_name,
@@ -593,6 +614,11 @@ def create_app(
         title = f"AutoPlay: {display_name}"
         try:
             player.play_now(url, title)
+            # Track current autoplay video for UI
+            vid_id = extract_video_id(url) or url
+            _autoplay_current["video_id"] = vid_id
+            _autoplay_current["block_name"] = block_name
+            _autoplay_current["title"] = display_name
             logger.info("AutoPlay trigger: %s -> %s", block_name, url)
             return jsonify({"ok": True, "played": url, "block": block_name})
         except Exception as e:

@@ -27,6 +27,11 @@
             <span id="np-speed">Speed: 1.0x</span>
             <span id="np-source" class="source-tag"></span>
         </div>
+        <div class="np-rating" id="np-rating" style="display:none">
+            <span class="np-rating-label">Rate this:</span>
+            <button onclick="rateAutoplay(1)" class="qi-circle btn-rate btn-rate-up" id="btn-rate-up" title="Like">&#x1F44D;</button>
+            <button onclick="rateAutoplay(-1)" class="qi-circle btn-rate btn-rate-down" id="btn-rate-down" title="Dislike">&#x1F44E;</button>
+        </div>
     </div>
 </section>
 
@@ -239,6 +244,14 @@ function updateNowPlaying(s) {
 
     const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]', archive: '[Archive]'};
     document.getElementById('np-source').textContent = tags[s.source_type] || '';
+
+    // Show/hide autoplay rating buttons
+    const ratingBar = document.getElementById('np-rating');
+    if (s.autoplay_current && s.autoplay_current.video_id) {
+        ratingBar.style.display = '';
+    } else {
+        ratingBar.style.display = 'none';
+    }
 
     setToggleBtn(s.paused);
 }
@@ -539,6 +552,22 @@ function updateAutoplayUI() {
     const btn = document.getElementById('btn-autoplay');
     if (autoplayEnabled) btn.classList.add('btn-icon-active');
     else btn.classList.remove('btn-icon-active');
+}
+
+function rateAutoplay(rating) {
+    api('autoplay/rate', {rating})
+        .then(data => {
+            if (data.ok) {
+                const label = rating === 1 ? 'Liked' : 'Disliked';
+                showToast(label + ': ' + (data.video_id || ''));
+                // Highlight active button
+                document.getElementById('btn-rate-up').classList.toggle('btn-rate-active-up', rating === 1);
+                document.getElementById('btn-rate-down').classList.toggle('btn-rate-active-down', rating === -1);
+            } else {
+                showToast(data.error || 'Rating failed');
+            }
+        })
+        .catch(() => showToast('Rating failed'));
 }
 
 function updateTimerUI(s) {

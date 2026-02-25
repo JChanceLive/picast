@@ -261,5 +261,169 @@ def run_tui():
     app.run()
 
 
+def run_pool_cli():
+    """Entry point for picast-pool command. Manage autoplay pools via HTTP API."""
+    import json
+    import urllib.request
+    import urllib.error
+
+    parser = argparse.ArgumentParser(
+        description="PiCast AutoPlay Pool Manager"
+    )
+    parser.add_argument(
+        "--server", default="http://localhost:5050",
+        help="PiCast server URL (default: http://localhost:5050)"
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    # list
+    p_list = sub.add_parser("list", help="List blocks or videos in a block")
+    p_list.add_argument("block", nargs="?", help="Block name (omit for all blocks)")
+
+    # add
+    p_add = sub.add_parser("add", help="Add video to a block's pool")
+    p_add.add_argument("block", help="Block name")
+    p_add.add_argument("url", help="YouTube URL")
+    p_add.add_argument("--title", default="", help="Video title")
+
+    # rate
+    p_rate = sub.add_parser("rate", help="Rate last played video")
+    p_rate.add_argument("rating", type=int, choices=[-1, 0, 1], help="Rating (-1, 0, or 1)")
+
+    # remove
+    p_remove = sub.add_parser("remove", help="Retire video from pool")
+    p_remove.add_argument("block", help="Block name")
+    p_remove.add_argument("video_id", help="YouTube video ID")
+
+    # history
+    p_hist = sub.add_parser("history", help="Show play history")
+    p_hist.add_argument("--block", default=None, help="Filter by block")
+    p_hist.add_argument("--limit", type=int, default=20, help="Number of entries")
+
+    # import
+    p_import = sub.add_parser("import", help="Bulk import URLs from a text file")
+    p_import.add_argument("block", help="Block name")
+    p_import.add_argument("file", help="Text file with one URL per line")
+
+    args = parser.parse_args()
+    base = args.server.rstrip("/")
+
+    def api_get(path):
+        url = f"{base}{path}"
+        try:
+            req = urllib.request.Request(url)
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except urllib.error.URLError as e:
+            print(f"Error: Could not connect to {base} - {e}")
+            sys.exit(1)
+
+    def api_post(path, data=None):
+        url = f"{base}{path}"
+        body = json.dumps(data or {}).encode()
+        try:
+            req = urllib.request.Request(url, data=body, method="POST",
+                                        headers={"Content-Type": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return json.loads(e.read())
+        except urllib.error.URLError as e:
+            print(f"Error: Could not connect to {base} - {e}")
+            sys.exit(1)
+
+    def api_delete(path):
+        url = f"{base}{path}"
+        try:
+            req = urllib.request.Request(url, method="DELETE")
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                return json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            return json.loads(e.read())
+        except urllib.error.URLError as e:
+            print(f"Error: Could not connect to {base} - {e}")
+            sys.exit(1)
+
+    if args.command == "list":
+        if args.block:
+            videos = api_get(f"/api/autoplay/pool/{args.block}")
+            if not videos:
+                print(f"No videos in '{args.block}' pool")
+                return
+            print(f"Pool: {args.block} ({len(videos)} videos)")
+            print("-" * 60)
+            for v in videos:
+                rating = {1: "+", -1: "-", 0: " "}.get(v.get("rating", 0), " ")
+                plays = v.get("play_count", 0)
+                title = v.get("title") or v["video_id"]
+                print(f"  [{rating}] {v['video_id']:15s}  {plays:3d}x  {title}")
+        else:
+            blocks = api_get("/api/autoplay/pool")
+            if not blocks:
+                print("No autoplay pools configured")
+                return
+            print(f"{'Block':<25s} {'Videos':>7s} {'Liked':>6s} {'Disliked':>9s}")
+            print("-" * 50)
+            for b in blocks:
+                print(f"  {b['block_name']:<23s} {b['pool_size']:>5d}   {b.get('liked', 0):>4d}   {b.get('disliked', 0):>7d}")
+
+    elif args.command == "add":
+        result = api_post(f"/api/autoplay/pool/{args.block}", {"url": args.url, "title": args.title})
+        if result.get("video_id"):
+            print(f"Added {result['video_id']} to '{args.block}'")
+        else:
+            print(f"Error: {result.get('error', 'unknown')}")
+
+    elif args.command == "rate":
+        result = api_post("/api/autoplay/rate", {"rating": args.rating})
+        if result.get("ok"):
+            print(f"Rated {result['video_id']} as {result['rating']}")
+        else:
+            print(f"Error: {result.get('error', 'unknown')}")
+
+    elif args.command == "remove":
+        result = api_delete(f"/api/autoplay/pool/{args.block}/{args.video_id}")
+        if result.get("ok"):
+            print(f"Removed {args.video_id} from '{args.block}'")
+        else:
+            print(f"Error: {result.get('error', 'unknown')}")
+
+    elif args.command == "history":
+        params = f"?limit={args.limit}"
+        if args.block:
+            params += f"&block={args.block}"
+        history = api_get(f"/api/autoplay/history{params}")
+        if not history:
+            print("No play history")
+            return
+        print(f"{'Block':<20s} {'Video':<15s} {'Title':<30s} {'Played At'}")
+        print("-" * 80)
+        for h in history:
+            title = (h.get("title") or h["video_id"])[:28]
+            played = h.get("played_at", "")[:19]
+            print(f"  {h['block_name']:<18s} {h['video_id']:<13s} {title:<28s} {played}")
+
+    elif args.command == "import":
+        if not os.path.exists(args.file):
+            print(f"File not found: {args.file}")
+            sys.exit(1)
+        with open(args.file) as f:
+            urls = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+        added = 0
+        failed = 0
+        for url in urls:
+            result = api_post(f"/api/autoplay/pool/{args.block}", {"url": url})
+            if result.get("video_id"):
+                added += 1
+            else:
+                failed += 1
+                print(f"  Skip: {url} ({result.get('error', 'unknown')})")
+        print(f"Imported {added}/{len(urls)} videos to '{args.block}'" +
+              (f" ({failed} failed)" if failed else ""))
+
+    else:
+        parser.print_help()
+
+
 if __name__ == "__main__":
     run_server()

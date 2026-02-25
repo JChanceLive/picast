@@ -46,6 +46,7 @@ dev = [
 [project.scripts]
 picast-server = "picast.cli:run_server"
 picast = "picast.cli:run_tui"
+picast-pool = "picast.cli:run_pool_cli"
 
 [tool.hatch.version]
 path = "src/picast/__about__.py"

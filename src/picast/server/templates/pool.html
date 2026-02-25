@@ -1,0 +1,201 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Pool{% endblock %}
+
+{% block content %}
+<section class="pool-header">
+    <h2>AutoPlay Pool</h2>
+</section>
+
+<section class="pool-blocks" id="pool-blocks">
+    <div class="empty">Loading blocks...</div>
+</section>
+
+<section class="pool-detail" id="pool-detail" style="display:none">
+    <div class="pool-detail-header">
+        <h3 id="pool-detail-title"></h3>
+        <button class="btn btn-sm" onclick="closeDetail()">Back</button>
+    </div>
+    <div class="pool-add-form">
+        <input type="text" id="pool-add-url" placeholder="YouTube URL..." autocomplete="off">
+        <button class="btn btn-sm btn-primary" onclick="addToPool()">Add</button>
+    </div>
+    <div id="pool-video-list"></div>
+</section>
+
+<section class="pool-history" id="pool-history">
+    <h3>Recent Plays</h3>
+    <div id="pool-history-list">
+        <div class="empty">Loading history...</div>
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentBlock = null;
+
+function ytThumb(videoId) {
+    if (!videoId || videoId.startsWith('/') || videoId.startsWith('http')) return null;
+    return 'https://img.youtube.com/vi/' + videoId + '/default.jpg';
+}
+
+function loadBlocks() {
+    fetch('/api/autoplay/pool')
+        .then(r => r.json())
+        .then(blocks => {
+            const el = document.getElementById('pool-blocks');
+            if (!blocks.length) {
+                el.innerHTML = '<div class="empty">No autoplay pools configured</div>';
+                return;
+            }
+            el.innerHTML = blocks.map(b => {
+                const liked = b.liked || 0;
+                const disliked = b.disliked || 0;
+                return `<div class="pool-block-card${currentBlock === b.block_name ? ' active' : ''}"
+                    onclick="openBlock('${esc(b.block_name)}')">
+                    <div class="pbc-name">${esc(b.block_name)}</div>
+                    <div class="pbc-stats">
+                        ${b.pool_size} video${b.pool_size !== 1 ? 's' : ''}
+                        ${liked > 0 ? ' <span class="pbc-stat-liked">' + liked + ' liked</span>' : ''}
+                        ${disliked > 0 ? ' <span class="pbc-stat-disliked">' + disliked + ' disliked</span>' : ''}
+                    </div>
+                </div>`;
+            }).join('');
+        })
+        .catch(() => {
+            document.getElementById('pool-blocks').innerHTML = '<div class="empty">Failed to load pools</div>';
+        });
+}
+
+function openBlock(blockName) {
+    currentBlock = blockName;
+    document.getElementById('pool-detail').style.display = '';
+    document.getElementById('pool-detail-title').textContent = blockName;
+    loadBlocks(); // Refresh active state
+    loadBlockVideos(blockName);
+}
+
+function closeDetail() {
+    currentBlock = null;
+    document.getElementById('pool-detail').style.display = 'none';
+    loadBlocks();
+}
+
+function loadBlockVideos(blockName) {
+    fetch('/api/autoplay/pool/' + encodeURIComponent(blockName))
+        .then(r => r.json())
+        .then(videos => {
+            const el = document.getElementById('pool-video-list');
+            if (!videos.length) {
+                el.innerHTML = '<div class="empty">No videos in this pool</div>';
+                return;
+            }
+            el.innerHTML = videos.map(v => {
+                const thumb = ytThumb(v.video_id);
+                const thumbHtml = thumb ? `<img class="pv-thumb" src="${thumb}" alt="">` : '';
+                const ratingClass = v.rating === 1 ? 'btn-rate-active-up' : v.rating === -1 ? 'btn-rate-active-down' : '';
+                const plays = v.play_count || 0;
+                return `<div class="pool-video">
+                    ${thumbHtml}
+                    <div class="pv-info">
+                        <div class="pv-title">${esc(v.title || v.video_id)}</div>
+                        <div class="pv-meta">${esc(v.video_id)} &middot; ${plays} play${plays !== 1 ? 's' : ''}</div>
+                    </div>
+                    <div class="pv-rating">
+                        <button onclick="ratePoolVideo('${esc(blockName)}','${esc(v.video_id)}',1)" class="qi-circle btn-rate${v.rating === 1 ? ' btn-rate-active-up' : ''}" title="Like">&#x1F44D;</button>
+                        <button onclick="ratePoolVideo('${esc(blockName)}','${esc(v.video_id)}',-1)" class="qi-circle btn-rate${v.rating === -1 ? ' btn-rate-active-down' : ''}" title="Dislike">&#x1F44E;</button>
+                    </div>
+                    <div class="pv-actions">
+                        <button onclick="removePoolVideo('${esc(blockName)}','${esc(v.video_id)}')" class="qi-circle qi-remove" title="Remove">&times;</button>
+                    </div>
+                </div>`;
+            }).join('');
+        });
+}
+
+function ratePoolVideo(block, videoId, rating) {
+    fetch('/api/autoplay/rate', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_id: videoId, block_name: block, rating}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            showToast(data.rating + ': ' + videoId);
+            loadBlockVideos(block);
+            loadBlocks();
+        } else {
+            showToast(data.error || 'Rating failed');
+        }
+    });
+}
+
+function removePoolVideo(block, videoId) {
+    fetch('/api/autoplay/pool/' + encodeURIComponent(block) + '/' + encodeURIComponent(videoId), {
+        method: 'DELETE',
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.ok) {
+            showToast('Removed');
+            loadBlockVideos(block);
+            loadBlocks();
+        } else {
+            showToast(data.error || 'Remove failed');
+        }
+    });
+}
+
+function addToPool() {
+    if (!currentBlock) return;
+    const input = document.getElementById('pool-add-url');
+    const url = input.value.trim();
+    if (!url) return;
+    fetch('/api/autoplay/pool/' + encodeURIComponent(currentBlock), {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({url}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.video_id) {
+            showToast('Added: ' + data.video_id);
+            input.value = '';
+            loadBlockVideos(currentBlock);
+            loadBlocks();
+        } else {
+            showToast(data.error || 'Add failed');
+        }
+    })
+    .catch(() => showToast('Add failed'));
+}
+
+function loadHistory() {
+    fetch('/api/autoplay/history?limit=20')
+        .then(r => r.json())
+        .then(items => {
+            const el = document.getElementById('pool-history-list');
+            if (!items.length) {
+                el.innerHTML = '<div class="empty">No play history yet</div>';
+                return;
+            }
+            el.innerHTML = items.map(h => {
+                const time = h.played_at ? new Date(h.played_at).toLocaleString([], {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'}) : '';
+                return `<div class="pool-history-item">
+                    <span class="phi-block">${esc(h.block_name)}</span>
+                    <span class="phi-title">${esc(h.title || h.video_id)}</span>
+                    <span class="phi-time">${time}</span>
+                </div>`;
+            }).join('');
+        })
+        .catch(() => {
+            document.getElementById('pool-history-list').innerHTML = '<div class="empty">Failed to load history</div>';
+        });
+}
+
+// Initial load
+loadBlocks();
+loadHistory();
+</script>
+{% endblock %}
