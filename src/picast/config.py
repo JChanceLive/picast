@@ -32,6 +32,15 @@ class PushoverConfig:
 
 
 @dataclass
+class AutoplayConfig:
+    """Block-to-video autoplay triggered by PiPulse webhooks."""
+
+    enabled: bool = False
+    mappings: dict[str, str] = field(default_factory=dict)
+    # mappings: block_name -> URL (YouTube, Archive.org, local file, etc.)
+
+
+@dataclass
 class DeviceConfig:
     """Configuration for a single Pi device."""
 
@@ -73,6 +82,7 @@ class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     pushover: PushoverConfig = field(default_factory=PushoverConfig)
+    autoplay: AutoplayConfig = field(default_factory=AutoplayConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
 
     def get_default_device(self) -> DeviceConfig:
@@ -153,6 +163,13 @@ def _parse_config(data: dict) -> Config:
             api_token=p.get("api_token", ""),
             user_key=p.get("user_key", ""),
             daily_summary_hour=p.get("daily_summary_hour", config.pushover.daily_summary_hour),
+        )
+
+    if "autoplay" in data:
+        a = data["autoplay"]
+        config.autoplay = AutoplayConfig(
+            enabled=a.get("enabled", config.autoplay.enabled),
+            mappings=dict(a.get("mappings", {})),
         )
 
     if "devices" in data:

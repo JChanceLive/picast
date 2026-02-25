@@ -74,7 +74,7 @@ def run_server():
     # Build device list from config
     devices = [(d.name, d.host, d.port) for d in config.devices]
 
-    app = create_app(config.server, devices=devices)
+    app = create_app(config.server, devices=devices, autoplay_config=config.autoplay)
 
     # --test is shorthand for --no-player --quiet
     if args.test:

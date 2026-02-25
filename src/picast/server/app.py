@@ -13,7 +13,7 @@ import time
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
-from picast.config import ServerConfig
+from picast.config import AutoplayConfig, ServerConfig
 from picast.server.database import Database
 from picast.server.discovery import DeviceRegistry
 from picast.server.events import EventBus
@@ -42,12 +42,17 @@ def _normalize_youtube_input(raw: str) -> str:
     return raw  # Pass through, let validation handle it
 
 
-def create_app(config: ServerConfig | None = None, devices: list | None = None) -> Flask:
+def create_app(
+    config: ServerConfig | None = None,
+    devices: list | None = None,
+    autoplay_config: AutoplayConfig | None = None,
+) -> Flask:
     """Create and configure the Flask application.
 
     Args:
         config: Server configuration. Uses defaults if None.
         devices: List of (name, host, port) tuples for known devices.
+        autoplay_config: Autoplay schedule configuration.
     """
     if config is None:
         config = ServerConfig()
@@ -142,6 +147,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     app.event_bus = event_bus
     app.device_registry = device_registry
 
+    # Autoplay state (ephemeral, like loop_enabled)
+    _autoplay_config = autoplay_config or AutoplayConfig()
+    _autoplay_enabled = _autoplay_config.enabled
+
     # --- Web UI Pages ---
 
     @app.route("/")
@@ -214,7 +223,10 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
     @app.route("/api/status")
     def status():
         """Get full player status."""
-        return jsonify(player.get_status())
+        nonlocal _autoplay_enabled
+        s = player.get_status()
+        s["autoplay_enabled"] = _autoplay_enabled
+        return jsonify(s)
 
     @app.route("/api/play", methods=["POST"])
     def play():
@@ -504,6 +516,54 @@ def create_app(config: ServerConfig | None = None, devices: list | None = None) 
             return jsonify({"error": "minutes must be >= 0"}), 400
         player.set_stop_timer(minutes)
         return jsonify({"ok": True, "minutes": minutes})
+
+    # --- AutoPlay Schedule Endpoints ---
+
+    @app.route("/api/autoplay")
+    def autoplay_status():
+        """Get autoplay config and state."""
+        nonlocal _autoplay_enabled
+        return jsonify({
+            "enabled": _autoplay_enabled,
+            "mappings": _autoplay_config.mappings,
+        })
+
+    @app.route("/api/autoplay/toggle", methods=["POST"])
+    def autoplay_toggle():
+        """Toggle autoplay on/off."""
+        nonlocal _autoplay_enabled
+        _autoplay_enabled = not _autoplay_enabled
+        logger.info("AutoPlay: %s", "enabled" if _autoplay_enabled else "disabled")
+        return jsonify({"ok": True, "enabled": _autoplay_enabled})
+
+    @app.route("/api/autoplay/trigger", methods=["POST"])
+    def autoplay_trigger():
+        """Receive a block transition from PiPulse and auto-play mapped video."""
+        nonlocal _autoplay_enabled
+        data = request.get_json(silent=True) or {}
+        block_name = data.get("block_name", "")
+        display_name = data.get("display_name", block_name)
+
+        if not block_name:
+            return jsonify({"ok": False, "skipped": "no block_name"}), 400
+
+        if not _autoplay_enabled:
+            logger.info("AutoPlay trigger: %s (disabled)", block_name)
+            return jsonify({"ok": True, "skipped": "autoplay disabled"})
+
+        url = _autoplay_config.mappings.get(block_name)
+        if not url:
+            logger.info("AutoPlay trigger: %s (no mapping)", block_name)
+            return jsonify({"ok": True, "skipped": "no mapping for block"})
+
+        title = f"AutoPlay: {display_name}"
+        try:
+            player.play_now(url, title)
+            logger.info("AutoPlay trigger: %s -> %s", block_name, url)
+            return jsonify({"ok": True, "played": url, "block": block_name})
+        except Exception as e:
+            logger.exception("AutoPlay trigger failed for %s: %s", block_name, e)
+            return jsonify({"ok": False, "error": str(e)}), 500
 
     # --- Discover Endpoints ---
 

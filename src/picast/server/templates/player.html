@@ -44,6 +44,7 @@
         <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" aria-label="Sleep 30 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
         <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" aria-label="Sleep 60 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
         <button onclick="toggleLoop()" class="btn-icon" id="btn-loop" aria-label="Loop queue"><span class="bi-ico">🔁</span><span class="bi-lbl">Loop</span></button>
+        <button onclick="toggleAutoplay()" class="btn-icon" id="btn-autoplay" aria-label="AutoPlay Schedule"><span class="bi-ico">📅</span><span class="bi-lbl">Auto</span></button>
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
@@ -162,6 +163,7 @@ let sleepTimerActive = false;
 let isPlaylistUrl = false;
 let importTarget = 'queue';
 let loopEnabled = false;
+let autoplayEnabled = false;
 let idleStreak = 0;
 
 function poll() {
@@ -524,12 +526,33 @@ function toggleLoop() {
         .then(() => showToast(loopEnabled ? 'Queue loop ON' : 'Queue loop OFF'));
 }
 
+function toggleAutoplay() {
+    api('autoplay/toggle')
+        .then(data => {
+            autoplayEnabled = data.enabled;
+            updateAutoplayUI();
+            showToast(autoplayEnabled ? 'AutoPlay ON' : 'AutoPlay OFF');
+        });
+}
+
+function updateAutoplayUI() {
+    const btn = document.getElementById('btn-autoplay');
+    if (autoplayEnabled) btn.classList.add('btn-icon-active');
+    else btn.classList.remove('btn-icon-active');
+}
+
 function updateTimerUI(s) {
     // Sync loop button state
     loopEnabled = s.loop_enabled || false;
     const loopBtn = document.getElementById('btn-loop');
     if (loopEnabled) loopBtn.classList.add('btn-icon-active');
     else loopBtn.classList.remove('btn-icon-active');
+
+    // Sync autoplay button state
+    if (s.autoplay_enabled !== undefined) {
+        autoplayEnabled = s.autoplay_enabled;
+        updateAutoplayUI();
+    }
 
     stopAfterCurrent = s.stop_after_current || false;
     const btn = document.getElementById('btn-stop-after');
