@@ -445,7 +445,7 @@ class Player:
             "--profile=fast",
             "--cache=yes",
             "--demuxer-max-bytes=50MiB",
-            "--framedrop=vo",
+            "--video-sync=display-desync",
             "--log-file=/tmp/mpv-debug.log",
             "--fullscreen",
             "--idle=yes",
