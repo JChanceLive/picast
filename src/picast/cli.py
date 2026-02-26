@@ -154,6 +154,12 @@ def run_server():
                     'Install with: pip install "picast[telegram]"'
                 )
 
+    # Persist setup status flags for the settings page /api/settings/setup-status
+    if config.pushover.enabled and config.pushover.api_token:
+        app.db.set_setting("pushover_configured", "true")
+    if config.server.ytdl_cookies_from_browser or config.server.ytdl_po_token:
+        app.db.set_setting("youtube_configured", "true")
+
     # Start Pushover notification manager if configured
     if config.pushover.enabled:
         from picast.server.pushover_adapter import create_pushover_send_fn

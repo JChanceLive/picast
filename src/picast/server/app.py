@@ -1726,13 +1726,14 @@ def create_app(
     @app.route("/api/settings/setup-status")
     def settings_setup_status():
         """Report configuration status for each optional feature."""
-        # Pushover: check if config has tokens
+        # Pushover: check DB flag (set at startup by cli.py)
         po_enabled = db.get_setting("pushover_configured", "false") == "true"
-        # YouTube auth: check server config
+        # YouTube auth: check config + DB flag
         yt_cookies = bool(config.ytdl_cookies_from_browser)
         yt_po_token = bool(config.ytdl_po_token)
-        yt_configured = yt_cookies or yt_po_token
-        yt_method = ("cookies" if yt_cookies else "po_token") if yt_configured else ""
+        yt_db = db.get_setting("youtube_configured", "false") == "true"
+        yt_configured = yt_cookies or yt_po_token or yt_db
+        yt_method = ("cookies" if yt_cookies else "po_token") if (yt_cookies or yt_po_token) else ""
         # PiPulse: check settings DB
         pp_enabled = db.get_setting("pipulse_enabled", "false") == "true"
         return jsonify({
