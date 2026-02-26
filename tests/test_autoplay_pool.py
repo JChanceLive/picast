@@ -614,7 +614,7 @@ class TestSchemaV9:
         from picast.server.database import Database
         db = Database(db_path)
         version = db.fetchone("SELECT version FROM schema_version")
-        assert version["version"] == 9
+        assert version["version"] == 10
         # New tables should exist
         db.fetchone("SELECT COUNT(*) FROM autoplay_seasonal_tags")
         db.fetchone("SELECT COUNT(*) FROM autoplay_cross_block_prefs")

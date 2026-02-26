@@ -1,6 +1,7 @@
 """Tests for configuration loading and auth helpers."""
 
 from picast.config import (
+    PipulseConfig,
     ServerConfig,
     _parse_config,
     ytdl_auth_args,
@@ -93,3 +94,31 @@ class TestYtdlRawOptionsAuth:
         )
         result = ytdl_raw_options_auth(config)
         assert result == "cookies-from-browser=firefox"
+
+
+class TestPipulseConfig:
+    def test_defaults(self):
+        config = PipulseConfig()
+        assert config.enabled is False
+        assert config.host == "10.0.0.103"
+        assert config.port == 5055
+
+    def test_parse_pipulse_section(self):
+        data = {"pipulse": {"enabled": True, "host": "192.168.1.50", "port": 8080}}
+        config = _parse_config(data)
+        assert config.pipulse.enabled is True
+        assert config.pipulse.host == "192.168.1.50"
+        assert config.pipulse.port == 8080
+
+    def test_parse_pipulse_partial(self):
+        data = {"pipulse": {"enabled": True}}
+        config = _parse_config(data)
+        assert config.pipulse.enabled is True
+        assert config.pipulse.host == "10.0.0.103"  # default
+        assert config.pipulse.port == 5055  # default
+
+    def test_missing_pipulse_section_uses_defaults(self):
+        data = {"server": {"port": 5050}}
+        config = _parse_config(data)
+        assert config.pipulse.enabled is False
+        assert config.pipulse.host == "10.0.0.103"

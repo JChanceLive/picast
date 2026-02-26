@@ -15,7 +15,7 @@ import time
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
-from picast.config import AutoplayConfig, ServerConfig, ThemeConfig
+from picast.config import AutoplayConfig, PipulseConfig, ServerConfig, ThemeConfig
 from picast.server.autoplay_pool import AutoPlayPool, extract_video_id
 from picast.server.database import Database
 from picast.server.discovery import DeviceRegistry
@@ -50,6 +50,7 @@ def create_app(
     config: ServerConfig | None = None,
     devices: list | None = None,
     autoplay_config: AutoplayConfig | None = None,
+    pipulse_config: PipulseConfig | None = None,
 ) -> Flask:
     """Create and configure the Flask application.
 
@@ -57,6 +58,7 @@ def create_app(
         config: Server configuration. Uses defaults if None.
         devices: List of (name, host, port) tuples for known devices.
         autoplay_config: Autoplay schedule configuration.
+        pipulse_config: PiPulse integration configuration.
     """
     if config is None:
         config = ServerConfig()
@@ -1648,6 +1650,70 @@ def create_app(
             return jsonify({"ok": True, "message": "Restart initiated"})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+    # --- PiPulse Integration Endpoints ---
+
+    # Initialize pipulse settings from config
+    _pipulse_config = pipulse_config or PipulseConfig()
+    if _pipulse_config.enabled and not db.get_setting("pipulse_enabled"):
+        db.set_setting("pipulse_enabled", "true")
+        db.set_setting("pipulse_host", _pipulse_config.host)
+        db.set_setting("pipulse_port", str(_pipulse_config.port))
+
+    @app.route("/api/settings/pipulse")
+    def settings_pipulse_get():
+        """Get PiPulse integration settings."""
+        return jsonify({
+            "enabled": db.get_setting("pipulse_enabled", "false") == "true",
+            "host": db.get_setting("pipulse_host", _pipulse_config.host),
+            "port": int(db.get_setting("pipulse_port", str(_pipulse_config.port))),
+        })
+
+    @app.route("/api/settings/pipulse", methods=["POST"])
+    def settings_pipulse_set():
+        """Update PiPulse integration settings."""
+        data = request.get_json(silent=True) or {}
+        if "enabled" in data:
+            db.set_setting("pipulse_enabled", "true" if data["enabled"] else "false")
+        if "host" in data:
+            db.set_setting("pipulse_host", str(data["host"]))
+        if "port" in data:
+            db.set_setting("pipulse_port", str(int(data["port"])))
+        return jsonify({"ok": True})
+
+    @app.route("/api/settings/blocks")
+    def settings_blocks_get():
+        """List all block metadata."""
+        return jsonify(db.get_all_block_metadata())
+
+    @app.route("/api/settings/blocks/import", methods=["POST"])
+    def settings_blocks_import():
+        """Fetch block metadata from PiPulse and import into local DB."""
+        from picast.server.pipulse_client import fetch_block_metadata
+
+        host = db.get_setting("pipulse_host", _pipulse_config.host)
+        port = int(db.get_setting("pipulse_port", str(_pipulse_config.port)))
+
+        blocks = fetch_block_metadata(host, port)
+        if blocks is None:
+            return jsonify({"error": f"Failed to fetch from PiPulse at {host}:{port}"}), 502
+
+        count = 0
+        for name, meta in blocks.items():
+            db.upsert_block_metadata(
+                name,
+                display_name=meta.get("display_name", name),
+                block_start=meta.get("block_start", ""),
+                emoji=meta.get("emoji", ""),
+                tagline=meta.get("tagline", ""),
+                block_type=meta.get("block_type", ""),
+                energy=meta.get("energy", ""),
+                source="pipulse_api",
+            )
+            count += 1
+
+        logger.info("Imported %d blocks from PiPulse (%s:%d)", count, host, port)
+        return jsonify({"ok": True, "imported": count})
 
     return app
 

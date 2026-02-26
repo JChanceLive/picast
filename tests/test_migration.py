@@ -144,7 +144,7 @@ class TestMigrationV2ToV3:
         db = Database(db_path)
 
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 9
+        assert row["version"] == 10
 
     def test_migration_events_indices_exist(self, tmp_path):
         """v2→v3 migration creates indices on events table."""
@@ -313,7 +313,7 @@ class TestMigrationV4ToV5:
         db = Database(db_path)
 
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 9
+        assert row["version"] == 10
 
     def test_fresh_db_has_v5_tables(self, tmp_path):
         """A fresh database should have all v5 tables."""
@@ -330,4 +330,189 @@ class TestMigrationV4ToV5:
         """A fresh database should have schema version 5."""
         db = Database(str(tmp_path / "fresh.db"))
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 9
+        assert row["version"] == 10
+
+
+class TestMigrationV9ToV10:
+    """Test migrating from schema v9 to v10."""
+
+    def _create_v9_db(self, db_path: str):
+        """Create a database at v9 (no block_metadata table)."""
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.executescript("""
+            CREATE TABLE schema_version (version INTEGER NOT NULL);
+            INSERT INTO schema_version (version) VALUES (9);
+
+            CREATE TABLE library (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'youtube',
+                duration REAL DEFAULT 0,
+                notes TEXT NOT NULL DEFAULT '',
+                play_count INTEGER NOT NULL DEFAULT 0,
+                first_played_at REAL,
+                last_played_at REAL,
+                added_at REAL NOT NULL,
+                favorite INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE UNIQUE INDEX idx_library_url ON library(url);
+
+            CREATE TABLE playlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                description TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE playlist_items (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                playlist_id INTEGER NOT NULL,
+                library_id INTEGER NOT NULL,
+                position INTEGER NOT NULL DEFAULT 0,
+                added_at REAL NOT NULL
+            );
+
+            CREATE TABLE queue (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'youtube',
+                status TEXT NOT NULL DEFAULT 'pending',
+                position INTEGER NOT NULL DEFAULT 0,
+                added_at REAL NOT NULL,
+                played_at REAL,
+                error_count INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT NOT NULL DEFAULT '',
+                failed_at REAL
+            );
+
+            CREATE TABLE events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_type TEXT NOT NULL,
+                queue_item_id INTEGER,
+                title TEXT NOT NULL DEFAULT '',
+                detail TEXT NOT NULL DEFAULT '',
+                created_at REAL NOT NULL
+            );
+
+            CREATE TABLE settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            );
+
+            CREATE TABLE autoplay_videos (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                block_name TEXT NOT NULL,
+                tags TEXT NOT NULL DEFAULT '',
+                rating INTEGER NOT NULL DEFAULT 0,
+                play_count INTEGER NOT NULL DEFAULT 0,
+                last_played TEXT,
+                added_date TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'manual',
+                active INTEGER NOT NULL DEFAULT 1,
+                skip_count INTEGER NOT NULL DEFAULT 0,
+                completion_count INTEGER NOT NULL DEFAULT 0,
+                duration INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(video_id, block_name)
+            );
+
+            CREATE TABLE autoplay_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL,
+                block_name TEXT NOT NULL,
+                played_at TEXT NOT NULL,
+                duration_watched INTEGER NOT NULL DEFAULT 0,
+                completed INTEGER NOT NULL DEFAULT 0,
+                stop_reason TEXT NOT NULL DEFAULT ''
+            );
+
+            CREATE TABLE autoplay_seasonal_tags (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL,
+                season TEXT NOT NULL,
+                UNIQUE(video_id, season)
+            );
+
+            CREATE TABLE autoplay_cross_block_prefs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                video_id TEXT NOT NULL,
+                source_block TEXT NOT NULL,
+                signal_type TEXT NOT NULL,
+                signal_strength REAL NOT NULL DEFAULT 1.0,
+                created_at TEXT NOT NULL,
+                UNIQUE(video_id, source_block, signal_type)
+            );
+
+            CREATE TABLE discover_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                genre TEXT NOT NULL DEFAULT '',
+                decade TEXT NOT NULL DEFAULT '',
+                rolled_at REAL NOT NULL
+            );
+
+            CREATE TABLE catalog_progress (
+                series_id TEXT UNIQUE NOT NULL,
+                last_episode_index INTEGER NOT NULL DEFAULT 0,
+                updated_at REAL NOT NULL
+            );
+
+            CREATE TABLE watch_sessions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT '',
+                source_type TEXT NOT NULL DEFAULT 'unknown',
+                started_at REAL NOT NULL,
+                ended_at REAL NOT NULL,
+                duration_watched REAL NOT NULL DEFAULT 0
+            );
+
+            CREATE TABLE sd_errors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                error_type TEXT NOT NULL,
+                detail TEXT NOT NULL DEFAULT '',
+                occurred_at REAL NOT NULL
+            );
+        """)
+        conn.commit()
+        conn.close()
+
+    def test_migration_creates_block_metadata(self, tmp_path):
+        """v9->v10 migration creates block_metadata table."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v9_db(db_path)
+        db = Database(db_path)
+
+        tables = db.fetchall(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='block_metadata'"
+        )
+        assert len(tables) == 1
+
+    def test_migration_updates_version(self, tmp_path):
+        """v9->v10 migration bumps schema_version to 10."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v9_db(db_path)
+        db = Database(db_path)
+
+        row = db.fetchone("SELECT version FROM schema_version")
+        assert row["version"] == 10
+
+    def test_block_metadata_columns(self, tmp_path):
+        """v9->v10 block_metadata table has correct columns."""
+        db_path = str(tmp_path / "migrate.db")
+        self._create_v9_db(db_path)
+        db = Database(db_path)
+
+        row = db.fetchone(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='block_metadata'"
+        )
+        sql = row["sql"]
+        for col in ("block_name", "display_name", "block_start", "block_end",
+                     "emoji", "tagline", "block_type", "energy", "source", "updated_at"):
+            assert col in sql, f"Missing column: {col}"

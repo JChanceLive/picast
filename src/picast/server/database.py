@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -181,6 +181,19 @@ CREATE TABLE IF NOT EXISTS autoplay_cross_block_prefs (
     signal_strength REAL NOT NULL DEFAULT 1.0,
     created_at TEXT NOT NULL,
     UNIQUE(video_id, source_block, signal_type)
+);
+
+CREATE TABLE IF NOT EXISTS block_metadata (
+    block_name TEXT PRIMARY KEY,
+    display_name TEXT NOT NULL,
+    block_start TEXT,
+    block_end TEXT,
+    emoji TEXT,
+    tagline TEXT,
+    block_type TEXT,
+    energy TEXT,
+    source TEXT DEFAULT 'manual',
+    updated_at TEXT
 );
 """
 
@@ -374,6 +387,21 @@ class Database:
                     UNIQUE(video_id, source_block, signal_type)
                 )
             """)
+        if from_version < 10:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS block_metadata (
+                    block_name TEXT PRIMARY KEY,
+                    display_name TEXT NOT NULL,
+                    block_start TEXT,
+                    block_end TEXT,
+                    emoji TEXT,
+                    tagline TEXT,
+                    block_type TEXT,
+                    energy TEXT,
+                    source TEXT DEFAULT 'manual',
+                    updated_at TEXT
+                )
+            """)
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)
@@ -446,6 +474,47 @@ class Database:
             "INSERT INTO settings (key, value) VALUES (?, ?) "
             "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
             (key, value),
+        )
+        self.commit()
+
+    # --- Block Metadata CRUD ---
+
+    def get_all_block_metadata(self) -> list[dict]:
+        """Get all block metadata rows."""
+        return self.fetchall("SELECT * FROM block_metadata ORDER BY block_name")
+
+    def get_block_metadata(self, block_name: str) -> dict | None:
+        """Get metadata for a single block."""
+        return self.fetchone(
+            "SELECT * FROM block_metadata WHERE block_name = ?", (block_name,)
+        )
+
+    def upsert_block_metadata(self, block_name: str, **fields):
+        """Insert or update block metadata."""
+        existing = self.get_block_metadata(block_name)
+        now = time.strftime("%Y-%m-%dT%H:%M:%S")
+        if existing:
+            sets = ", ".join(f"{k} = ?" for k in fields)
+            vals = list(fields.values()) + [now, block_name]
+            self.execute(
+                f"UPDATE block_metadata SET {sets}, updated_at = ? WHERE block_name = ?",
+                tuple(vals),
+            )
+        else:
+            fields["block_name"] = block_name
+            fields["updated_at"] = now
+            cols = ", ".join(fields.keys())
+            placeholders = ", ".join("?" for _ in fields)
+            self.execute(
+                f"INSERT INTO block_metadata ({cols}) VALUES ({placeholders})",
+                tuple(fields.values()),
+            )
+        self.commit()
+
+    def delete_block_metadata(self, block_name: str):
+        """Delete metadata for a block."""
+        self.execute(
+            "DELETE FROM block_metadata WHERE block_name = ?", (block_name,)
         )
         self.commit()
 

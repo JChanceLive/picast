@@ -32,6 +32,15 @@ class PushoverConfig:
 
 
 @dataclass
+class PipulseConfig:
+    """PiPulse integration for block metadata."""
+
+    enabled: bool = False
+    host: str = "10.0.0.103"
+    port: int = 5055
+
+
+@dataclass
 class ThemeConfig:
     """Per-block search theme for the discovery agent."""
 
@@ -98,6 +107,7 @@ class Config:
     server: ServerConfig = field(default_factory=ServerConfig)
     telegram: TelegramConfig = field(default_factory=TelegramConfig)
     pushover: PushoverConfig = field(default_factory=PushoverConfig)
+    pipulse: PipulseConfig = field(default_factory=PipulseConfig)
     autoplay: AutoplayConfig = field(default_factory=AutoplayConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
 
@@ -179,6 +189,14 @@ def _parse_config(data: dict) -> Config:
             api_token=p.get("api_token", ""),
             user_key=p.get("user_key", ""),
             daily_summary_hour=p.get("daily_summary_hour", config.pushover.daily_summary_hour),
+        )
+
+    if "pipulse" in data:
+        pp = data["pipulse"]
+        config.pipulse = PipulseConfig(
+            enabled=pp.get("enabled", False),
+            host=pp.get("host", config.pipulse.host),
+            port=pp.get("port", config.pipulse.port),
         )
 
     if "autoplay" in data:

@@ -74,7 +74,10 @@ def run_server():
     # Build device list from config
     devices = [(d.name, d.host, d.port) for d in config.devices]
 
-    app = create_app(config.server, devices=devices, autoplay_config=config.autoplay)
+    app = create_app(
+        config.server, devices=devices,
+        autoplay_config=config.autoplay, pipulse_config=config.pipulse,
+    )
 
     # Regenerate desktop wallpaper in background (keeps version badge current)
     def _refresh_wallpaper():

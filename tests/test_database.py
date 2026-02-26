@@ -18,7 +18,7 @@ class TestDatabase:
 
     def test_schema_version(self, db):
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 9
+        assert row["version"] == 10
 
     def test_settings_get_set(self, db):
         assert db.get_setting("volume") is None
@@ -95,3 +95,54 @@ class TestDatabase:
                 "INSERT INTO library (url, title, added_at) VALUES (?, ?, ?)",
                 ("http://a", "A2", 2.0),
             )
+
+
+class TestBlockMetadata:
+    def test_block_metadata_table_exists(self, db):
+        tables = db.fetchall(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='block_metadata'"
+        )
+        assert len(tables) == 1
+
+    def test_upsert_block_metadata_insert(self, db):
+        db.upsert_block_metadata(
+            "morning-foundation",
+            display_name="Morning Foundation",
+            emoji="🌅",
+            tagline="Start strong",
+            block_type="ritual",
+            energy="high",
+            source="manual",
+        )
+        row = db.get_block_metadata("morning-foundation")
+        assert row is not None
+        assert row["display_name"] == "Morning Foundation"
+        assert row["emoji"] == "🌅"
+        assert row["tagline"] == "Start strong"
+        assert row["block_type"] == "ritual"
+        assert row["updated_at"] is not None
+
+    def test_upsert_block_metadata_update(self, db):
+        db.upsert_block_metadata(
+            "creation-stack", display_name="Creation Stack", emoji="🎨",
+        )
+        db.upsert_block_metadata(
+            "creation-stack", display_name="Create", emoji="✨",
+        )
+        row = db.get_block_metadata("creation-stack")
+        assert row["display_name"] == "Create"
+        assert row["emoji"] == "✨"
+
+    def test_get_all_block_metadata(self, db):
+        db.upsert_block_metadata("alpha", display_name="Alpha")
+        db.upsert_block_metadata("beta", display_name="Beta")
+        rows = db.get_all_block_metadata()
+        assert len(rows) == 2
+        assert rows[0]["block_name"] == "alpha"
+        assert rows[1]["block_name"] == "beta"
+
+    def test_delete_block_metadata(self, db):
+        db.upsert_block_metadata("temp", display_name="Temp")
+        assert db.get_block_metadata("temp") is not None
+        db.delete_block_metadata("temp")
+        assert db.get_block_metadata("temp") is None
