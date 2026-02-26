@@ -188,6 +188,13 @@ def create_app(
             stop_reason = ctx["stop_reason"]
         elif _autoplay_current["video_id"]:
             # Natural completion (no endpoint intervention)
+            # Guard: verify the completing item matches current autoplay video.
+            # play_now() skip can cause the old item's callback to fire after
+            # _autoplay_current was already set for the NEW video (race condition).
+            item_vid = extract_video_id(item.url) if item else None
+            if item_vid and item_vid != _autoplay_current["video_id"]:
+                # Old item completing — not the current autoplay video
+                return
             video_id = _autoplay_current["video_id"]
             block_name = _autoplay_current["block_name"]
             stop_reason = "completed"
