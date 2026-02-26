@@ -69,6 +69,13 @@ def create_app(
     app = Flask(__name__, template_folder=template_dir, static_folder=static_dir)
     app.config["PICAST"] = config
 
+    # Inject version into all templates for cache-busting
+    from picast.__about__ import __version__ as _app_version
+
+    @app.context_processor
+    def inject_version():
+        return {"version": _app_version}
+
     # Initialize components
     mpv = MPVClient(config.mpv_socket)
     db = Database(config.db_file)

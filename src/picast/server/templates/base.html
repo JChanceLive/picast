@@ -10,7 +10,7 @@
     <link rel="manifest" href="/static/manifest.json">
     <link rel="apple-touch-icon" href="/static/icon-192.png">
     <title>PiCast{% block title_suffix %}{% endblock %}</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <link rel="stylesheet" href="/static/style.css?v={{ version }}">
 </head>
 <body>
     <nav class="nav">
@@ -46,7 +46,7 @@
         {% block content %}{% endblock %}
     </main>
 
-    <script src="/static/app.js"></script>
+    <script src="/static/app.js?v={{ version }}"></script>
     {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -4,9 +4,34 @@
 {% block content %}
 <section class="now-playing" id="now-playing">
     <div class="np-idle" id="np-idle">
-        <div class="idle-time" id="idle-time"></div>
-        <div>Nothing playing</div>
+        <div class="idle-title">NOTHING PLAYING</div>
         <div class="idle-hint" id="idle-hint">Add a URL to start</div>
+        <div class="idle-grid">
+            <button class="idle-btn" onclick="openDiscoverModal()">
+                <span class="idle-btn-ico">&#x1F3B2;</span>
+                <span class="idle-btn-lbl">Roll</span>
+            </button>
+            <button class="idle-btn" onclick="toggleAutoplay()">
+                <span class="idle-btn-ico">&#x1F4C5;</span>
+                <span class="idle-btn-lbl">Autoplay</span>
+            </button>
+            <a href="/history?fav=1" class="idle-btn">
+                <span class="idle-btn-ico">&#x2B50;</span>
+                <span class="idle-btn-lbl">Favorites</span>
+            </a>
+            <a href="/catalog" class="idle-btn">
+                <span class="idle-btn-ico">&#x1F4FA;</span>
+                <span class="idle-btn-lbl">Catalog</span>
+            </a>
+            <a href="/collections" class="idle-btn">
+                <span class="idle-btn-ico">&#x1F4C2;</span>
+                <span class="idle-btn-lbl">Collections</span>
+            </a>
+            <a href="/pool" class="idle-btn">
+                <span class="idle-btn-ico">&#x1F3B5;</span>
+                <span class="idle-btn-lbl">Pool</span>
+            </a>
+        </div>
     </div>
     <div class="np-active" id="np-active" style="display:none">
         <div class="np-top">
@@ -210,8 +235,6 @@ function updateNowPlaying(s) {
         if (idleStreak < 3) return;  // Debounce: wait for sustained idle to prevent flicker
         idle.style.display = '';
         active.style.display = 'none';
-        const now = new Date();
-        document.getElementById('idle-time').textContent = now.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
         const pendingCount = lastQueueItems.filter(i => i.status === 'pending').length;
         let hint = pendingCount > 0
             ? pendingCount + ' video' + (pendingCount !== 1 ? 's' : '') + ' in queue'
