@@ -33,8 +33,8 @@
                 <option value="2">Upside-down (180&deg;)</option>
             </select>
         </div>
-        <div class="settings-note" id="display-note"></div>
-        <button class="btn btn-sm" id="btn-save-rotation" onclick="saveRotation()">Apply Rotation</button>
+        <div class="settings-note" id="display-note">Changes require a reboot to take effect</div>
+        <button class="btn btn-sm" id="btn-save-rotation" onclick="saveRotation()">Apply &amp; Reboot</button>
     </div>
 </div>
 
@@ -133,11 +133,27 @@ async function loadDisplay() {
     }
 }
 
+let rotationArmed = false;
 function saveRotation() {
     const btn = document.getElementById('btn-save-rotation');
     const val = parseInt(document.getElementById('rotation-select').value);
+
+    if (!rotationArmed) {
+        rotationArmed = true;
+        btn.textContent = 'Tap again to reboot';
+        btn.className = 'btn btn-sm btn-danger';
+        setTimeout(() => {
+            if (rotationArmed) {
+                rotationArmed = false;
+                btn.textContent = 'Apply & Reboot';
+                btn.className = 'btn btn-sm';
+            }
+        }, 4000);
+        return;
+    }
+    rotationArmed = false;
     btn.disabled = true;
-    btn.textContent = 'Applying...';
+    btn.textContent = 'Saving...';
     fetch('/api/system/display', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
@@ -145,15 +161,20 @@ function saveRotation() {
     }).then(r => r.json()).then(d => {
         if (d.error) {
             showToast('Error: ' + d.error);
-        } else {
-            showToast('Rotation applied');
+            btn.disabled = false;
+            btn.textContent = 'Apply & Reboot';
+            btn.className = 'btn btn-sm';
+            return;
         }
-        btn.disabled = false;
-        btn.textContent = 'Apply Rotation';
+        btn.textContent = 'Rebooting...';
+        showToast('Rotation saved, rebooting...');
+        fetch('/api/system/reboot', {method: 'POST'}).catch(() => {});
+        setTimeout(() => location.reload(), 30000);
     }).catch(() => {
-        showToast('Failed to apply rotation');
+        showToast('Failed to save rotation');
         btn.disabled = false;
-        btn.textContent = 'Apply Rotation';
+        btn.textContent = 'Apply & Reboot';
+        btn.className = 'btn btn-sm';
     });
 }
 

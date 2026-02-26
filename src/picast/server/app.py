@@ -1403,37 +1403,29 @@ def create_app(
         ok = mpv.set_volume(vol)
         return jsonify({"ok": ok, "volume": vol})
 
-    _wlr_env = {
-        **os.environ,
-        "XDG_RUNTIME_DIR": "/run/user/1000",
-        "WAYLAND_DISPLAY": "wayland-0",
-    }
+    _CMDLINE_PATH = "/boot/firmware/cmdline.txt"
+    _PANEL_ORIENTATION = "video=HDMI-A-1:panel_orientation=upside_down"
 
-    def _get_display_transform() -> str:
-        """Read current display transform via wlr-randr."""
+    def _get_display_rotation() -> int:
+        """Read display rotation from kernel cmdline (0=normal, 2=180)."""
         try:
             result = subprocess.run(
-                ["wlr-randr"],
+                ["cat", _CMDLINE_PATH],
                 capture_output=True, text=True, timeout=5,
-                env=_wlr_env,
             )
-            if result.returncode == 0:
-                m = re.search(r'Transform:\s+(\S+)', result.stdout)
-                return m.group(1) if m else "normal"
-        except (FileNotFoundError, subprocess.TimeoutExpired):
-            pass
-        return "normal"
+            return 2 if _PANEL_ORIENTATION in result.stdout else 0
+        except Exception:
+            return 0
 
     @app.route("/api/system/display")
     def system_display_get():
-        """Read display rotation via wlr-randr."""
-        transform = _get_display_transform()
-        rotate = 2 if transform == "180" else 0
-        return jsonify({"rotate": rotate, "transform": transform})
+        """Read display rotation from kernel cmdline."""
+        rotate = _get_display_rotation()
+        return jsonify({"rotate": rotate})
 
     @app.route("/api/system/display", methods=["POST"])
     def system_display_set():
-        """Set display rotation via wlr-randr (instant, no reboot)."""
+        """Set display rotation via kernel cmdline (requires reboot)."""
         data = request.get_json(silent=True) or {}
         rotate = data.get("rotate")
         if rotate is None:
@@ -1442,18 +1434,41 @@ def create_app(
         if rotate not in (0, 2):
             return jsonify({"error": "rotate must be 0 (normal) or 2 (180)"}), 400
 
-        transform = "180" if rotate == 2 else "normal"
         try:
             result = subprocess.run(
-                ["wlr-randr", "--output", "HDMI-A-1", "--transform", transform],
-                capture_output=True, text=True, timeout=10,
-                env=_wlr_env,
+                ["sudo", "cat", _CMDLINE_PATH],
+                capture_output=True, text=True, timeout=5,
             )
             if result.returncode != 0:
-                return jsonify({"error": f"wlr-randr failed: {result.stderr}"}), 500
-            return jsonify({"ok": True, "rotate": rotate, "transform": transform})
-        except FileNotFoundError:
-            return jsonify({"error": "wlr-randr not found"}), 500
+                return jsonify({"error": "Failed to read cmdline.txt"}), 500
+            cmdline = result.stdout.strip()
+
+            if rotate == 2 and _PANEL_ORIENTATION not in cmdline:
+                cmdline = cmdline + " " + _PANEL_ORIENTATION
+            elif rotate == 0:
+                cmdline = cmdline.replace(" " + _PANEL_ORIENTATION, "")
+                cmdline = cmdline.replace(_PANEL_ORIENTATION, "")
+
+            result = subprocess.run(
+                ["sudo", "tee", _CMDLINE_PATH],
+                input=cmdline + "\n", capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode != 0:
+                return jsonify({"error": "Failed to write cmdline.txt"}), 500
+
+            return jsonify({"ok": True, "rotate": rotate, "reboot_required": True})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.route("/api/system/reboot", methods=["POST"])
+    def system_reboot():
+        """Reboot the Pi (needed for display rotation changes)."""
+        try:
+            subprocess.Popen(
+                ["sudo", "reboot"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            return jsonify({"ok": True, "message": "Reboot initiated"})
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
