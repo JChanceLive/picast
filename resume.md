@@ -1,80 +1,80 @@
 # Resume: PiCast
 
-Last updated: 2026-02-19
+Last updated: 2026-02-26
 
 ## State
-v0.13.3 deployed to Pi. All core features working: YouTube playback with timestamp seek, Twitch, local files, and **Archive.org** (full-length public domain movies). YouTube DRM movies show graceful notice instead of silently failing. Database has retry-with-backoff for SD card I/O errors. All API errors return JSON. 412 tests pass.
+v0.23.0 deployed to Pi. 594 tests pass. Full-featured YouTube queue player with autoplay pools, self-learning ratings, movie discovery, collections, Chrome extension, settings page, and persistent title overlay.
+
+## Architecture
+- **Pi (server):** Flask REST API + mpv player + SQLite (schema v8). Runs as systemd service on port 5050.
+- **Mac (client):** Textual TUI connects to Pi's API. Also used for development.
+- **Web UI:** Flask-served at `http://picast.local:5050`. PWA for mobile.
+- **Chrome Extension:** Separate repo (`picast-extension/`). Sends Play/Queue requests to Pi.
+- **Display:** Sceptre E20, 1600x900, physically upside-down. Kernel-level rotation via `cmdline.txt`.
+- **Video sync:** `--video-sync=display-desync` (zero frame drops under Wayland).
 
 ## Next Action
-No critical bugs. Potential enhancements:
-- Add more source handlers (Tubi, direct URLs)
-- Improve Archive.org browsing/search from web UI
-- Add timestamp seek support for archive.org videos
-- Monitor SD card health (recurring I/O errors = card replacement needed)
+No critical bugs. Current session work:
+- Volume persistence (DB settings table) - DONE this session
+- Wallpaper redesign (trimmed to 7 cards) - DONE this session
+- Deploy as v0.23.1
 
-## Resolved: YouTube Movie DRM
-
-YouTube movies (paid AND free/ad-supported) use Widevine DRM. yt-dlp can only resolve the trailer (~141s). This is **unfixable** — no open-source tool can decrypt Widevine.
-
-**v0.11.2 solution:** Detect the mismatch, show clear notice on TV (OSD) and web UI (error banner), play the trailer gracefully. No more silent failures.
-
-**v0.12.0 alternative:** Archive.org has thousands of full-length public domain films with zero DRM. Added as a first-class source.
+## Key Features (v0.23.0)
+- Queue management (add, reorder, replay, search, drag)
+- YouTube, Twitch, Archive.org, and local file playback
+- AutoPlay pools with self-learning (skip/completion tracking, weighted random)
+- Archive.org movie discovery (genre, year, keyword search)
+- Collections (saved playlists, import from YouTube)
+- Sleep timer, stop-after-current, queue loop
+- Playback history and library tracking
+- Settings page (volume, display rotation, player controls, reboot)
+- Persistent title overlay (OSD bottom-left)
+- Chrome extension for quick queueing
+- Telegram bot remote control (optional)
+- SSE real-time events + error banners with retry
+- Volume persistence across restarts (DB settings table, schema v8)
 
 ## Key Files
-- `~/Documents/Projects/Claude/terminal/picast/CLAUDE.md` - Project guidance
-- `~/Documents/Projects/Claude/terminal/picast/DEVLOG.md` - Technical learnings (16 entries)
-- `~/Documents/Projects/Claude/terminal/picast-extension/popup.js` - Extension (YouTube, Twitch, Archive.org)
-- `src/picast/server/player.py` - Player loop with thumbnail loading + seek + DRM detection
-- `src/picast/server/sources/archive.py` - Archive.org source handler
-- `src/picast/server/sources/youtube.py` - YouTube source handler
-- `src/picast/server/app.py` - Flask routes
-- `src/picast/server/database.py` - SQLite with retry-backoff for SD card I/O
-- `src/picast/__about__.py` - Version (0.13.3)
+- `src/picast/server/app.py` - Flask routes, API endpoints, settings/display/reboot
+- `src/picast/server/player.py` - mpv playback loop, IPC, autoplay integration
+- `src/picast/server/database.py` - SQLite schema v8, migrations, retry with backoff, settings KV
+- `src/picast/server/autoplay_pool.py` - Pool CRUD, weighted random, self-learning ratings
+- `src/picast/server/discovery.py` - Archive.org movie discovery
+- `src/picast/server/mpv_client.py` - mpv IPC client (JSON over Unix socket)
+- `src/picast/server/queue_manager.py` - Queue persistence (SQLite)
+- `src/picast/server/templates/player.html` - Queue page (now-playing, controls, add URL, queue list)
+- `src/picast/server/templates/settings.html` - Settings page (volume, display, player)
+- `src/picast/config.py` - Config loading from picast.toml
+- `src/picast/__about__.py` - Version
+- `scripts/generate-wallpaper.py` - Desktop wallpaper generator (3-column, 7 cards)
 
-## Critical Knowledge (from debugging)
-- **mpv IPC socket creation**: Takes 2-4s on Pi (not 1s). Must poll.
-- **mpv v0.40 loadfile**: `["loadfile", url, flags, index, options]` — index (int) required before options
+## Critical Knowledge
+- **mpv IPC socket**: Takes 2-4s on Pi. Poll with 0.5s intervals, 10s timeout.
+- **mpv v0.40 loadfile**: `["loadfile", url, flags, index, options]` -- index (int) required before options.
 - **Comma-separated options**: ytdl-raw-options and CDN URLs break loadfile option parser. Use CLI args.
 - **Two-phase idle polling**: Wait for idle=False (start), then idle=True (end). 150s timeout for Phase 1.
-- **IPC silent failures**: `command()` returns None on failure, no exception. Check return values.
 - **YouTube DRM**: ALL YouTube movies (paid + free) use Widevine. yt-dlp only gets trailer. Unfixable.
-- **Archive.org IDs**: Case-sensitive. Use exact ID from URL bar.
-- **picast-update caching**: Same version number = pip uses cached wheel.
-- **Thumbnail URL pattern**: `https://i.ytimg.com/vi/{VIDEO_ID}/hqdefault.jpg` — no API call needed
-- **SD card I/O errors**: Pi SD cards have transient failures. DB retries need delays (0.5s, 2s).
-- **Flask JSON errors**: Global `@app.errorhandler(Exception)` ensures API always returns JSON, not HTML.
-- **Extension is separate repo**: `picast-extension/` has its own git at `github.com/JChanceLive/picast-extension.git`
-
-## Source Handlers (v0.12.0)
-| Handler | Source Type | Detection |
-|---------|-----------|-----------|
-| YouTubeSource | youtube | youtube.com, youtu.be |
-| LocalSource | local | file://, /, media extensions |
-| TwitchSource | twitch | twitch.tv |
-| ArchiveSource | archive | archive.org |
-| (fallback) | youtube | anything unmatched |
-
-## Decisions Made
-- Python + Flask REST API, mpv subprocess per video
-- SQLite for library/playlists/collections
-- Web UI primary (PWA for phone)
-- Multi-Pi via mDNS discovery
-- Idle-mode mpv with IPC loadfile (v0.9.0+)
-- Direct URL resolution for timestamp seeking (YouTube only)
-- ytdl options on CLI, not in loadfile IPC options
-- Thumbnail via ytimg.com URL (no API), title from Chrome extension (no yt-dlp block)
-- DRM movies: graceful notice, not silent failure
-- Archive.org for free movies (no DRM alternative to YouTube)
+- **SD card I/O errors**: Pi SD cards have transient failures. DB retries with exponential backoff (0.5-8s).
+- **SQLite locked DB**: Failed DML leaves implicit transaction open. Use `INSERT OR IGNORE` or always rollback.
+- **display-desync**: Prevents frame drops under Wayland (default `audio` marks frames "late").
+- **Kernel rotation**: `video=HDMI-A-1:panel_orientation=upside_down` in cmdline.txt. Requires reboot.
+- **picast-update**: Compares `__about__.__version__` against GitHub. Must bump version for deploys.
+- **Pool mode**: Two autoplay modes: legacy (toml mappings) and pool (SQLite, weighted random). Pool falls back to legacy when empty.
+- **Self-learning weights**: `base * 0.7^skip_count * min(1.0 + completion_count * 0.2, 2.0)`. Auto-shelve at 5 skips.
+- **iOS Safari PWA**: `confirm()` silently returns false. Use double-tap pattern instead.
 
 ## Session History
-- Feb 19 (session 4): v0.13.3 — Fixed 500 errors from transient SD card I/O. DB retry with backoff, global JSON error handler, extension shows actual error messages.
-- Feb 18 (session 3): v0.11.2 + v0.12.0 — DRM detection with user notice, Archive.org source handler, extension v1.5.0. All tested on Pi.
-- Feb 18 (session 2): v0.11.0 — Thumbnail loading, title from extension, duration validation. Movie seek still broken (yt-dlp trailer limitation).
-- Feb 18 (session 1): v0.10.0 — IPC connect retry fix deployed, both playback modes tested, debug logging stripped.
-- Feb 17 (session 2): IPC debugging. Found 4 bugs (v0.9.2-v0.9.5). Root cause: mpv socket not ready after 1s.
-- Feb 17 (session 1): Timestamp seek feature. 6 iterations (v0.8.1-v0.9.1). Extension captures currentTime, server resolves direct CDN URLs.
-- Feb 14: v0.8.0 done (queue loop, video ID input, watch counter, flicker fix). Deploy fixed.
-- Feb 12: Project tracker rewritten
-- Feb 10: Sessions 16-19. PWA, mDNS, sleep timer, idle screen, collections. 282 tests, v0.4.0.
-- Feb 09: Sessions 9-15. Wayland/HDMI, codec fixes, Pi deploy, UI overhaul, mobile polish.
+- Feb 26: v0.23.1 prep -- Volume persistence (DB settings table, schema v8), wallpaper redesign (7 cards, bigger fonts, icon branding). 594 tests.
+- Feb 25: v0.23.0 -- OSD bottom-left, frame drops fixed (display-desync), settings page, all prior work merged. 591 tests.
+- Feb 24: v0.22.0 -- Settings page (volume, display rotation, player controls, reboot). iOS Safari PWA fix.
+- Feb 23: v0.21.2 -- AutoPlay self-learning (skip/completion tracking, weighted random, auto-shelve). Pool page UI.
+- Feb 22: v0.21.0 -- AutoPlay pool system (add/remove/rate videos, weighted random selection, avoid-recent).
+- Feb 21: v0.20.0 -- Archive.org catalog (Space 1999, Twilight Zone, etc.), catalog progress tracking.
+- Feb 20: v0.19.0 -- Movie discovery (genre, year, keyword search from Archive.org). Discover modal UI.
+- Feb 19: v0.13.3 -- SD card I/O retry, global JSON error handler, extension error display.
+- Feb 18: v0.11-12 -- DRM detection, Archive.org source, thumbnail loading, Chrome extension v1.5.
+- Feb 17: v0.8-10 -- Timestamp seek, IPC debugging, queue loop, video ID input.
+- Feb 14: v0.8.0 -- Queue loop, watch counter, flicker fix.
+- Feb 10: v0.4.0 -- PWA, mDNS, sleep timer, collections. 282 tests.
+- Feb 09: Sessions 9-15. Wayland/HDMI, codec, Pi deploy, UI overhaul.
 - Feb 08: Sessions 1-8. Foundation through PyPI publish. 169 tests.

@@ -404,7 +404,9 @@ def create_app(
         level = data.get("level")
         if level is None:
             return jsonify({"error": "level required"}), 400
-        ok = mpv.set_volume(int(level))
+        level = max(0, min(100, int(level)))
+        ok = mpv.set_volume(level)
+        db.set_setting("volume", str(level))
         return jsonify({"ok": ok})
 
     @app.route("/api/speed", methods=["POST"])
@@ -1394,13 +1396,14 @@ def create_app(
 
     @app.route("/api/system/volume", methods=["POST"])
     def system_volume_set():
-        """Set mpv software volume."""
+        """Set mpv software volume and persist to DB."""
         data = request.get_json(silent=True) or {}
         vol = data.get("volume")
         if vol is None:
             return jsonify({"error": "volume required"}), 400
         vol = max(0, min(100, int(vol)))
         ok = mpv.set_volume(vol)
+        db.set_setting("volume", str(vol))
         return jsonify({"ok": ok, "volume": vol})
 
     _CMDLINE_PATH = "/boot/firmware/cmdline.txt"

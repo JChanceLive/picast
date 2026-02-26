@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -160,6 +160,11 @@ CREATE TABLE IF NOT EXISTS autoplay_history (
 
 CREATE INDEX IF NOT EXISTS idx_autoplay_history_block ON autoplay_history(block_name);
 CREATE INDEX IF NOT EXISTS idx_autoplay_history_played ON autoplay_history(played_at);
+
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -325,6 +330,13 @@ class Database:
                     conn.execute(col)
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+        if from_version < 8:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                )
+            """)
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)
@@ -385,6 +397,20 @@ class Database:
     def fetchall(self, sql: str, params: tuple = ()) -> list[dict]:
         """Execute and fetch all rows as dicts."""
         return [dict(row) for row in self.execute(sql, params).fetchall()]
+
+    def get_setting(self, key: str, default: str | None = None) -> str | None:
+        """Get a setting value by key."""
+        row = self.fetchone("SELECT value FROM settings WHERE key = ?", (key,))
+        return row["value"] if row else default
+
+    def set_setting(self, key: str, value: str):
+        """Set a setting value (upsert)."""
+        self.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (key, value),
+        )
+        self.commit()
 
     def close(self):
         """Close the thread-local connection."""

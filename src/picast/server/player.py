@@ -510,6 +510,15 @@ class Player:
             if not connected:
                 logger.error("Failed to connect to mpv IPC after 10s")
 
+            # Restore persisted volume
+            if connected:
+                try:
+                    saved_vol = self.queue._db.get_setting("volume")
+                    if saved_vol is not None:
+                        self.mpv.set_volume(int(saved_vol))
+                except Exception:
+                    pass  # Don't block playback for volume restore
+
             # Show thumbnail + title immediately for YouTube videos
             video_id = self._extract_video_id(item.url) if item.source_type == "youtube" else None
             if video_id:

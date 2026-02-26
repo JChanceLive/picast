@@ -18,7 +18,15 @@ class TestDatabase:
 
     def test_schema_version(self, db):
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 7
+        assert row["version"] == 8
+
+    def test_settings_get_set(self, db):
+        assert db.get_setting("volume") is None
+        assert db.get_setting("volume", "80") == "80"
+        db.set_setting("volume", "65")
+        assert db.get_setting("volume") == "65"
+        db.set_setting("volume", "40")
+        assert db.get_setting("volume") == "40"
 
     def test_fetchone_returns_dict(self, db):
         db.execute(

@@ -374,6 +374,18 @@ class TestSystemVolumeEndpoints:
         resp = client.post("/api/system/volume", json={"volume": -10})
         assert resp.status_code in (200, 500)
 
+    def test_volume_persists_to_db(self, app):
+        """Volume changes are saved to settings table."""
+        client = app.test_client()
+        client.post("/api/system/volume", json={"volume": 42})
+        assert app.db.get_setting("volume") == "42"
+
+    def test_volume_api_persists_to_db(self, app):
+        """Player volume endpoint also persists."""
+        client = app.test_client()
+        client.post("/api/volume", json={"level": 75})
+        assert app.db.get_setting("volume") == "75"
+
 
 class TestSystemDisplayEndpoints:
     def test_display_get(self, client):
