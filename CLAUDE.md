@@ -257,7 +257,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-02-26 | 45 active memories, 247 total_
+_Last updated: 2026-02-26 | 47 active memories, 250 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -303,7 +303,8 @@ _Last updated: 2026-02-26 | 45 active memories, 247 total_
 - test_autoplay_pool.py assertion checking SCHEMA_VERSION expects v10 but fixture auto-creates v9 database; when schema... [picast, testing, schema-migration, database]
 
 ## Current Progress
-- PiCast v1.0.0 Session 2 (pool.html UI enrichment + web block editor) COMPLETE: /api/autoplay/pool endpoint enriched w... [picast, v1.0.0, pool-ui, block-metadata, web-ui, api-design, progress]
+- PiCast v1.0.0 Session 2 deployment VERIFIED LIVE on Pi: v0.27.0 running, all 10 blocks enriched with metadata in pool... [picast, v1.0.0, s2-complete, deployment, verification]
+- PiCast v0.27.0 deployed to Pi and verified live: /api/settings/blocks and /api/autoplay/pool endpoints responding wit... [picast, v0.27.0, deployment, verification]
 - PiCast v1.0.0 Session 2 (pool.html + settings block editor) COMPLETE: /api/autoplay/blocks CRUD endpoints implemented... [picast, v1.0.0, release, s2, pool-ui, settings-editor, deployment]
 - PiCast v0.26.0 + PiPulse block metadata endpoint deployed and verified in production: /api/pitim/blocks endpoint live... [picast, pipulse, v0.26.0, deployment, verification]
 - Session 1 (PiPulse API endpoint + PiCast block_metadata foundation) plan written and approved; ready for implementati... [picast, v1.0.0, pipulse, api-design, savepoint]
@@ -312,6 +313,7 @@ _Last updated: 2026-02-26 | 45 active memories, 247 total_
 
 ## Context
 - PiCast autoplay roadmap: Sessions 1-2 complete (pool system + web UI); Session 3 (optional) proposes YouTube discover... [picast, autoplay, roadmap, discovery-agent]
+- PiCast v1.0.0 S3 next phase queued: install-pi.sh overhaul with 3-phase non-interactive setup (Phase 1: base dependen... [picast, v1.0.0, s3-planning, install-pi, roadmap]
 - Next phase planning: v1.0.0 + PO token auto-setup is pending, awaiting user vision/direction for implementation scope... [picast, roadmap, v1.0.0, planning]
 - User preference clarified: /done is the systematic session checkpoint (replaces /save); build full integration (JSONL... [workflow, preferences, priorities, session-management]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-history]

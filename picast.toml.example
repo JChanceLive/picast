@@ -1,50 +1,78 @@
 # PiCast Configuration
-# Copy this to ~/.config/picast/picast.toml or ./picast.toml
+# Copy to ~/.config/picast/picast.toml or ./picast.toml
+#
+# All optional features are disabled by default.
+# Enable via this file, the web UI settings page, or: picast-setup
 
 [server]
 host = "0.0.0.0"
-port = 5000
+port = 5050
 mpv_socket = "/tmp/mpv-socket"
-# data_dir = "/home/pi/.picast"
-# ytdl_format = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]"
-# ytdl_format_live = "bestvideo[height<=480][vcodec^=avc]+bestaudio/best[height<=480]"
 
-# Telegram bot for remote control
-# Get a token from @BotFather on Telegram
-# [telegram]
-# bot_token = "123456:ABC-DEF..."
-# allowed_users = [123456789]  # Your Telegram user ID (empty = allow all)
-# enabled = true
+# Video quality (auto-selected by installer based on Pi model)
+# ytdl_format = "bestvideo[height<=1080][fps<=30]+bestaudio/best[height<=1080]"
+# ytdl_format_live = "best[height<=480][vcodec^=avc]/best[height<=480]"
 
-# Pushover push notifications (iOS + Android)
-# Create app at https://pushover.net/apps/build
+# YouTube authentication (recommended for age-restricted videos)
+# Option 1: Browser cookies (sign into Chromium on Pi, then uncomment)
+# ytdl_cookies_from_browser = "chromium"
+#
+# Option 2: PO token (for headless setups without a browser)
+# ytdl_po_token = ""
+
+# Hardware decoding (auto-detected, override if needed)
+# mpv_hwdec = "auto"
+
+# OSD title overlay on TV screen
+# osd_enabled = true
+# osd_duration_ms = 2500
+
+# SQLite backup interval in hours (0 = disabled)
+# db_backup_interval_hours = 6
+
+# --- Pushover Push Notifications (optional) ---
+# Get tokens at https://pushover.net/apps/build
+# Or run: picast-setup
+#
 # [pushover]
 # enabled = true
 # api_token = "your-app-api-token"
 # user_key = "your-user-key"
 # daily_summary_hour = 8
 
-# Device registry for multi-Pi support
-# Devices appear in TUI (Tab key) and Web UI device selector
-# mDNS auto-discovery also finds other PiCast instances on your network
-[devices.living-room]
-host = "picast-living.local"
-port = 5000
-default = true
+# --- Telegram Bot (optional) ---
+# Get a token from @BotFather on Telegram
+#
+# [telegram]
+# bot_token = "123456:ABC-DEF..."
+# allowed_users = [123456789]
+# enabled = true
+# notification_chat_id = 0
+# daily_summary_hour = 8
 
-# [devices.bedroom]
-# host = "picast-bedroom.local"
-# port = 5000
+# --- PiPulse Integration (optional) ---
+# Connect to PiPulse for rich autoplay block metadata
+# Or run: picast-setup
+#
+# [pipulse]
+# enabled = true
+# host = "10.0.0.103"
+# port = 5055
 
-# AutoPlay pool mode with YouTube discovery
+# --- AutoPlay (optional) ---
+# Triggered by PiPulse block transitions or manual API calls
+#
 # [autoplay]
 # enabled = true
 # pool_mode = true
 # avoid_recent = 3
-# discovery_delay = 5.0  # seconds between yt-dlp searches
+# min_pool_size = 3
+# cross_block_learning = true
+# discovery_delay = 5.0
 
 # Per-block search themes for the discovery agent
 # Run: picast-pool discover [block]
+#
 # [autoplay.themes.focus]
 # queries = ["lofi beats study", "focus music ambient"]
 # min_duration = 1800   # 30 minutes minimum
@@ -55,3 +83,16 @@ default = true
 # queries = ["cleaning motivation music", "upbeat cleaning playlist"]
 # min_duration = 600
 # max_results = 3
+
+# --- Device Registry (multi-Pi support) ---
+# Devices appear in TUI (Tab key) and Web UI device selector
+# mDNS auto-discovery also finds other PiCast instances
+#
+# [devices.living-room]
+# host = "picast-living.local"
+# port = 5050
+# default = true
+#
+# [devices.bedroom]
+# host = "picast-bedroom.local"
+# port = 5050
