@@ -442,8 +442,10 @@ class Player:
             f"--hwdec={hwdec}",
             f"--ytdl-format={fmt}",
             f"--ytdl-raw-options={raw_opts}",
+            "--profile=fast",
             "--cache=yes",
             "--demuxer-max-bytes=50MiB",
+            "--framedrop=vo",
             "--log-file=/tmp/mpv-debug.log",
             "--fullscreen",
             "--idle=yes",
@@ -451,6 +453,16 @@ class Player:
             "--osc=no",
             "--no-terminal",
             "--image-display-duration=inf",
+            # Persistent title overlay (bottom-left)
+            "--osd-level=3",
+            "--osd-status-msg=${media-title}",
+            "--osd-align-x=left",
+            "--osd-align-y=bottom",
+            "--osd-margin-x=20",
+            "--osd-margin-y=20",
+            "--osd-font-size=28",
+            "--osd-color=#CCFFFFFF",
+            "--osd-border-size=1.5",
         ]
 
         # Live stream optimizations (Twitch, etc.)

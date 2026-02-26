@@ -1520,14 +1520,14 @@ def create_app(
     @app.route("/api/system/osd")
     def system_osd_get():
         """Get OSD enabled state from mpv."""
-        level = mpv.get_property("osd-level", 1)
+        level = mpv.get_property("osd-level", 3)
         return jsonify({"enabled": level > 0, "level": level})
 
     @app.route("/api/system/osd", methods=["POST"])
     def system_osd_set():
-        """Toggle mpv OSD on/off."""
-        level = mpv.get_property("osd-level", 1)
-        new_level = 0 if level > 0 else 1
+        """Toggle mpv OSD overlay on/off (level 3 = overlay, 0 = hidden)."""
+        level = mpv.get_property("osd-level", 3)
+        new_level = 0 if level > 0 else 3
         ok = mpv.set_property("osd-level", new_level)
         return jsonify({"ok": ok, "enabled": new_level > 0, "level": new_level})
 
