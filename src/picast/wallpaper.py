@@ -180,7 +180,7 @@ def generate_wallpaper():
         ("IP", ip),
         ("Hostname", f"{hostname}.local"),
         ("Port", "5050"),
-        ("SSH", f"ssh {os.getlogin()}@{ip}"),
+        ("SSH", f"ssh {os.environ.get('USER', 'pi')}@{ip}"),
     ], section_font, body_font, mono_font, label_w=110, **kw)
     cy += h + 16
     h = _draw_section(draw, col3_x, cy, col_w, "TROUBLESHOOTING", [

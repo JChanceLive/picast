@@ -82,7 +82,7 @@ def run_server():
             from picast.wallpaper import generate_wallpaper
             generate_wallpaper()
         except Exception as e:
-            logging.getLogger("picast").debug("Wallpaper refresh skipped: %s", e)
+            logging.getLogger("picast").warning("Wallpaper refresh failed: %s", e)
 
     threading.Thread(target=_refresh_wallpaper, daemon=True, name="wallpaper").start()
 

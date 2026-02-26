@@ -262,7 +262,7 @@ def main():
             ("IP", ip),
             ("Hostname", f"{hostname}.local"),
             ("Port", "5050"),
-            ("SSH", f"ssh {os.getlogin()}@{ip}"),
+            ("SSH", f"ssh {os.environ.get('USER', 'pi')}@{ip}"),
         ], section_font, body_font, mono_font, label_w=110,
         line_h=line_h, pad=pad, title_h=title_h)
     cy += h + 16
