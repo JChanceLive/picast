@@ -76,6 +76,16 @@ def run_server():
 
     app = create_app(config.server, devices=devices, autoplay_config=config.autoplay)
 
+    # Regenerate desktop wallpaper in background (keeps version badge current)
+    def _refresh_wallpaper():
+        try:
+            from picast.wallpaper import generate_wallpaper
+            generate_wallpaper()
+        except Exception as e:
+            logging.getLogger("picast").debug("Wallpaper refresh skipped: %s", e)
+
+    threading.Thread(target=_refresh_wallpaper, daemon=True, name="wallpaper").start()
+
     # --test is shorthand for --no-player --quiet
     if args.test:
         args.no_player = True
