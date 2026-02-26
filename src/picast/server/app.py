@@ -1723,6 +1723,24 @@ def create_app(
         db.delete_block_metadata(block_name)
         return jsonify({"ok": True})
 
+    @app.route("/api/settings/setup-status")
+    def settings_setup_status():
+        """Report configuration status for each optional feature."""
+        # Pushover: check if config has tokens
+        po_enabled = db.get_setting("pushover_configured", "false") == "true"
+        # YouTube auth: check server config
+        yt_cookies = bool(config.ytdl_cookies_from_browser)
+        yt_po_token = bool(config.ytdl_po_token)
+        yt_configured = yt_cookies or yt_po_token
+        yt_method = ("cookies" if yt_cookies else "po_token") if yt_configured else ""
+        # PiPulse: check settings DB
+        pp_enabled = db.get_setting("pipulse_enabled", "false") == "true"
+        return jsonify({
+            "pushover": {"configured": po_enabled},
+            "youtube": {"configured": yt_configured, "method": yt_method},
+            "pipulse": {"configured": pp_enabled},
+        })
+
     @app.route("/api/settings/blocks/import", methods=["POST"])
     def settings_blocks_import():
         """Fetch block metadata from PiPulse and import into local DB."""

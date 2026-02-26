@@ -53,11 +53,59 @@
     </div>
 </div>
 
+<!-- Pushover Notifications -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F514;</span>
+        <h3>Pushover Notifications <span class="setup-status" id="pushover-status">...</span></h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="settings-note">SD card alerts and daily summaries to your phone</div>
+        <details class="setup-hint">
+            <summary>Setup Guide</summary>
+            <div class="hint-body">
+                1. Create an app at <a href="https://pushover.net/apps/build" target="_blank">pushover.net/apps</a><br>
+                2. Copy your <strong>API Token</strong> and <strong>User Key</strong><br>
+                3. Run via SSH: <code>picast-setup</code><br>
+                4. Or edit <code>~/.config/picast/picast.toml</code>:<br>
+                <code>[pushover]</code><br>
+                <code>enabled = true</code><br>
+                <code>api_token = "..."</code><br>
+                <code>user_key = "..."</code>
+            </div>
+        </details>
+    </div>
+</div>
+
+<!-- YouTube Authentication -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F3AC;</span>
+        <h3>YouTube Auth <span class="setup-status" id="youtube-status">...</span></h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="settings-note" id="youtube-note">Required for age-restricted and region-locked videos</div>
+        <details class="setup-hint">
+            <summary>Setup Guide</summary>
+            <div class="hint-body">
+                <strong>Option 1: Browser cookies (recommended)</strong><br>
+                1. Open Chromium on this Pi:<br>
+                <code>chromium-browser youtube.com</code><br>
+                2. Sign into your YouTube/Google account<br>
+                3. Close Chromium<br>
+                4. Run: <code>picast-setup</code><br><br>
+                <strong>Option 2: PO token (headless)</strong><br>
+                Set <code>ytdl_po_token</code> in <code>[server]</code> section of picast.toml
+            </div>
+        </details>
+    </div>
+</div>
+
 <!-- PiPulse Integration -->
 <div class="settings-card">
     <div class="settings-card-header">
         <span class="settings-card-icon">&#x1F517;</span>
-        <h3>PiPulse Integration</h3>
+        <h3>PiPulse Integration <span class="setup-status" id="pipulse-status">...</span></h3>
     </div>
     <div class="settings-card-body">
         <div class="settings-row">
@@ -76,6 +124,15 @@
             <button class="btn btn-sm" onclick="savePipulseConfig()">Save</button>
         </div>
         <div class="settings-note" id="pipulse-note">Connect to PiPulse for rich block metadata</div>
+        <details class="setup-hint">
+            <summary>Setup Guide</summary>
+            <div class="hint-body">
+                PiPulse must be running on your network.<br>
+                1. Default host: <code>10.0.0.103</code> port <code>5055</code><br>
+                2. Enter host/port above and Save<br>
+                3. Or run: <code>picast-setup</code>
+            </div>
+        </details>
     </div>
 </div>
 
@@ -529,6 +586,26 @@ async function importBlocks() {
     btn.textContent = 'Import from PiPulse';
 }
 
+// --- Setup Status ---
+async function loadSetupStatus() {
+    try {
+        const r = await fetch('/api/settings/setup-status');
+        const d = await r.json();
+        const badge = (el, ok) => {
+            el.textContent = ok ? 'Configured' : 'Not configured';
+            el.className = 'setup-status ' + (ok ? 'configured' : 'not-configured');
+        };
+        badge(document.getElementById('pushover-status'), d.pushover.configured);
+        badge(document.getElementById('pipulse-status'), d.pipulse.configured);
+        const ytEl = document.getElementById('youtube-status');
+        badge(ytEl, d.youtube.configured);
+        if (d.youtube.configured && d.youtube.method) {
+            document.getElementById('youtube-note').textContent =
+                'Authenticated via ' + d.youtube.method;
+        }
+    } catch(e) {}
+}
+
 // Load all on page load
 loadVolume();
 loadDisplay();
@@ -536,5 +613,6 @@ loadOsd();
 loadSysinfo();
 loadPipulse();
 loadBlockEditor();
+loadSetupStatus();
 </script>
 {% endblock %}

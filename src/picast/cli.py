@@ -581,5 +581,20 @@ def run_export_cli():
         print(output)
 
 
+def run_setup():
+    """Entry point for picast-setup command."""
+    parser = argparse.ArgumentParser(
+        description="PiCast interactive setup wizard"
+    )
+    parser.add_argument(
+        "--config", default=None,
+        help="Path to picast.toml (default: ~/.config/picast/picast.toml)"
+    )
+    args = parser.parse_args()
+
+    from picast.setup_wizard import run_wizard
+    run_wizard(config_path=args.config)
+
+
 if __name__ == "__main__":
     run_server()

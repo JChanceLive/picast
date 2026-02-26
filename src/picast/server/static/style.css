@@ -1661,6 +1661,62 @@ body {
     color: var(--muted);
 }
 
+/* Setup Hints (collapsible guides) */
+.setup-hint {
+    margin-top: 0.5rem;
+    border-top: 1px solid rgba(255, 255, 255, 0.05);
+    padding-top: 0.4rem;
+}
+.setup-hint summary {
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--muted);
+    list-style: none;
+    user-select: none;
+}
+.setup-hint summary::-webkit-details-marker { display: none; }
+.setup-hint summary::before {
+    content: '\25B8 ';
+    display: inline;
+}
+.setup-hint[open] summary::before {
+    content: '\25BE ';
+}
+.setup-hint .hint-body {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-top: 0.3rem;
+    line-height: 1.6;
+    padding-left: 0.5rem;
+    border-left: 2px solid rgba(0, 240, 255, 0.15);
+}
+.setup-hint .hint-body code {
+    background: rgba(255, 255, 255, 0.06);
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+    font-size: 0.68rem;
+}
+.setup-hint .hint-body a {
+    color: var(--neon-cyan);
+    text-decoration: none;
+}
+
+/* Status badges for configured/not-configured */
+.setup-status {
+    font-size: 0.7rem;
+    padding: 0.15em 0.5em;
+    border-radius: 8px;
+    margin-left: 0.5rem;
+}
+.setup-status.configured {
+    background: rgba(57, 255, 20, 0.12);
+    color: var(--success);
+}
+.setup-status.not-configured {
+    background: rgba(255, 42, 109, 0.12);
+    color: var(--danger);
+}
+
 /* Volume Slider */
 .volume-control {
     display: flex;

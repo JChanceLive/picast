@@ -51,6 +51,7 @@ picast-server = "picast.cli:run_server"
 picast = "picast.cli:run_tui"
 picast-pool = "picast.cli:run_pool_cli"
 picast-export = "picast.cli:run_export_cli"
+picast-setup = "picast.cli:run_setup"
 
 [tool.hatch.version]
 path = "src/picast/__about__.py"
