@@ -544,5 +544,39 @@ def run_pool_cli():
         parser.print_help()
 
 
+def run_export_cli():
+    """Shortcut: picast-export [--file OUT] [--server URL]."""
+    import json
+    import urllib.request
+    import urllib.error
+
+    parser = argparse.ArgumentParser(description="Export PiCast autoplay pools")
+    parser.add_argument("--server", default="http://picast.local:5050", help="PiCast server URL")
+    parser.add_argument("--file", "-o", default=None, help="Output file (default: stdout)")
+    args = parser.parse_args()
+
+    base = args.server.rstrip("/")
+    try:
+        req = urllib.request.Request(f"{base}/api/autoplay/export")
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.URLError as e:
+        print(f"Error: Could not connect to {base} - {e}")
+        sys.exit(1)
+
+    try:
+        import yaml
+        output = yaml.dump(data, default_flow_style=False, sort_keys=False)
+    except ImportError:
+        output = json.dumps(data, indent=2)
+
+    if args.file:
+        with open(args.file, "w") as f:
+            f.write(output)
+        print(f"Exported to {args.file}")
+    else:
+        print(output)
+
+
 if __name__ == "__main__":
     run_server()

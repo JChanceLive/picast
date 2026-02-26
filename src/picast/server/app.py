@@ -157,7 +157,6 @@ def create_app(
     _autoplay_pool = AutoPlayPool(
         db,
         avoid_recent=_autoplay_config.avoid_recent,
-        seasonal_rotation=_autoplay_config.seasonal_rotation,
         cross_block_learning=_autoplay_config.cross_block_learning,
     )
     _autoplay_current = {"video_id": None, "block_name": None, "title": None}
@@ -846,27 +845,6 @@ def create_app(
             "total_found": total_found,
             "total_added": total_added,
         })
-
-    # --- AutoPlay Seasonal Tag Endpoints ---
-
-    @app.route("/api/autoplay/seasons")
-    def autoplay_seasons():
-        """List all season names with video counts."""
-        return jsonify(_autoplay_pool.get_all_seasons())
-
-    @app.route("/api/autoplay/pool/<block_name>/<video_id>/seasons")
-    def autoplay_seasonal_tags_get(block_name, video_id):
-        """Get seasonal tags for a video."""
-        seasons = _autoplay_pool.get_seasonal_tags(video_id)
-        return jsonify({"video_id": video_id, "block_name": block_name, "seasons": seasons})
-
-    @app.route("/api/autoplay/pool/<block_name>/<video_id>/seasons", methods=["POST"])
-    def autoplay_seasonal_tags_set(block_name, video_id):
-        """Set seasonal tags for a video."""
-        data = request.get_json(silent=True) or {}
-        seasons = data.get("seasons", [])
-        _autoplay_pool.set_seasonal_tags(video_id, seasons)
-        return jsonify({"ok": True, "video_id": video_id, "seasons": seasons})
 
     # --- AutoPlay Cross-Block Learning Endpoints ---
 

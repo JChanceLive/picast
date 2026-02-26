@@ -676,83 +676,6 @@ class TestSeasonalTagCRUD:
         assert tags == ["winter"]
 
 
-# --- Seasonal Factor Calculation ---
-
-class TestSeasonalFactor:
-    def test_no_tags_returns_neutral(self, pool):
-        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        factor = pool._calc_seasonal_factor("abc12345678", 6)
-        assert factor == 1.0
-
-    def test_in_season(self, pool):
-        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        pool.set_seasonal_tags("abc12345678", ["winter"])
-        # January is winter (month 1)
-        factor = pool._calc_seasonal_factor("abc12345678", 1)
-        assert factor == AutoPlayPool.SEASONAL_IN_SEASON  # 2.0
-
-    def test_shoulder_month(self, pool):
-        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        pool.set_seasonal_tags("abc12345678", ["winter"])
-        # November is shoulder for winter
-        factor = pool._calc_seasonal_factor("abc12345678", 11)
-        assert factor == AutoPlayPool.SEASONAL_SHOULDER  # 1.3
-
-    def test_out_of_season(self, pool):
-        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        pool.set_seasonal_tags("abc12345678", ["winter"])
-        # July is out-of-season for winter
-        factor = pool._calc_seasonal_factor("abc12345678", 7)
-        assert factor == AutoPlayPool.SEASONAL_OUT_OF_SEASON  # 0.3
-
-    def test_multi_tag_in_season_wins(self, pool):
-        """If any tag is in-season, in-season factor wins."""
-        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        pool.set_seasonal_tags("abc12345678", ["summer", "winter"])
-        # January: winter is in-season, summer is out
-        factor = pool._calc_seasonal_factor("abc12345678", 1)
-        assert factor == AutoPlayPool.SEASONAL_IN_SEASON  # 2.0
-
-    def test_multi_tag_shoulder_fallback(self, pool):
-        """If no tag is in-season but one is shoulder, shoulder wins."""
-        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        pool.set_seasonal_tags("abc12345678", ["summer", "winter"])
-        # May: summer shoulder (5 is shoulder for summer), winter out
-        factor = pool._calc_seasonal_factor("abc12345678", 5)
-        assert factor == AutoPlayPool.SEASONAL_SHOULDER  # 1.3
-
-    def test_holiday_season_november(self, pool):
-        """Holiday season includes November."""
-        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        pool.set_seasonal_tags("abc12345678", ["holiday"])
-        factor = pool._calc_seasonal_factor("abc12345678", 11)
-        assert factor == AutoPlayPool.SEASONAL_IN_SEASON  # 2.0
-
-    def test_seasonal_affects_selection(self, pool):
-        """In-season videos should be selected more often."""
-        pool.add_video("test", "https://www.youtube.com/watch?v=inseasn1111", "In Season")
-        pool.add_video("test", "https://www.youtube.com/watch?v=outseas1111", "Out Season")
-        pool.set_seasonal_tags("inseasn1111", ["winter"])
-        pool.set_seasonal_tags("outseas1111", ["summer"])
-        pool.avoid_recent = 0
-
-        # Patch month to January (winter in-season, summer out)
-        counts = {"inseasn1111": 0, "outseas1111": 0}
-        with patch("picast.server.autoplay_pool.datetime") as mock_dt:
-            mock_dt.now.return_value.month = 1
-            mock_dt.now.return_value.isoformat = lambda: "2026-01-15T00:00:00+00:00"
-            mock_dt.side_effect = lambda *a, **kw: __import__('datetime').datetime(*a, **kw)
-            # Can't easily mock datetime.now().month inside select_video
-            # since it uses datetime.now(timezone.utc).month
-            # Instead, just verify via _calc_seasonal_factor directly
-        factor_winter = pool._calc_seasonal_factor("inseasn1111", 1)
-        factor_summer = pool._calc_seasonal_factor("outseas1111", 1)
-        assert factor_winter == 2.0
-        assert factor_summer == 0.3
-        # Weight ratio: 2.0 / 0.3 = ~6.7x
-        assert factor_winter / factor_summer > 6.0
-
-
 # --- Pool Export ---
 
 class TestExportPools:
@@ -972,60 +895,6 @@ class TestImportPools:
         assert tags2 == ["summer"]
 
 
-# --- API Endpoint Tests: Seasonal Tags ---
-
-class TestSeasonalTagAPI:
-    def test_get_all_seasons_empty(self, client):
-        resp = client.get("/api/autoplay/seasons")
-        assert resp.status_code == 200
-        data = json.loads(resp.data)
-        assert data == []
-
-    def test_set_and_get_seasons(self, client):
-        # Add a video first
-        client.post("/api/autoplay/pool/test-block", json={
-            "url": "https://www.youtube.com/watch?v=abc12345678",
-            "title": "Test",
-        })
-        # Set seasonal tags
-        resp = client.post(
-            "/api/autoplay/pool/test-block/abc12345678/seasons",
-            json={"seasons": ["winter", "holiday"]},
-        )
-        assert resp.status_code == 200
-        data = json.loads(resp.data)
-        assert data["ok"] is True
-
-        # Get seasonal tags
-        resp = client.get("/api/autoplay/pool/test-block/abc12345678/seasons")
-        assert resp.status_code == 200
-        data = json.loads(resp.data)
-        assert data["video_id"] == "abc12345678"
-        assert sorted(data["seasons"]) == ["holiday", "winter"]
-
-    def test_get_all_seasons_with_data(self, client):
-        # Add two videos with different tags
-        client.post("/api/autoplay/pool/block-a", json={
-            "url": "https://www.youtube.com/watch?v=aaaaaaaaaaa", "title": "A",
-        })
-        client.post("/api/autoplay/pool/block-b", json={
-            "url": "https://www.youtube.com/watch?v=bbbbbbbbbbb", "title": "B",
-        })
-        client.post(
-            "/api/autoplay/pool/block-a/aaaaaaaaaaa/seasons",
-            json={"seasons": ["winter"]},
-        )
-        client.post(
-            "/api/autoplay/pool/block-b/bbbbbbbbbbb/seasons",
-            json={"seasons": ["winter", "summer"]},
-        )
-        resp = client.get("/api/autoplay/seasons")
-        data = json.loads(resp.data)
-        season_map = {s["season"]: s["video_count"] for s in data}
-        assert season_map["winter"] == 2
-        assert season_map["summer"] == 1
-
-
 # --- API Endpoint Tests: Export / Import ---
 
 class TestExportImportAPI:
@@ -1126,10 +995,6 @@ class TestExportImportAPI:
         client.post("/api/autoplay/pool/test", json={
             "url": "https://www.youtube.com/watch?v=roundTrip_1", "title": "Round Trip",
         })
-        client.post(
-            "/api/autoplay/pool/test/roundTrip_1/seasons",
-            json={"seasons": ["winter"]},
-        )
 
         # Export
         resp = client.get("/api/autoplay/export")
@@ -1327,25 +1192,18 @@ class TestCrossBlockAPI:
 # --- Config Flags ---
 
 class TestConfigFlags:
-    def test_seasonal_rotation_default_true(self):
-        from picast.config import AutoplayConfig
-        c = AutoplayConfig()
-        assert c.seasonal_rotation is True
-
     def test_cross_block_learning_default_true(self):
         from picast.config import AutoplayConfig
         c = AutoplayConfig()
         assert c.cross_block_learning is True
 
-    def test_seasonal_disabled_returns_neutral(self, db):
-        pool = AutoPlayPool(db, avoid_recent=2, seasonal_rotation=False)
+    def test_cross_block_disabled(self, db):
+        pool = AutoPlayPool(db, avoid_recent=2, cross_block_learning=False)
         pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test")
-        pool.set_seasonal_tags("abc12345678", ["winter"])
-        # With seasonal_rotation disabled, select_video should use factor 1.0
-        # We can't directly test the weight in select_video, but we can verify
-        # the pool still works (no errors)
-        result = pool.select_video("test")
-        assert result is not None
+        pool.rate_video("test", "abc12345678", 1)
+        # With cross_block_learning disabled, no signal should be emitted
+        signals = pool.get_cross_block_signals("abc12345678")
+        assert len(signals) == 0
 
     def test_config_parsing(self):
         from picast.config import _parse_config
@@ -1353,10 +1211,8 @@ class TestConfigFlags:
             "autoplay": {
                 "enabled": True,
                 "pool_mode": True,
-                "seasonal_rotation": False,
                 "cross_block_learning": False,
             }
         }
         config = _parse_config(data)
-        assert config.autoplay.seasonal_rotation is False
         assert config.autoplay.cross_block_learning is False

@@ -32,39 +32,14 @@ class AutoPlayPool:
     WEIGHT_NEUTRAL = 1.0
     WEIGHT_DISLIKED = 0.1
 
-    # Seasonal rotation: month ranges for each named season
-    SEASON_MONTHS = {
-        "winter": [12, 1, 2],
-        "spring": [3, 4, 5],
-        "summer": [6, 7, 8],
-        "fall": [9, 10, 11],
-        "holiday": [11, 12, 1],  # Thanksgiving through New Year
-    }
-
-    # Shoulder months: one month before/after the season
-    SEASON_SHOULDER = {
-        "winter": [11, 3],
-        "spring": [2, 6],
-        "summer": [5, 9],
-        "fall": [8, 12],
-        "holiday": [10, 2],
-    }
-
-    # Seasonal weight multipliers
-    SEASONAL_IN_SEASON = 2.0
-    SEASONAL_SHOULDER = 1.3
-    SEASONAL_OUT_OF_SEASON = 0.3
-
     def __init__(
         self,
         db: Database,
         avoid_recent: int = 3,
-        seasonal_rotation: bool = True,
         cross_block_learning: bool = True,
     ):
         self.db = db
         self.avoid_recent = avoid_recent
-        self.seasonal_rotation = seasonal_rotation
         self.cross_block_learning = cross_block_learning
 
     # Auto-shelve threshold: videos skipped this many times get deactivated
@@ -207,7 +182,6 @@ class AutoPlayPool:
             candidates = pool
 
         # Weighted random selection with self-learning modifiers
-        current_month = datetime.now(timezone.utc).month
         weights = []
         for v in candidates:
             if v["rating"] == 1:
@@ -220,9 +194,7 @@ class AutoPlayPool:
             skip_penalty = 0.7 ** v.get("skip_count", 0)
             # Completion boost: each completion adds 20%, capped at 2x
             completion_boost = min(1.0 + v.get("completion_count", 0) * 0.2, 2.0)
-            # Seasonal rotation factor (neutral if disabled)
-            seasonal_factor = self._calc_seasonal_factor(v["video_id"], current_month) if self.seasonal_rotation else 1.0
-            weights.append(base * skip_penalty * completion_boost * seasonal_factor)
+            weights.append(base * skip_penalty * completion_boost)
 
         selected = random.choices(candidates, weights=weights, k=1)[0]
 
@@ -398,34 +370,6 @@ class AutoPlayPool:
             "SELECT season, COUNT(*) as video_count "
             "FROM autoplay_seasonal_tags GROUP BY season ORDER BY season"
         )
-
-    def _calc_seasonal_factor(self, video_id: str, current_month: int) -> float:
-        """Calculate seasonal weight multiplier for a video.
-
-        Returns:
-            2.0 if video is in-season
-            1.3 if video is in shoulder month
-            0.3 if video is out-of-season
-            1.0 if video has no seasonal tags (neutral)
-        """
-        tags = self.get_seasonal_tags(video_id)
-        if not tags:
-            return 1.0
-
-        # Check if current month is in-season for ANY tag
-        for tag in tags:
-            if tag in self.SEASON_MONTHS:
-                if current_month in self.SEASON_MONTHS[tag]:
-                    return self.SEASONAL_IN_SEASON
-
-        # Check shoulder months
-        for tag in tags:
-            if tag in self.SEASON_SHOULDER:
-                if current_month in self.SEASON_SHOULDER[tag]:
-                    return self.SEASONAL_SHOULDER
-
-        # Has seasonal tags but none match current month
-        return self.SEASONAL_OUT_OF_SEASON
 
     # --- Cross-Block Learning ---
 

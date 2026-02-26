@@ -49,7 +49,6 @@ class AutoplayConfig:
     pool_mode: bool = False
     avoid_recent: int = 3  # Don't repeat last N plays per block
     min_pool_size: int = 3  # Warn if pool drops below this
-    seasonal_rotation: bool = True   # Weight videos by season
     cross_block_learning: bool = True  # Emit/consume cross-block signals
     mappings: dict[str, str] = field(default_factory=dict)
     # mappings: block_name -> URL (legacy single-URL fallback)
@@ -200,7 +199,6 @@ def _parse_config(data: dict) -> Config:
             mappings=dict(a.get("mappings", {})),
             themes=themes,
             discovery_delay=a.get("discovery_delay", config.autoplay.discovery_delay),
-            seasonal_rotation=a.get("seasonal_rotation", config.autoplay.seasonal_rotation),
             cross_block_learning=a.get("cross_block_learning", config.autoplay.cross_block_learning),
         )
 
