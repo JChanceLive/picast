@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -164,6 +164,23 @@ CREATE INDEX IF NOT EXISTS idx_autoplay_history_played ON autoplay_history(playe
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS autoplay_seasonal_tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    season TEXT NOT NULL,
+    UNIQUE(video_id, season)
+);
+
+CREATE TABLE IF NOT EXISTS autoplay_cross_block_prefs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    source_block TEXT NOT NULL,
+    signal_type TEXT NOT NULL,
+    signal_strength REAL NOT NULL DEFAULT 1.0,
+    created_at TEXT NOT NULL,
+    UNIQUE(video_id, source_block, signal_type)
 );
 """
 
@@ -335,6 +352,26 @@ class Database:
                 CREATE TABLE IF NOT EXISTS settings (
                     key TEXT PRIMARY KEY,
                     value TEXT NOT NULL
+                )
+            """)
+        if from_version < 9:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS autoplay_seasonal_tags (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    video_id TEXT NOT NULL,
+                    season TEXT NOT NULL,
+                    UNIQUE(video_id, season)
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS autoplay_cross_block_prefs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    video_id TEXT NOT NULL,
+                    source_block TEXT NOT NULL,
+                    signal_type TEXT NOT NULL,
+                    signal_strength REAL NOT NULL DEFAULT 1.0,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(video_id, source_block, signal_type)
                 )
             """)
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))

@@ -323,6 +323,15 @@ def run_pool_cli():
     p_discover.add_argument("--max-duration", type=int, default=None, help="Max duration (seconds)")
     p_discover.add_argument("--max-results", type=int, default=None, help="Max results per query")
 
+    # export
+    p_export = sub.add_parser("export", help="Export pools to YAML file")
+    p_export.add_argument("--file", default=None, help="Output file (default: stdout)")
+
+    # import-pools (not 'import' to avoid Python keyword confusion in help)
+    p_import_pools = sub.add_parser("import-pools", help="Import pools from YAML file")
+    p_import_pools.add_argument("file", help="YAML file to import")
+    p_import_pools.add_argument("--replace", action="store_true", help="Replace mode (deactivate existing before import)")
+
     args = parser.parse_args()
     base = args.server.rstrip("/")
 
@@ -474,6 +483,62 @@ def run_pool_cli():
                           f"skipped={block_stats['skipped']}")
                 print(f"\nTotal: found={result.get('total_found', 0)}, "
                       f"added={result.get('total_added', 0)}")
+
+    elif args.command == "export":
+        data = api_get("/api/autoplay/export")
+        try:
+            import yaml
+            output = yaml.dump(data, default_flow_style=False, sort_keys=False)
+        except ImportError:
+            output = json.dumps(data, indent=2)
+            print("(PyYAML not installed, exporting as JSON)", file=sys.stderr)
+
+        if args.file:
+            with open(args.file, "w") as f:
+                f.write(output)
+            print(f"Exported to {args.file}")
+        else:
+            print(output)
+
+    elif args.command == "import-pools":
+        if not os.path.exists(args.file):
+            print(f"File not found: {args.file}")
+            sys.exit(1)
+        with open(args.file) as f:
+            raw = f.read()
+        # Try YAML first, fall back to JSON
+        try:
+            import yaml
+            data = yaml.safe_load(raw)
+        except ImportError:
+            data = json.loads(raw)
+        except Exception:
+            data = json.loads(raw)
+
+        merge = not args.replace
+        merge_param = "1" if merge else "0"
+        url = f"{base}/api/autoplay/import?merge={merge_param}"
+        body = json.dumps(data).encode()
+        try:
+            req = urllib.request.Request(
+                url, data=body, method="POST",
+                headers={"Content-Type": "application/json"},
+            )
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                result = json.loads(resp.read())
+        except urllib.error.HTTPError as e:
+            result = json.loads(e.read())
+        except urllib.error.URLError as e:
+            print(f"Error: Could not connect to {base} - {e}")
+            sys.exit(1)
+
+        if result.get("ok"):
+            mode = "replace" if args.replace else "merge"
+            print(f"Imported ({mode}): {result.get('added', 0)} added, "
+                  f"{result.get('skipped', 0)} skipped, "
+                  f"{result.get('blocks', 0)} blocks")
+        else:
+            print(f"Error: {result.get('error', 'unknown')}")
 
     else:
         parser.print_help()

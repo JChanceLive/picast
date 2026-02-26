@@ -20,6 +20,10 @@
         <button class="btn btn-sm btn-primary" onclick="addToPool()">Add</button>
     </div>
     <div id="pool-video-list"></div>
+    <div id="pool-suggestions" style="display:none">
+        <h4>Suggestions</h4>
+        <div id="pool-suggestions-list"></div>
+    </div>
 </section>
 
 <section class="pool-history" id="pool-history">
@@ -73,6 +77,7 @@ function openBlock(blockName) {
     document.getElementById('pool-detail-title').textContent = blockName;
     loadBlocks(); // Refresh active state
     loadBlockVideos(blockName);
+    loadSuggestions(blockName);
 }
 
 function closeDetail() {
@@ -81,22 +86,41 @@ function closeDetail() {
     loadBlocks();
 }
 
+const SEASON_COLORS = {
+    winter: '#88ccff', spring: '#66dd88', summer: '#ffcc44',
+    fall: '#dd8844', holiday: '#ff6666',
+};
+
+function seasonBadge(season) {
+    const color = SEASON_COLORS[season] || '#aaa';
+    return `<span class="pv-season-badge" style="background:${color}">${esc(season)}</span>`;
+}
+
 function loadBlockVideos(blockName) {
     fetch('/api/autoplay/pool/' + encodeURIComponent(blockName) + '?retired=1')
         .then(r => r.json())
-        .then(videos => {
+        .then(async videos => {
             const el = document.getElementById('pool-video-list');
             if (!videos.length) {
                 el.innerHTML = '<div class="empty">No videos in this pool</div>';
                 return;
             }
-            el.innerHTML = videos.map(v => {
+            // Fetch seasonal tags for all videos in parallel
+            const seasonPromises = videos.map(v =>
+                fetch('/api/autoplay/pool/' + encodeURIComponent(blockName) + '/' + encodeURIComponent(v.video_id) + '/seasons')
+                    .then(r => r.json()).catch(() => ({seasons: []}))
+            );
+            const seasonData = await Promise.all(seasonPromises);
+
+            el.innerHTML = videos.map((v, i) => {
                 const thumb = ytThumb(v.video_id);
                 const thumbHtml = thumb ? `<img class="pv-thumb" src="${thumb}" alt="">` : '';
                 const plays = v.play_count || 0;
                 const skips = v.skip_count || 0;
                 const completions = v.completion_count || 0;
                 const shelved = !v.active;
+                const seasons = (seasonData[i] && seasonData[i].seasons) || [];
+                const seasonHtml = seasons.map(s => seasonBadge(s)).join('');
                 let metaParts = [esc(v.video_id), plays + ' play' + (plays !== 1 ? 's' : '')];
                 if (completions > 0) metaParts.push(completions + ' completed');
                 if (skips > 0) metaParts.push(skips + ' skip' + (skips !== 1 ? 's' : ''));
@@ -105,6 +129,10 @@ function loadBlockVideos(blockName) {
                     <div class="pv-info">
                         <div class="pv-title">${esc(v.title || v.video_id)}${shelved ? ' <span class="pv-badge-shelved">auto-shelved</span>' : ''}</div>
                         <div class="pv-meta">${metaParts.join(' &middot; ')}</div>
+                        <div class="pv-seasons">
+                            ${seasonHtml}
+                            <button class="pv-season-add" onclick="showSeasonPicker('${esc(blockName)}','${esc(v.video_id)}')" title="Add season tag">+</button>
+                        </div>
                     </div>
                     <div class="pv-rating">
                         <button onclick="ratePoolVideo('${esc(blockName)}','${esc(v.video_id)}',1)" class="qi-circle btn-rate${v.rating === 1 ? ' btn-rate-active-up' : ''}" title="Like">&#x1F44D;</button>
@@ -119,6 +147,40 @@ function loadBlockVideos(blockName) {
                 </div>`;
             }).join('');
         });
+}
+
+function showSeasonPicker(blockName, videoId) {
+    const seasons = ['winter', 'spring', 'summer', 'fall', 'holiday'];
+    const choice = prompt('Add season tag (' + seasons.join(', ') + '):');
+    if (!choice) return;
+    const season = choice.toLowerCase().trim();
+    if (!seasons.includes(season)) {
+        showToast('Invalid season: ' + season);
+        return;
+    }
+    fetch('/api/autoplay/pool/' + encodeURIComponent(blockName) + '/' + encodeURIComponent(videoId) + '/seasons')
+        .then(r => r.json())
+        .then(data => {
+            const existing = data.seasons || [];
+            if (existing.includes(season)) {
+                showToast('Already tagged: ' + season);
+                return;
+            }
+            const updated = [...existing, season];
+            return fetch('/api/autoplay/pool/' + encodeURIComponent(blockName) + '/' + encodeURIComponent(videoId) + '/seasons', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({seasons: updated}),
+            });
+        })
+        .then(r => { if (r) return r.json(); })
+        .then(data => {
+            if (data && data.ok) {
+                showToast('Tagged: ' + season);
+                loadBlockVideos(blockName);
+            }
+        })
+        .catch(() => showToast('Failed to tag'));
 }
 
 function ratePoolVideo(block, videoId, rating) {
@@ -216,6 +278,67 @@ function loadHistory() {
         .catch(() => {
             document.getElementById('pool-history-list').innerHTML = '<div class="empty">Failed to load history</div>';
         });
+}
+
+function loadSuggestions(blockName) {
+    const container = document.getElementById('pool-suggestions');
+    const list = document.getElementById('pool-suggestions-list');
+    fetch('/api/autoplay/suggestions/' + encodeURIComponent(blockName))
+        .then(r => r.json())
+        .then(items => {
+            if (!items.length) {
+                container.style.display = 'none';
+                return;
+            }
+            container.style.display = '';
+            list.innerHTML = items.map(s => {
+                const thumb = ytThumb(s.video_id);
+                const thumbHtml = thumb ? `<img class="pv-thumb" src="${thumb}" alt="">` : '';
+                return `<div class="pool-video pool-suggestion">
+                    ${thumbHtml}
+                    <div class="pv-info">
+                        <div class="pv-title">${esc(s.title || s.video_id)}</div>
+                        <div class="pv-meta">from <strong>${esc(s.source_block)}</strong> &middot; strength ${Number(s.total_strength).toFixed(1)}</div>
+                    </div>
+                    <div class="pv-actions">
+                        <button onclick="acceptSuggestion('${esc(blockName)}','${esc(s.video_id)}','${esc(s.source_block)}')" class="qi-circle" title="Add to pool">&#x2795;</button>
+                        <button onclick="dismissSuggestion('${esc(blockName)}','${esc(s.video_id)}')" class="qi-circle qi-remove" title="Dismiss">&times;</button>
+                    </div>
+                </div>`;
+            }).join('');
+        })
+        .catch(() => { container.style.display = 'none'; });
+}
+
+function acceptSuggestion(targetBlock, videoId, sourceBlock) {
+    fetch('/api/autoplay/suggestions/' + encodeURIComponent(targetBlock) + '/accept', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_id: videoId, source_block: sourceBlock}),
+    })
+    .then(r => r.json())
+    .then(data => {
+        if (data.video_id) {
+            showToast('Added from ' + sourceBlock);
+            loadBlockVideos(targetBlock);
+            loadSuggestions(targetBlock);
+            loadBlocks();
+        } else {
+            showToast(data.error || 'Failed');
+        }
+    });
+}
+
+function dismissSuggestion(targetBlock, videoId) {
+    fetch('/api/autoplay/suggestions/' + encodeURIComponent(targetBlock) + '/dismiss', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({video_id: videoId}),
+    })
+    .then(r => r.json())
+    .then(() => {
+        loadSuggestions(targetBlock);
+    });
 }
 
 // Initial load

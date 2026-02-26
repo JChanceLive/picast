@@ -154,7 +154,12 @@ def create_app(
     # Autoplay state (ephemeral, like loop_enabled)
     _autoplay_config = autoplay_config or AutoplayConfig()
     _autoplay_enabled = _autoplay_config.enabled
-    _autoplay_pool = AutoPlayPool(db, avoid_recent=_autoplay_config.avoid_recent)
+    _autoplay_pool = AutoPlayPool(
+        db,
+        avoid_recent=_autoplay_config.avoid_recent,
+        seasonal_rotation=_autoplay_config.seasonal_rotation,
+        cross_block_learning=_autoplay_config.cross_block_learning,
+    )
     _autoplay_current = {"video_id": None, "block_name": None, "title": None}
     _autoplay_start_time = {"value": None}  # monotonic() when autoplay video started
     _autoplay_completing = {"value": None}  # snapshot for deferred completion processing
@@ -841,6 +846,97 @@ def create_app(
             "total_found": total_found,
             "total_added": total_added,
         })
+
+    # --- AutoPlay Seasonal Tag Endpoints ---
+
+    @app.route("/api/autoplay/seasons")
+    def autoplay_seasons():
+        """List all season names with video counts."""
+        return jsonify(_autoplay_pool.get_all_seasons())
+
+    @app.route("/api/autoplay/pool/<block_name>/<video_id>/seasons")
+    def autoplay_seasonal_tags_get(block_name, video_id):
+        """Get seasonal tags for a video."""
+        seasons = _autoplay_pool.get_seasonal_tags(video_id)
+        return jsonify({"video_id": video_id, "block_name": block_name, "seasons": seasons})
+
+    @app.route("/api/autoplay/pool/<block_name>/<video_id>/seasons", methods=["POST"])
+    def autoplay_seasonal_tags_set(block_name, video_id):
+        """Set seasonal tags for a video."""
+        data = request.get_json(silent=True) or {}
+        seasons = data.get("seasons", [])
+        _autoplay_pool.set_seasonal_tags(video_id, seasons)
+        return jsonify({"ok": True, "video_id": video_id, "seasons": seasons})
+
+    # --- AutoPlay Cross-Block Learning Endpoints ---
+
+    @app.route("/api/autoplay/suggestions/<block_name>")
+    def autoplay_suggestions(block_name):
+        """Get cross-block video suggestions for a block."""
+        limit = request.args.get("limit", 10, type=int)
+        suggestions = _autoplay_pool.get_cross_block_suggestions(block_name, limit)
+        return jsonify(suggestions)
+
+    @app.route("/api/autoplay/suggestions/<block_name>/accept", methods=["POST"])
+    def autoplay_suggestion_accept(block_name):
+        """Accept a suggestion — add video to target block's pool."""
+        data = request.get_json(silent=True) or {}
+        video_id = data.get("video_id", "").strip()
+        if not video_id:
+            return jsonify({"error": "video_id required"}), 400
+        # Get video info from source block
+        source_block = data.get("source_block", "")
+        source = _autoplay_pool.get_video(source_block, video_id) if source_block else None
+        title = source["title"] if source else data.get("title", "")
+        url = _autoplay_pool.video_id_to_url(video_id)
+        result = _autoplay_pool.add_video(block_name, url, title, source="cross_block")
+        if result is None:
+            return jsonify({"error": "video already in pool"}), 409
+        return jsonify(result), 201
+
+    @app.route("/api/autoplay/suggestions/<block_name>/dismiss", methods=["POST"])
+    def autoplay_suggestion_dismiss(block_name):
+        """Dismiss a suggestion (no-op for now, placeholder for future logic)."""
+        return jsonify({"ok": True})
+
+    # --- AutoPlay Export / Import Endpoints ---
+
+    @app.route("/api/autoplay/export")
+    def autoplay_export():
+        """Export all pools as JSON (or YAML if Accept header requests it)."""
+        data = _autoplay_pool.export_pools()
+        accept = request.headers.get("Accept", "")
+        if "yaml" in accept or "yml" in accept:
+            try:
+                import yaml
+                yaml_str = yaml.dump(data, default_flow_style=False, sort_keys=False)
+                return Response(yaml_str, mimetype="text/yaml")
+            except ImportError:
+                pass  # Fall through to JSON
+        return jsonify(data)
+
+    @app.route("/api/autoplay/import", methods=["POST"])
+    def autoplay_import():
+        """Import pools from JSON or YAML body."""
+        content_type = request.content_type or ""
+        merge = request.args.get("merge", "1") == "1"
+
+        if "yaml" in content_type or "yml" in content_type:
+            try:
+                import yaml
+                data = yaml.safe_load(request.data)
+            except ImportError:
+                return jsonify({"error": "PyYAML not installed on server"}), 500
+            except Exception as e:
+                return jsonify({"error": f"Invalid YAML: {e}"}), 400
+        else:
+            data = request.get_json(silent=True)
+
+        if not data or not isinstance(data, dict):
+            return jsonify({"error": "Request body must be JSON or YAML with 'blocks' key"}), 400
+
+        stats = _autoplay_pool.import_pools(data, merge=merge)
+        return jsonify({"ok": True, **stats})
 
     # --- Discover Endpoints ---
 

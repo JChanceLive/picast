@@ -41,8 +41,6 @@
         <button onclick="doToggle(this)" class="btn-icon" id="btn-toggle" aria-label="Pause"><span class="bi-ico">⏸</span><span class="bi-lbl">Pause</span></button>
         <button onclick="doSkip(this)" class="btn-icon" id="btn-skip" aria-label="Skip"><span class="bi-ico">⏭</span><span class="bi-lbl">Skip</span></button>
         <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop" aria-label="Stop"><span class="bi-ico">⏹</span><span class="bi-lbl">Stop</span></button>
-        <button onclick="volDown()" class="btn-icon" aria-label="Volume down"><span class="bi-ico">🔉</span><span class="bi-lbl">Vol-</span></button>
-        <button onclick="volUp()" class="btn-icon" aria-label="Volume up"><span class="bi-ico">🔊</span><span class="bi-lbl">Vol+</span></button>
         <button onclick="speedDown()" class="btn-icon" aria-label="Slow down"><span class="bi-ico">🐌</span><span class="bi-lbl">Slow</span></button>
         <button onclick="speedUp()" class="btn-icon" aria-label="Speed up"><span class="bi-ico">🐇</span><span class="bi-lbl">Fast</span></button>
         <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after" aria-label="Stop after current"><span class="bi-ico">⏱</span><span class="bi-lbl">1More</span></button>
@@ -53,6 +51,11 @@
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
+    </div>
+    <div class="queue-volume-row">
+        <span class="queue-vol-icon">&#x1F50A;</span>
+        <input type="range" id="queue-volume-slider" class="settings-slider" min="0" max="100" value="0">
+        <span class="queue-vol-label" id="queue-vol-label">--%</span>
     </div>
 </section>
 
@@ -495,8 +498,6 @@ function doSkip(btn) {
 function doStop(btn) {
     withLoading(btn, '...', api('stop').then(() => { showToast('Stopped'); poll(); }));
 }
-function volUp() { currentVolume = Math.min(100, currentVolume + 5); api('volume', {level: currentVolume}); showToast('Vol: ' + Math.round(currentVolume)); }
-function volDown() { currentVolume = Math.max(0, currentVolume - 5); api('volume', {level: currentVolume}); showToast('Vol: ' + Math.round(currentVolume)); }
 function speedUp() { currentSpeed = Math.min(4, currentSpeed + 0.25); api('speed', {speed: currentSpeed}); showToast('Speed: ' + currentSpeed.toFixed(1) + 'x'); }
 function speedDown() { currentSpeed = Math.max(0.25, currentSpeed - 0.25); api('speed', {speed: currentSpeed}); showToast('Speed: ' + currentSpeed.toFixed(1) + 'x'); }
 
@@ -720,6 +721,39 @@ function retryErrorItem() {
         dismissError();
     }
 }
+
+// Volume slider
+let queueVolDebounce = null;
+
+async function loadQueueVolume() {
+    try {
+        const r = await fetch('/api/system/volume');
+        const d = await r.json();
+        const slider = document.getElementById('queue-volume-slider');
+        const label = document.getElementById('queue-vol-label');
+        if (!d.error) {
+            slider.value = d.volume;
+            label.textContent = d.volume + '%';
+        }
+    } catch(e) {}
+}
+
+document.getElementById('queue-volume-slider').addEventListener('input', function() {
+    document.getElementById('queue-vol-label').textContent = this.value + '%';
+    clearTimeout(queueVolDebounce);
+    const val = parseInt(this.value);
+    queueVolDebounce = setTimeout(() => {
+        fetch('/api/system/volume', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({volume: val})
+        }).then(r => r.json()).then(d => {
+            if (d.error) showToast('Volume error: ' + d.error);
+        }).catch(() => showToast('Failed to set volume'));
+    }, 200);
+});
+
+loadQueueVolume();
 
 connectSSE();
 setInterval(poll, 1000);

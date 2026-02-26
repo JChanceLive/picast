@@ -380,6 +380,30 @@ body {
 .btn-icon-pin:hover { opacity: 0.7; }
 .btn-icon-pin.pinned { opacity: 1; }
 
+/* Queue volume row */
+.queue-volume-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.3rem 0.15rem;
+    margin-top: 0.25rem;
+    border-top: 1px solid rgba(0, 240, 255, 0.08);
+}
+
+.queue-vol-icon {
+    font-size: 0.9rem;
+    flex-shrink: 0;
+}
+
+.queue-vol-label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--neon-cyan);
+    min-width: 2.5em;
+    text-align: right;
+    flex-shrink: 0;
+}
+
 /* Timer status */
 .timer-status {
     text-align: center;
@@ -1365,6 +1389,19 @@ body {
     border-color: rgba(255, 100, 100, 0.15);
 }
 
+.pool-suggestion {
+    border-color: rgba(100, 200, 100, 0.3);
+    border-style: dashed;
+}
+
+#pool-suggestions h4 {
+    color: var(--accent);
+    font-size: 0.85rem;
+    margin: 1rem 0 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
 .pv-badge-shelved {
     display: inline-block;
     font-size: 0.65rem;
@@ -1387,6 +1424,46 @@ body {
 .pv-info { flex: 1; min-width: 0; }
 .pv-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-meta { color: var(--muted); font-size: 0.7rem; }
+
+.pv-seasons {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.2rem;
+    flex-wrap: wrap;
+}
+
+.pv-season-badge {
+    display: inline-block;
+    font-size: 0.6rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    color: #0a0a1e;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+.pv-season-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    font-size: 0.7rem;
+    background: none;
+    border: 1px dashed rgba(0, 240, 255, 0.3);
+    border-radius: 3px;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s;
+    padding: 0;
+}
+
+.pv-season-add:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
 
 .pv-rating {
     display: flex;

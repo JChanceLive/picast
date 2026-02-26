@@ -181,7 +181,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-02-26 | 39 active memories, 145 total_
+_Last updated: 2026-02-26 | 31 active memories, 196 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -194,39 +194,31 @@ _Last updated: 2026-02-26 | 39 active memories, 145 total_
 - Discovery Agent implemented as separate class in new `src/picast/server/sources/discovery.py` (not integrated into Yo... [picast, autoplay, discovery, design, separation-of-concerns]
 - Pushover chosen as ntfy replacement: provides proper APNS infrastructure for reliable iOS background push, one-time $... [pushover, ntfy, notifications, ios-push, decision, trade-offs]
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
-- PiCast v0.23.0 adopts `--video-sync=display-desync` instead of `--framedrop=vo`: testing confirmed that display-desyn... [picast, mpv, video-sync, performance, v0.23.0]
+- PiCast idle TV wallpaper redesign decision: User requested viewing box contents before trimming; after review, 7 boxe... [picast, wallpaper, tv-ui, design, decision]
 
 ## Patterns & Conventions
 - DiscoveryAgent uses same `APIClient` and `YouTubeAPI` pattern as YouTubeSource for code reuse; search_and_add() metho... [picast, autoplay, discovery, api-client, pattern]
 - YouTube Discovery Agent module-level mocking pattern: @patch decorator targets 'picast.server.youtube_discovery.subpr... [picast, testing, mocking, pattern]
 - PiCast hamburger navigation pattern: dice icon and pool emoji (calendar 📅) remain fixed in header, all other nav lin... [picast, web-ui, navigation, mobile, responsive]
-- PiCast API endpoints for display rotation (`/api/system/display/rotate`) and volume (`/api/system/volume/set`) both u... [picast, api, mpv, ipc, socat]
-- PiCast notification refactoring maintains consistent pattern across all alert points: motion_scan.py (_send_alert + c... [picam, pushover, notifications, pattern]
-- AoE `command` field completely replaces default `tool: "claude"` behavior when set (not run alongside). All 19 AoE se... [ultra-claude-stack, aoe, configuration]
-- Git branch cleanup protocol: branches created during development are deleted after merge because they serve scaffoldi... [git, workflow, safety]
-- Bulk git operations across terminal ecosystem follow 3-tier structure: Tier 1 (gitignore only), Tier 2 (gitignore + d... [git, workflow, infrastructure]
-- AoE wrapper script bash safety patterns: Empty python3 output in arithmetic expressions breaks bash ($(( - 0)) errors... [aoe, wrapper, bash, error-handling, signal-handling, ux]
-- /done command captures session metadata for dashboard visibility and structured handoff. User workflow: auto-save hoo... [workflow, session-management, dashboard, aoe, session-history, logging, preferences]
-- OSD disable polling pattern: use `for i in $(seq 1 30); do echo '{"command":["set_property","osd-level",0]}' | socat ... [picast, mpv, osd, socat, ipc]
-- PiCast display rotation control hierarchy: kernel-level rotation via `video=HDMI-A-1:panel_orientation=upside_down` i... [picast, display, rotation, kms, performance, api, cmdline, sudo]
+- PiCast volume persistence pattern: Store volume in new `settings` table (schema v8) with key-value pairs, save via `/... [picast, volume, persistence, database, mpv, architecture]
+- Git branch cleanup protocol: branches created during development are deleted after merge because they serve scaffoldi... [git, workflow, safety, infrastructure]
+- PiCast display rotation control hierarchy: kernel-level rotation via `video=HDMI-A-1:panel_orientation=upside_down` i... [picast, display, rotation, kms, performance, api, mpv, ipc, socat, cmdline, sudo, osd]
+- AoE wrapper script bash safety patterns: Empty python3 output in arithmetic expressions breaks bash ($(( - 0)) errors... [aoe, wrapper, bash, error-handling, signal-handling, ux, workflow, session-management, dashboard, session-history, logging, preferences]
 - PiCast autoplay pool initialization requires two-stage deployment: (1) Enable pool_mode in picast.toml [autoplay] sec... [picast, autoplay, deployment, pool-mode, configuration, sqlite, performance, ssh, pip-install, git, github, sudoers, automation]
+- PiCast wallpaper generation deployment requires three-step process: (1) scp icon.png to Pi ~/.picast/icon.png, (2) sc... [picast, deployment, wallpaper, script-execution, optional-dependencies, pattern]
+- PiCast feature flag wiring pattern: New boolean config flags in picast.toml [autoplay] section (e.g., seasonal_rotati... [picast, config, feature-flags, autoplay, pattern]
 
 ## Gotchas & Pitfalls
-- picast-update compares __version__ in src/picast/__about__.py against installed version and silently skips update if ... [picast, deployment, version-management]
 - Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
-- TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
 - Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
-- Raspberry Pi hardware display/audio control gotchas: (1) `display_hdmi_rotate` in config.txt doesn't work with KMS dr... [picast, raspberry-pi, display, audio, kms, wlr-randr, wayland, systemd]
-- mpv frame drop diagnostics gotchas: (1) `--framedrop=vo` + default `--video-sync=audio` is too strict for Pi's Waylan... [picast, mpv, frame-drops, video-sync, performance, wayland, osd, debugging]
+- TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 
 ## Current Progress
-- PiCast v0.24.0 kernel-level display rotation validated on Pi: monitor displays correct orientation (right-side-up on ... [picast, display, rotation, v0.24.0, deployment, validation]
-- PiCast v0.16.0-v0.19.0 complete: Pushover migration replaced ntfy across PiCast/PiCam/PiPulse with sound tier system ... [picast, autoplay, pool-mode, pushover, migration, web-ui, deployment]
-- PiCast v0.20.0 YouTube Discovery Agent deployed and operational: DiscoveryAgent class with yt-dlp integration, theme-... [picast, discovery-agent, autoplay, v0.20.0, deployment, testing]
-- PiCast v0.23.0 deployed to production: replaced `--framedrop=vo` + `--video-sync=audio` with `--video-sync=display-de... [picast, v0.23.0, deployment, frame-drops]
-- PiCast v0.22.2 deployed to production: self-learning autoplay with schema v7 (skip_count, completion_count, watch_dur... [picast, v0.22.2, deployment, self-learning, overlay, performance]
+- PiCast v0.24.0 Session 3 COMPLETE: Cross-block learning fully integrated with 663/663 tests passing. Signal emission ... [picast, v0.24.0, cross-block-learning, testing, release-ready]
+- PiCast v0.23.3 released with volume persistence (DB settings table schema v8), TV wallpaper redesign (7 kept cards, 1... [picast, release, wallpaper, volume, systemd]
+- Volume persistence implemented: added `settings` table to schema (v8) with `get_setting`/`set_setting` methods in Dat... [picast, volume-persistence, database, schema-v8]
 - Ultra Claude Stack (3-layer automation: Memory Extractor + TUI/MCP integration + brain.md sync) is COMPLETE and live.... [ultra-claude-stack, automation, system-architecture]
 
 ## Context

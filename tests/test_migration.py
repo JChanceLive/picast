@@ -144,7 +144,7 @@ class TestMigrationV2ToV3:
         db = Database(db_path)
 
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 8
+        assert row["version"] == 9
 
     def test_migration_events_indices_exist(self, tmp_path):
         """v2→v3 migration creates indices on events table."""
@@ -313,7 +313,7 @@ class TestMigrationV4ToV5:
         db = Database(db_path)
 
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 8
+        assert row["version"] == 9
 
     def test_fresh_db_has_v5_tables(self, tmp_path):
         """A fresh database should have all v5 tables."""
@@ -330,4 +330,4 @@ class TestMigrationV4ToV5:
         """A fresh database should have schema version 5."""
         db = Database(str(tmp_path / "fresh.db"))
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 8
+        assert row["version"] == 9
