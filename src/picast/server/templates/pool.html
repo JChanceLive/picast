@@ -55,9 +55,16 @@ function loadBlocks() {
             el.innerHTML = blocks.map(b => {
                 const liked = b.liked || 0;
                 const disliked = b.disliked || 0;
+                const emoji = b.emoji || '';
+                const displayName = b.display_name || b.block_name;
+                const timeRange = b.block_start ? (b.block_start + (b.block_end ? ' - ' + b.block_end : '')) : '';
+                const blockType = b.block_type || '';
+                const tagline = b.tagline || '';
                 return `<div class="pool-block-card${currentBlock === b.block_name ? ' active' : ''}"
                     onclick="openBlock('${esc(b.block_name)}')">
-                    <div class="pbc-name">${esc(b.block_name)}</div>
+                    <div class="pbc-name">${emoji ? esc(emoji) + ' ' : ''}${esc(displayName)}</div>
+                    ${timeRange || blockType ? '<div class="pbc-time">' + (timeRange ? esc(timeRange) : '') + (timeRange && blockType ? ' &middot; ' : '') + (blockType ? esc(blockType) : '') + '</div>' : ''}
+                    ${tagline ? '<div class="pbc-tagline">&ldquo;' + esc(tagline) + '&rdquo;</div>' : ''}
                     <div class="pbc-stats">
                         ${b.pool_size} video${b.pool_size !== 1 ? 's' : ''}
                         ${liked > 0 ? ' <span class="pbc-stat-liked">' + liked + ' liked</span>' : ''}
@@ -74,7 +81,9 @@ function loadBlocks() {
 function openBlock(blockName) {
     currentBlock = blockName;
     document.getElementById('pool-detail').style.display = '';
-    document.getElementById('pool-detail-title').textContent = blockName;
+    // Try to find rich name from loaded blocks
+    const card = document.querySelector('.pool-block-card.active .pbc-name');
+    document.getElementById('pool-detail-title').textContent = card ? card.textContent : blockName;
     loadBlocks(); // Refresh active state
     loadBlockVideos(blockName);
     loadSuggestions(blockName);

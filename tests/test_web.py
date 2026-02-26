@@ -357,3 +357,148 @@ class TestSourcesAPI:
         resp = client.get("/api/sources/drives")
         assert resp.status_code == 200
         assert isinstance(resp.get_json(), list)
+
+
+class TestBlockMetadataAPI:
+    """Tests for S2 block metadata API routes."""
+
+    def test_settings_blocks_get_empty(self, client):
+        resp = client.get("/api/settings/blocks")
+        assert resp.status_code == 200
+        assert resp.get_json() == []
+
+    def test_settings_blocks_upsert_create(self, client):
+        resp = client.post("/api/settings/blocks", json={
+            "block_name": "morning-foundation",
+            "display_name": "Morning Foundation",
+            "emoji": "\U0001f305",
+            "block_start": "6:30 AM",
+            "tagline": "Start strong",
+            "block_type": "peak_creative",
+            "energy": "high",
+        })
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+        # Verify it's stored
+        resp = client.get("/api/settings/blocks")
+        blocks = resp.get_json()
+        assert len(blocks) == 1
+        assert blocks[0]["block_name"] == "morning-foundation"
+        assert blocks[0]["display_name"] == "Morning Foundation"
+        assert blocks[0]["emoji"] == "\U0001f305"
+        assert blocks[0]["source"] == "manual"
+
+    def test_settings_blocks_upsert_update(self, client):
+        client.post("/api/settings/blocks", json={
+            "block_name": "test-block",
+            "display_name": "Test Block",
+        })
+        # Update
+        resp = client.post("/api/settings/blocks", json={
+            "block_name": "test-block",
+            "display_name": "Updated Block",
+            "tagline": "New tagline",
+        })
+        assert resp.status_code == 200
+
+        blocks = client.get("/api/settings/blocks").get_json()
+        assert len(blocks) == 1
+        assert blocks[0]["display_name"] == "Updated Block"
+        assert blocks[0]["tagline"] == "New tagline"
+
+    def test_settings_blocks_upsert_requires_name(self, client):
+        resp = client.post("/api/settings/blocks", json={"display_name": "No Name"})
+        assert resp.status_code == 400
+        assert "block_name" in resp.get_json()["error"]
+
+    def test_settings_blocks_delete(self, client):
+        client.post("/api/settings/blocks", json={
+            "block_name": "to-delete",
+            "display_name": "To Delete",
+        })
+        resp = client.delete("/api/settings/blocks/to-delete")
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+        blocks = client.get("/api/settings/blocks").get_json()
+        assert len(blocks) == 0
+
+    def test_settings_blocks_delete_not_found(self, client):
+        resp = client.delete("/api/settings/blocks/nonexistent")
+        assert resp.status_code == 404
+
+    def test_pool_summary_enriched_with_metadata(self, client):
+        """Pool summary includes block metadata fields."""
+        # Add a block metadata entry
+        client.post("/api/settings/blocks", json={
+            "block_name": "creation-stack",
+            "display_name": "Creation Stack",
+            "emoji": "\U0001f3a8",
+            "block_start": "8:00 AM",
+            "tagline": "Make something",
+            "block_type": "peak_creative",
+        })
+        # Add a video to that block's pool so it appears in summary
+        resp = client.post("/api/autoplay/pool/creation-stack", json={
+            "url": "https://www.youtube.com/watch?v=test1234567",
+        })
+        assert resp.status_code == 201
+
+        # Get pool summary
+        resp = client.get("/api/autoplay/pool")
+        blocks = resp.get_json()
+        assert len(blocks) >= 1
+        block = next(b for b in blocks if b["block_name"] == "creation-stack")
+        assert block["emoji"] == "\U0001f3a8"
+        assert block["display_name"] == "Creation Stack"
+        assert block["tagline"] == "Make something"
+        assert block["block_type"] == "peak_creative"
+
+    def test_pool_summary_graceful_without_metadata(self, client):
+        """Pool summary returns empty strings when no metadata exists."""
+        client.post("/api/autoplay/pool/raw-block", json={
+            "url": "https://www.youtube.com/watch?v=test7654321",
+        })
+        resp = client.get("/api/autoplay/pool")
+        blocks = resp.get_json()
+        block = next(b for b in blocks if b["block_name"] == "raw-block")
+        assert block["emoji"] == ""
+        assert block["display_name"] == ""
+
+
+class TestSettingsPageS2:
+    """Tests for S2 settings page UI elements."""
+
+    def test_settings_has_pipulse_card(self, client):
+        resp = client.get("/settings")
+        assert b"PiPulse Integration" in resp.data
+        assert b"pipulse-host" in resp.data
+        assert b"togglePipulse" in resp.data
+
+    def test_settings_has_block_editor(self, client):
+        resp = client.get("/settings")
+        assert b"Autoplay Blocks" in resp.data
+        assert b"block-editor-list" in resp.data
+        assert b"Import from PiPulse" in resp.data
+
+    def test_settings_block_form_fields(self, client):
+        resp = client.get("/settings")
+        assert b"bf-emoji" in resp.data
+        assert b"bf-block-name" in resp.data
+        assert b"bf-tagline" in resp.data
+        assert b"bf-type" in resp.data
+
+    def test_pool_page_renders_metadata_fields(self, client):
+        resp = client.get("/pool")
+        assert b"pbc-tagline" in resp.data
+        assert b"pbc-time" in resp.data
+        assert b"display_name" in resp.data
+
+    def test_css_has_block_editor_styles(self, client):
+        resp = client.get("/static/style.css")
+        assert b".block-editor-list" in resp.data
+        assert b".block-editor-item" in resp.data
+        assert b".block-editor-form" in resp.data
+        assert b".pbc-tagline" in resp.data
+        assert b".pbc-time" in resp.data

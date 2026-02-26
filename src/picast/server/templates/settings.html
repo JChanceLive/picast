@@ -53,6 +53,94 @@
     </div>
 </div>
 
+<!-- PiPulse Integration -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F517;</span>
+        <h3>PiPulse Integration</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="settings-row">
+            <label>Enabled</label>
+            <button class="btn btn-sm" id="btn-pipulse-toggle" onclick="togglePipulse()">--</button>
+        </div>
+        <div class="settings-row">
+            <label for="pipulse-host">Host</label>
+            <input type="text" id="pipulse-host" class="settings-select" style="width:auto" placeholder="10.0.0.103">
+        </div>
+        <div class="settings-row">
+            <label for="pipulse-port">Port</label>
+            <input type="number" id="pipulse-port" class="settings-select" style="width:5em" placeholder="5055">
+        </div>
+        <div class="settings-actions-row">
+            <button class="btn btn-sm" onclick="savePipulseConfig()">Save</button>
+        </div>
+        <div class="settings-note" id="pipulse-note">Connect to PiPulse for rich block metadata</div>
+    </div>
+</div>
+
+<!-- Autoplay Blocks -->
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F4C5;</span>
+        <h3>Autoplay Blocks</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="block-editor-list" id="block-editor-list">
+            <div class="empty">Loading blocks...</div>
+        </div>
+        <div class="block-editor-form" id="block-form" style="display:none">
+            <div class="block-editor-form-row">
+                <label>Emoji</label>
+                <input type="text" id="bf-emoji" class="bei-emoji-input" maxlength="4" placeholder="&#x1F3B5;">
+                <label>Name</label>
+                <input type="text" id="bf-block-name" placeholder="block-name">
+            </div>
+            <div class="block-editor-form-row">
+                <label>Display</label>
+                <input type="text" id="bf-display-name" placeholder="Display Name">
+            </div>
+            <div class="block-editor-form-row">
+                <label>Start</label>
+                <input type="text" id="bf-start" placeholder="6:30 AM">
+                <label>End</label>
+                <input type="text" id="bf-end" placeholder="8:00 AM">
+            </div>
+            <div class="block-editor-form-row">
+                <label>Tagline</label>
+                <input type="text" id="bf-tagline" placeholder="A short tagline...">
+            </div>
+            <div class="block-editor-form-row">
+                <label>Type</label>
+                <select id="bf-type">
+                    <option value="">--</option>
+                    <option value="peak_creative">peak_creative</option>
+                    <option value="execution">execution</option>
+                    <option value="ritual">ritual</option>
+                    <option value="recovery">recovery</option>
+                    <option value="wind_down">wind_down</option>
+                    <option value="admin">admin</option>
+                </select>
+                <label>Energy</label>
+                <select id="bf-energy">
+                    <option value="">--</option>
+                    <option value="high">high</option>
+                    <option value="medium">medium</option>
+                    <option value="low">low</option>
+                </select>
+            </div>
+            <div class="block-editor-form-actions">
+                <button class="btn btn-sm" onclick="cancelBlockForm()">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="bf-save-btn" onclick="saveBlock()">Save</button>
+            </div>
+        </div>
+        <div class="settings-actions-row">
+            <button class="btn btn-sm" onclick="showAddBlockForm()">Add Block</button>
+            <button class="btn btn-sm" id="btn-import-blocks" onclick="importBlocks()">Import from PiPulse</button>
+        </div>
+    </div>
+</div>
+
 <!-- System Info -->
 <div class="settings-card">
     <div class="settings-card-header">
@@ -251,10 +339,202 @@ function restartService() {
     setTimeout(() => location.reload(), 5000);
 }
 
+// --- PiPulse Integration ---
+async function loadPipulse() {
+    try {
+        const r = await fetch('/api/settings/pipulse');
+        const d = await r.json();
+        const btn = document.getElementById('btn-pipulse-toggle');
+        btn.textContent = d.enabled ? 'Enabled' : 'Disabled';
+        btn.className = 'btn btn-sm' + (d.enabled ? ' btn-icon-active' : '');
+        document.getElementById('pipulse-host').value = d.host || '';
+        document.getElementById('pipulse-port').value = d.port || '';
+    } catch(e) {
+        document.getElementById('pipulse-note').textContent = 'Failed to load PiPulse settings';
+    }
+}
+
+async function togglePipulse() {
+    const btn = document.getElementById('btn-pipulse-toggle');
+    const isEnabled = btn.textContent === 'Enabled';
+    try {
+        await fetch('/api/settings/pipulse', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: !isEnabled})
+        });
+        btn.textContent = !isEnabled ? 'Enabled' : 'Disabled';
+        btn.className = 'btn btn-sm' + (!isEnabled ? ' btn-icon-active' : '');
+        showToast('PiPulse ' + (!isEnabled ? 'enabled' : 'disabled'));
+    } catch(e) {
+        showToast('Failed to toggle PiPulse');
+    }
+}
+
+async function savePipulseConfig() {
+    const host = document.getElementById('pipulse-host').value.trim();
+    const port = parseInt(document.getElementById('pipulse-port').value) || 5055;
+    try {
+        await fetch('/api/settings/pipulse', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({host, port})
+        });
+        showToast('PiPulse config saved');
+    } catch(e) {
+        showToast('Failed to save PiPulse config');
+    }
+}
+
+// --- Block Editor ---
+let editingBlock = null;
+
+async function loadBlockEditor() {
+    try {
+        const r = await fetch('/api/settings/blocks');
+        const blocks = await r.json();
+        const el = document.getElementById('block-editor-list');
+        if (!blocks.length) {
+            el.innerHTML = '<div class="empty">No blocks configured. Add manually or import from PiPulse.</div>';
+            return;
+        }
+        el.innerHTML = blocks.map(b => {
+            const meta = [];
+            if (b.block_start) meta.push(b.block_start + (b.block_end ? ' - ' + b.block_end : ''));
+            if (b.block_type) meta.push(b.block_type);
+            if (b.energy) meta.push(b.energy + ' energy');
+            return `<div class="block-editor-item">
+                <span class="bei-emoji">${b.emoji || '&#x1F4E6;'}</span>
+                <div class="bei-info">
+                    <div class="bei-name">${esc(b.display_name || b.block_name)}</div>
+                    <div class="bei-meta">${meta.length ? esc(meta.join(' &middot; ')) : esc(b.block_name)}</div>
+                </div>
+                <span class="bei-source">${esc(b.source || 'manual')}</span>
+                <button class="qi-circle" onclick="editBlock('${esc(b.block_name)}')" title="Edit">&#x270E;</button>
+                <button class="qi-circle qi-remove" onclick="deleteBlock('${esc(b.block_name)}')" title="Delete">&times;</button>
+            </div>`;
+        }).join('');
+    } catch(e) {
+        document.getElementById('block-editor-list').innerHTML = '<div class="empty">Failed to load blocks</div>';
+    }
+}
+
+function showAddBlockForm() {
+    editingBlock = null;
+    document.getElementById('bf-block-name').value = '';
+    document.getElementById('bf-block-name').disabled = false;
+    document.getElementById('bf-display-name').value = '';
+    document.getElementById('bf-emoji').value = '';
+    document.getElementById('bf-start').value = '';
+    document.getElementById('bf-end').value = '';
+    document.getElementById('bf-tagline').value = '';
+    document.getElementById('bf-type').value = '';
+    document.getElementById('bf-energy').value = '';
+    document.getElementById('bf-save-btn').textContent = 'Add';
+    document.getElementById('block-form').style.display = '';
+}
+
+async function editBlock(blockName) {
+    try {
+        const r = await fetch('/api/settings/blocks');
+        const blocks = await r.json();
+        const b = blocks.find(x => x.block_name === blockName);
+        if (!b) return;
+        editingBlock = blockName;
+        document.getElementById('bf-block-name').value = b.block_name;
+        document.getElementById('bf-block-name').disabled = true;
+        document.getElementById('bf-display-name').value = b.display_name || '';
+        document.getElementById('bf-emoji').value = b.emoji || '';
+        document.getElementById('bf-start').value = b.block_start || '';
+        document.getElementById('bf-end').value = b.block_end || '';
+        document.getElementById('bf-tagline').value = b.tagline || '';
+        document.getElementById('bf-type').value = b.block_type || '';
+        document.getElementById('bf-energy').value = b.energy || '';
+        document.getElementById('bf-save-btn').textContent = 'Update';
+        document.getElementById('block-form').style.display = '';
+    } catch(e) {
+        showToast('Failed to load block');
+    }
+}
+
+function cancelBlockForm() {
+    editingBlock = null;
+    document.getElementById('block-form').style.display = 'none';
+}
+
+async function saveBlock() {
+    const blockName = editingBlock || document.getElementById('bf-block-name').value.trim();
+    if (!blockName) { showToast('Block name required'); return; }
+    const data = {
+        block_name: blockName,
+        display_name: document.getElementById('bf-display-name').value.trim(),
+        emoji: document.getElementById('bf-emoji').value.trim(),
+        block_start: document.getElementById('bf-start').value.trim(),
+        block_end: document.getElementById('bf-end').value.trim(),
+        tagline: document.getElementById('bf-tagline').value.trim(),
+        block_type: document.getElementById('bf-type').value,
+        energy: document.getElementById('bf-energy').value,
+    };
+    try {
+        const r = await fetch('/api/settings/blocks', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data)
+        });
+        const d = await r.json();
+        if (d.ok) {
+            showToast(editingBlock ? 'Block updated' : 'Block added');
+            cancelBlockForm();
+            loadBlockEditor();
+        } else {
+            showToast(d.error || 'Save failed');
+        }
+    } catch(e) {
+        showToast('Failed to save block');
+    }
+}
+
+async function deleteBlock(blockName) {
+    try {
+        const r = await fetch('/api/settings/blocks/' + encodeURIComponent(blockName), {method: 'DELETE'});
+        const d = await r.json();
+        if (d.ok) {
+            showToast('Block deleted');
+            loadBlockEditor();
+        } else {
+            showToast(d.error || 'Delete failed');
+        }
+    } catch(e) {
+        showToast('Failed to delete block');
+    }
+}
+
+async function importBlocks() {
+    const btn = document.getElementById('btn-import-blocks');
+    btn.disabled = true;
+    btn.textContent = 'Importing...';
+    try {
+        const r = await fetch('/api/settings/blocks/import', {method: 'POST'});
+        const d = await r.json();
+        if (d.ok) {
+            showToast('Imported ' + d.imported + ' blocks');
+            loadBlockEditor();
+        } else {
+            showToast(d.error || 'Import failed');
+        }
+    } catch(e) {
+        showToast('Import failed - check PiPulse connection');
+    }
+    btn.disabled = false;
+    btn.textContent = 'Import from PiPulse';
+}
+
 // Load all on page load
 loadVolume();
 loadDisplay();
 loadOsd();
 loadSysinfo();
+loadPipulse();
+loadBlockEditor();
 </script>
 {% endblock %}

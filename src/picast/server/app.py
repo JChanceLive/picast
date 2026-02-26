@@ -741,8 +741,18 @@ def create_app(
 
     @app.route("/api/autoplay/pool")
     def autoplay_pool_summary():
-        """Get summary of all block pools."""
+        """Get summary of all block pools, enriched with block metadata."""
         blocks = _autoplay_pool.get_all_blocks()
+        # Merge block metadata into each pool summary
+        all_meta = {m["block_name"]: m for m in db.get_all_block_metadata()}
+        for b in blocks:
+            meta = all_meta.get(b["block_name"], {})
+            b["emoji"] = meta.get("emoji", "")
+            b["display_name"] = meta.get("display_name", "")
+            b["block_start"] = meta.get("block_start", "")
+            b["block_end"] = meta.get("block_end", "")
+            b["tagline"] = meta.get("tagline", "")
+            b["block_type"] = meta.get("block_type", "")
         return jsonify(blocks)
 
     @app.route("/api/autoplay/pool/<block_name>")
@@ -1685,6 +1695,33 @@ def create_app(
     def settings_blocks_get():
         """List all block metadata."""
         return jsonify(db.get_all_block_metadata())
+
+    @app.route("/api/settings/blocks", methods=["POST"])
+    def settings_blocks_upsert():
+        """Create or update a block metadata entry."""
+        data = request.get_json(silent=True) or {}
+        block_name = data.get("block_name", "").strip()
+        if not block_name:
+            return jsonify({"error": "block_name required"}), 400
+        fields = {}
+        for key in ("display_name", "emoji", "block_start", "block_end",
+                     "tagline", "block_type", "energy"):
+            if key in data:
+                fields[key] = str(data[key])
+        if not fields.get("display_name"):
+            fields["display_name"] = block_name
+        fields["source"] = "manual"
+        db.upsert_block_metadata(block_name, **fields)
+        return jsonify({"ok": True, "block_name": block_name})
+
+    @app.route("/api/settings/blocks/<block_name>", methods=["DELETE"])
+    def settings_blocks_delete(block_name):
+        """Delete a block metadata entry."""
+        existing = db.get_block_metadata(block_name)
+        if not existing:
+            return jsonify({"error": "block not found"}), 404
+        db.delete_block_metadata(block_name)
+        return jsonify({"ok": True})
 
     @app.route("/api/settings/blocks/import", methods=["POST"])
     def settings_blocks_import():

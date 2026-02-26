@@ -1390,6 +1390,22 @@ body {
     margin-bottom: 0.25rem;
 }
 
+.pbc-time {
+    font-size: 0.7rem;
+    color: var(--muted);
+    margin-bottom: 0.15rem;
+}
+
+.pbc-tagline {
+    font-size: 0.7rem;
+    color: var(--neon-purple);
+    font-style: italic;
+    margin-bottom: 0.2rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .pbc-stats {
     font-size: 0.75rem;
     color: var(--muted);
@@ -1723,4 +1739,102 @@ body {
     color: var(--muted);
     font-style: italic;
     padding: 0.5rem;
+}
+
+/* Block Editor (Settings) */
+.block-editor-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.block-editor-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg);
+    border: 1px solid rgba(0, 240, 255, 0.08);
+    border-radius: 14px;
+    font-size: 0.85rem;
+}
+
+.block-editor-item:hover {
+    border-color: rgba(0, 240, 255, 0.2);
+}
+
+.bei-emoji { font-size: 1.1rem; flex-shrink: 0; }
+.bei-info { flex: 1; min-width: 0; }
+.bei-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bei-meta { font-size: 0.7rem; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bei-source {
+    font-size: 0.6rem;
+    padding: 0.1rem 0.35rem;
+    border-radius: 3px;
+    background: rgba(0, 240, 255, 0.1);
+    color: var(--accent);
+    flex-shrink: 0;
+}
+
+.block-editor-form {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    padding: 0.75rem;
+    background: var(--bg);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    border-radius: 14px;
+    margin-bottom: 0.75rem;
+}
+
+.block-editor-form-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+}
+
+.block-editor-form-row label {
+    font-size: 0.75rem;
+    color: var(--muted);
+    min-width: 4.5rem;
+    flex-shrink: 0;
+}
+
+.block-editor-form input,
+.block-editor-form select {
+    flex: 1;
+    min-height: 36px;
+    padding: 0.35rem 0.6rem;
+    background: var(--surface);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 12px;
+    color: var(--text);
+    font-size: 0.85rem;
+}
+
+.block-editor-form input:focus,
+.block-editor-form select:focus {
+    outline: none;
+    border-color: var(--accent);
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.2);
+}
+
+.block-editor-form input.bei-emoji-input {
+    max-width: 3rem;
+    text-align: center;
+    flex: none;
+}
+
+.block-editor-form-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+    margin-top: 0.25rem;
+}
+
+.settings-actions-row {
+    display: flex;
+    gap: 0.5rem;
+    flex-wrap: wrap;
 }

@@ -257,13 +257,16 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-02-26 | 29 active memories, 224 total_
+_Last updated: 2026-02-26 | 45 active memories, 247 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - Multi-backend notification pattern across Pi fleet: PiCast v0.14.0 NotificationManager requires `notification_chat_id... [picast, picam, pipulse, notifications, telegram, pushover, architecture]
 - PiCast Discovery Agent uses YouTube API (yt-dlp) to populate autoplay pools based on theme-based search queries confi... [picast, autoplay, discovery, youtube, architecture]
 - PiCast persistent title overlay uses mpv OSD level 3 with `--osd-status-msg=${media-title}` positioned bottom-left (a... [picast, mpv, osd, overlay, ui]
+- v1.0.0 block metadata flow: PiPulse exposes new `/api/block-metadata/{block_name}` endpoint returning JSON {display_n... [picast, pipulse, api-design, web-ui, metadata, v1.0.0]
+- PiCast PiPulseClient lightweight design: fetch_blocks() calls PiPulse GET /api/pitim/blocks with 5s timeout + exponen... [picast, pipulse, client, api, architecture]
+- PiCast /api/autoplay/blocks/{block_name} endpoints (S2): GET returns block metadata {display_name, emoji, description... [picast, api-design, block-metadata, crud, database, v1.0.0]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -271,6 +274,7 @@ _Last updated: 2026-02-26 | 29 active memories, 224 total_
 - Pushover chosen as ntfy replacement: provides proper APNS infrastructure for reliable iOS background push, one-time $... [pushover, ntfy, notifications, ios-push, decision, trade-offs]
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
 - PiCast idle TV wallpaper redesign decision: User requested viewing box contents before trimming; after review, 7 boxe... [picast, wallpaper, tv-ui, design, decision]
+- v1.0.0 architecture uses three-phase implementation: S1 (PiPulse API endpoint + block_metadata table), S2 (PiCast poo... [picast, v1.0.0, architecture, ux-design]
 
 ## Patterns & Conventions
 - DiscoveryAgent uses same `APIClient` and `YouTubeAPI` pattern as YouTubeSource for code reuse; search_and_add() metho... [picast, autoplay, discovery, api-client, pattern]
@@ -280,6 +284,13 @@ _Last updated: 2026-02-26 | 29 active memories, 224 total_
 - PiCast CLI command aliases via pyproject.toml [project.scripts]: `pycast export` (replaces `picast autoplay export`) ... [picast, cli, entry-points, pattern]
 - PiCast pool page immediate playback pattern: `playPoolVideo(videoId)` JavaScript function sends POST to `/api/play` w... [picast, web-ui, autoplay, javascript, api-pattern]
 - PiCast database access pattern: Player accesses database via `self.queue._db` shared reference from queue_manager. Vo... [picast, database, player, architecture]
+- PiCast block_metadata import/export pattern: Database.get_all_block_metadata() returns flat dict {block_name: {displa... [picast, database, export, pattern]
+- PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling]
+- PiCast pool page block card rendering pattern: fetchAndRenderPoolBlocks() queries /api/autoplay/pool/{block_name} end... [picast, web-ui, pool-page, block-metadata, javascript, api-pattern]
+- PiCast block metadata editor (settings page) pattern: blockEditorModal shows form with fields {display_name text inpu... [picast, settings-page, block-metadata, web-ui, crud, javascript, form-handling]
+- PiCast pool API enrichment pattern: /api/autoplay/pool/{block_name} response restructured to include block_meta key a... [picast, api-design, pool-endpoint, response-structure]
+- PiCast pool.html grid layout pattern: 3-column responsive layout with video cards showing title, thumbnail, ratings (... [picast, web-ui, responsive-design, grid-layout]
+- PiCast block metadata CRUD pattern: /api/settings/blocks GET lists all metadata entries (admin page), POST creates/up... [picast, api-design, web-ui, crud-pattern]
 
 ## Gotchas & Pitfalls
 - Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
@@ -289,8 +300,13 @@ _Last updated: 2026-02-26 | 29 active memories, 224 total_
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Autoplay rating thumbs race condition: when trigger endpoint calls play_now() to interrupt current video, the player'... [picast, autoplay, race-condition, web-ui, player, queue]
 - Skip penalty threshold removed entirely (v0.24.4) — skip button now always penalizes, regardless of play_duration. Or... [picast, autoplay, self-learning, timing, buffering]
+- test_autoplay_pool.py assertion checking SCHEMA_VERSION expects v10 but fixture auto-creates v9 database; when schema... [picast, testing, schema-migration, database]
 
 ## Current Progress
+- PiCast v1.0.0 Session 2 (pool.html UI enrichment + web block editor) COMPLETE: /api/autoplay/pool endpoint enriched w... [picast, v1.0.0, pool-ui, block-metadata, web-ui, api-design, progress]
+- PiCast v1.0.0 Session 2 (pool.html + settings block editor) COMPLETE: /api/autoplay/blocks CRUD endpoints implemented... [picast, v1.0.0, release, s2, pool-ui, settings-editor, deployment]
+- PiCast v0.26.0 + PiPulse block metadata endpoint deployed and verified in production: /api/pitim/blocks endpoint live... [picast, pipulse, v0.26.0, deployment, verification]
+- Session 1 (PiPulse API endpoint + PiCast block_metadata foundation) plan written and approved; ready for implementati... [picast, v1.0.0, pipulse, api-design, savepoint]
 - PiCast v0.24.4 deployed with autoplay self-learning system validated in production: skip penalty (0.7^skip_count, no ... [picast, autoplay, self-learning, validation, v0.24.4]
 - Ultra Claude Stack (3-layer automation: Memory Extractor + TUI/MCP integration + brain.md sync) is COMPLETE and live.... [ultra-claude-stack, automation, system-architecture]
 
