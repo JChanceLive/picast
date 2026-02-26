@@ -230,7 +230,7 @@ def create_app(
         if is_completed:
             _autoplay_pool.record_completion(block_name, video_id)
             logger.info("AutoPlay self-learn: completed %s in %s (%ds)", video_id, block_name, duration_watched)
-        elif stop_reason == "user_skip" and play_duration < 30:
+        elif stop_reason == "user_skip" and play_duration < 90:
             _autoplay_pool.record_skip(block_name, video_id)
             logger.info("AutoPlay self-learn: skipped %s in %s after %ds", video_id, block_name, duration_watched)
         # block_transition, manual_override, user_stop: no implicit rating change
