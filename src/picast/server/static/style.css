@@ -1358,6 +1358,47 @@ body {
     text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
 }
 
+/* AutoPool toggle pill */
+.autopool-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.3rem 0.75rem;
+    border-radius: 20px;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 1px solid;
+    touch-action: manipulation;
+}
+
+.autopool-pill.autopool-on {
+    background: rgba(57, 255, 20, 0.15);
+    border-color: var(--success);
+    color: var(--success);
+    box-shadow: var(--glow-sm) rgba(57, 255, 20, 0.3);
+}
+
+.autopool-pill.autopool-on:hover {
+    background: rgba(57, 255, 20, 0.25);
+}
+
+.autopool-pill.autopool-off {
+    background: rgba(106, 106, 138, 0.1);
+    border-color: var(--muted);
+    color: var(--muted);
+}
+
+.autopool-pill.autopool-off:hover {
+    background: rgba(106, 106, 138, 0.2);
+    border-color: var(--text);
+    color: var(--text);
+}
+
+.autopool-pill:active { transform: scale(0.95); }
+
 .pool-blocks {
     display: grid;
     grid-template-columns: 1fr 1fr;

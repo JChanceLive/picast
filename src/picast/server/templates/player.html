@@ -11,10 +11,6 @@
                 <span class="idle-btn-ico">&#x1F3B2;</span>
                 <span class="idle-btn-lbl">Roll</span>
             </button>
-            <button class="idle-btn" onclick="toggleAutoplay()">
-                <span class="idle-btn-ico">&#x1F4C5;</span>
-                <span class="idle-btn-lbl">Autoplay</span>
-            </button>
             <a href="/history?fav=1" class="idle-btn">
                 <span class="idle-btn-ico">&#x2B50;</span>
                 <span class="idle-btn-lbl">Favorites</span>
@@ -72,7 +68,6 @@
         <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" aria-label="Sleep 30 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
         <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" aria-label="Sleep 60 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
         <button onclick="toggleLoop()" class="btn-icon" id="btn-loop" aria-label="Loop queue"><span class="bi-ico">🔁</span><span class="bi-lbl">Loop</span></button>
-        <button onclick="toggleAutoplay()" class="btn-icon" id="btn-autoplay" aria-label="AutoPlay Schedule"><span class="bi-ico">📅</span><span class="bi-lbl">Auto</span></button>
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
@@ -570,21 +565,6 @@ function toggleLoop() {
         .then(() => showToast(loopEnabled ? 'Queue loop ON' : 'Queue loop OFF'));
 }
 
-function toggleAutoplay() {
-    api('autoplay/toggle')
-        .then(data => {
-            autoplayEnabled = data.enabled;
-            updateAutoplayUI();
-            showToast(autoplayEnabled ? 'AutoPlay ON' : 'AutoPlay OFF');
-        });
-}
-
-function updateAutoplayUI() {
-    const btn = document.getElementById('btn-autoplay');
-    if (autoplayEnabled) btn.classList.add('btn-icon-active');
-    else btn.classList.remove('btn-icon-active');
-}
-
 function rateAutoplay(rating) {
     const payload = {rating};
     // Pass explicit IDs captured when rating bar appeared
@@ -612,10 +592,9 @@ function updateTimerUI(s) {
     if (loopEnabled) loopBtn.classList.add('btn-icon-active');
     else loopBtn.classList.remove('btn-icon-active');
 
-    // Sync autoplay button state
+    // Sync autoplay state (for rating UI context)
     if (s.autoplay_enabled !== undefined) {
         autoplayEnabled = s.autoplay_enabled;
-        updateAutoplayUI();
     }
 
     stopAfterCurrent = s.stop_after_current || false;

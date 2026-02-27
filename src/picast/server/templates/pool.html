@@ -4,6 +4,9 @@
 {% block content %}
 <section class="pool-header">
     <h2>AutoPlay Pool</h2>
+    <button id="autopool-toggle" class="autopool-pill" onclick="toggleAutopool()">
+        <span id="autopool-label">---</span>
+    </button>
 </section>
 
 <section class="pool-blocks" id="pool-blocks">
@@ -310,7 +313,45 @@ function playPoolVideo(videoId) {
     .catch(() => showToast('Play failed'));
 }
 
+// AutoPool toggle
+let autopoolEnabled = false;
+
+function loadAutopoolState() {
+    fetch('/api/status')
+        .then(r => r.json())
+        .then(s => {
+            autopoolEnabled = s.autoplay_enabled || false;
+            updateAutopoolUI();
+        })
+        .catch(() => {});
+}
+
+function toggleAutopool() {
+    fetch('/api/autoplay/toggle', {method: 'POST'})
+        .then(r => r.json())
+        .then(data => {
+            autopoolEnabled = data.enabled;
+            updateAutopoolUI();
+            showToast(autopoolEnabled ? 'Auto-Pool enabled' : 'Auto-Pool disabled');
+        });
+}
+
+function updateAutopoolUI() {
+    const pill = document.getElementById('autopool-toggle');
+    const label = document.getElementById('autopool-label');
+    if (autopoolEnabled) {
+        pill.classList.add('autopool-on');
+        pill.classList.remove('autopool-off');
+        label.textContent = 'ENABLED';
+    } else {
+        pill.classList.remove('autopool-on');
+        pill.classList.add('autopool-off');
+        label.textContent = 'DISABLED';
+    }
+}
+
 // Initial load
+loadAutopoolState();
 loadBlocks();
 loadHistory();
 </script>
