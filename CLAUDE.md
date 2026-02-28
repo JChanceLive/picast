@@ -257,7 +257,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-02-26 | 38 active memories, 290 total_
+_Last updated: 2026-02-27 | 32 active memories, 297 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -272,8 +272,8 @@ _Last updated: 2026-02-26 | 38 active memories, 290 total_
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
 - PiCast idle TV wallpaper redesign decision: User requested viewing box contents before trimming; after review, 7 boxe... [picast, wallpaper, tv-ui, design, decision]
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
-- v1.0.0 architecture uses three-phase implementation: S1 (PiPulse API endpoint + block_metadata table), S2 (PiCast poo... [picast, v1.0.0, architecture, ux-design]
 - yt-dlp version pinning strategy for PiCast: downgrade to 2026.1.x LTS branch instead of upgrading plugin, since Debia... [picast, youtube, yt-dlp, version-pinning, debian, authentication]
+- v1.0.0 architecture uses three-phase implementation: S1 (PiPulse API endpoint + block_metadata table), S2 (PiCast poo... [picast, v1.0.0, architecture, ux-design]
 
 ## Patterns & Conventions
 - PiCast hamburger navigation pattern: dice icon and pool emoji (calendar 📅) remain fixed in header, all other nav lin... [picast, web-ui, navigation, mobile, responsive]
@@ -283,7 +283,6 @@ _Last updated: 2026-02-26 | 38 active memories, 290 total_
 - PiCast pool page immediate playback pattern: `playPoolVideo(videoId)` JavaScript function sends POST to `/api/play` w... [picast, web-ui, autoplay, javascript, api-pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling]
 - PiCast setup wizard validation pattern: Pushover token validated via POST to Pushover API (send 1-sec timeout test me... [picast, setup-wizard, validation, pattern]
-- PiCast database access pattern: Player accesses database via `self.queue._db` shared reference from queue_manager. Vo... [picast, database, player, architecture, pattern, web-ui, pool-page, block-metadata, javascript, api-pattern, responsive-design, settings-page, crud-pattern, form-handling]
 
 ## Gotchas & Pitfalls
 - Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
@@ -291,20 +290,15 @@ _Last updated: 2026-02-26 | 38 active memories, 290 total_
 - Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
-- PiCast setup status persistence gotcha: cli.py writes `pushover_configured` and `youtube_configured` DB flags at star... [picast, database, sqlite, threading, wal, persistence, systemd]
-- Autoplay rating thumbs race condition: when trigger endpoint calls play_now() to interrupt current video, the player'... [picast, autoplay, race-condition, self-learning, timing, buffering, web-ui, player, queue]
 - YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian]
+- PiCast autoplay rating thumbs race condition: when trigger endpoint calls play_now() to interrupt current video, the ... [picast, autoplay, race-condition, self-learning, timing, buffering, database, sqlite, threading, wal, persistence, systemd]
 
 ## Current Progress
-- PiCast YouTube playback debugging plan created at ~/.claude/plans/federated-dreaming-sedgewick.md: root cause identif... [picast, youtube, bot-detection, plan, debugging]
-- PiCast v1.0.0 complete and deployed to Pi: S1-S5 all finished (PiPulse API, pool UI, install-pi.sh, picast-setup wiza... [picast, v1.0.0, release, deployment, complete]
-- PiCast v1.0.0 released: 741 tests passing (710 existing + 31 new integration tests), all endpoints verified live on P... [picast, v1.0.0, release, integration-testing, deployment]
-- PiCast v0.29.0 deployed and verified live on Pi: picast-setup CLI wizard with Pushover token validation + Chromium co... [picast, v0.29.0, deployment, verification, picast-setup, install-pi]
+- PiCast v1.0.1 released: autoplay toggle moved to pool.html header via new pill button (right-aligned 'ENABLED'/'DISAB... [picast, v1.0.0, v1.0.1, release, deployment, integration-testing, ui, autoplay]
 - Ultra Claude Stack (3-layer automation: Memory Extractor + TUI/MCP integration + brain.md sync) is COMPLETE and live.... [ultra-claude-stack, automation, system-architecture]
 
 ## Context
 - PiCast auth roadmap shifted from cookie-based YouTube auth (YouTube requires now) to PO token setup via Pushover (v0.... [picast, youtube, authentication, bot-detection, roadmap]
-- Next phase planning: v1.0.0 + PO token auto-setup is pending, awaiting user vision/direction for implementation scope... [picast, roadmap, v1.0.0, planning]
 - PiCast v1.0.0 S3 next phase queued: install-pi.sh overhaul with 3-phase non-interactive setup (Phase 1: base dependen... [picast, v1.0.0, s3-planning, install-pi, roadmap]
 - PiCast autoplay roadmap: Sessions 1-2 complete (pool system + web UI); Session 3 (optional) proposes YouTube discover... [picast, autoplay, roadmap, discovery-agent]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-management, priorities]
