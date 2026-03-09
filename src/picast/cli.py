@@ -72,6 +72,7 @@ def run_server():
         devices=devices,
         autoplay_config=config.autoplay,
         pipulse_config=config.pipulse,
+        autopilot_config=config.autopilot,
     )
 
     # Regenerate desktop wallpaper in background (keeps version badge current)

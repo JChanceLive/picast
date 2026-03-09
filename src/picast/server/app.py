@@ -15,8 +15,9 @@ import time
 
 from flask import Flask, Response, jsonify, redirect, render_template, request
 
-from picast.config import AutoplayConfig, PipulseConfig, ServerConfig, ThemeConfig
+from picast.config import AutopilotConfig, AutoplayConfig, PipulseConfig, ServerConfig, ThemeConfig
 from picast.server.autoplay_pool import AutoPlayPool, extract_video_id
+from picast.server.autopilot_engine import AutopilotEngine
 from picast.server.catalog import CATEGORIES, get_series_by_category, get_series_by_id
 from picast.server.database import Database
 from picast.server.discovery import DeviceRegistry
@@ -57,6 +58,7 @@ def create_app(
     devices: list | None = None,
     autoplay_config: AutoplayConfig | None = None,
     pipulse_config: PipulseConfig | None = None,
+    autopilot_config: AutopilotConfig | None = None,
 ) -> Flask:
     """Create and configure the Flask application.
 
@@ -65,6 +67,7 @@ def create_app(
         devices: List of (name, host, port) tuples for known devices.
         autoplay_config: Autoplay schedule configuration.
         pipulse_config: PiPulse integration configuration.
+        autopilot_config: AI Autopilot configuration.
     """
     if config is None:
         config = ServerConfig()
@@ -266,6 +269,13 @@ def create_app(
             )
         # block_transition, manual_override, user_stop: no implicit rating change
 
+        # Notify autopilot engine of completion/skip
+        if _autopilot_engine.running:
+            if is_completed:
+                _autopilot_engine.on_video_complete(video_id)
+            elif stop_reason == "user_skip":
+                _autopilot_engine.on_video_skip(video_id)
+
     player.on_item_complete = _handle_item_complete
 
     # Auto-seed pool from legacy mappings on first run
@@ -281,6 +291,21 @@ def create_app(
         delay=_autoplay_config.discovery_delay,
     )
     _discovery_themes = _autoplay_config.themes
+
+    # AI Autopilot engine
+    from picast.server.taste_profile import TasteProfile
+
+    _autopilot_config = autopilot_config or AutopilotConfig()
+    _taste_profile = TasteProfile()
+    _autopilot_engine = AutopilotEngine(
+        pool=_autoplay_pool,
+        profile=_taste_profile,
+        config=_autopilot_config,
+        db=db,
+    )
+    if _autopilot_config.enabled:
+        _autopilot_engine.start()
+    app.autopilot_engine = _autopilot_engine
 
     # --- Web UI Pages ---
 
@@ -721,6 +746,39 @@ def create_app(
             logger.info("AutoPlay trigger: %s (disabled)", block_name)
             return jsonify({"ok": True, "skipped": "autoplay disabled"})
 
+        # AI Autopilot mode: engine manages selection with AI scoring
+        if _autopilot_engine.running:
+            _autopilot_engine.on_block_change(block_name)
+            selected = _autopilot_engine.select_next(block_name)
+            if selected:
+                url = selected["url"]
+                vid_title = selected.get("title") or selected["video_id"]
+                title = f"Autopilot: {display_name} - {vid_title}"
+                try:
+                    _snapshot_autoplay_for_completion("block_transition")
+                    player.play_now(url, title)
+                    _autoplay_current["video_id"] = selected["video_id"]
+                    _autoplay_current["block_name"] = block_name
+                    _autoplay_current["title"] = vid_title
+                    _autoplay_start_time["value"] = time.monotonic()
+                    logger.info(
+                        "Autopilot: %s -> %s (%s, score=%.3f)",
+                        block_name, selected["video_id"], vid_title,
+                        selected.get("score", 0),
+                    )
+                    return jsonify({
+                        "ok": True,
+                        "played": url,
+                        "block": block_name,
+                        "video_id": selected["video_id"],
+                        "autopilot": True,
+                        "score": selected.get("score"),
+                    })
+                except Exception as e:
+                    logger.exception("Autopilot trigger failed for %s: %s", block_name, e)
+                    return jsonify({"ok": False, "error": str(e)}), 500
+            logger.info("Autopilot: no videos for %s, falling through", block_name)
+
         # Pool mode: weighted random selection from pool
         if _autoplay_config.pool_mode:
             selected = _autoplay_pool.select_video(block_name)
@@ -995,6 +1053,26 @@ def create_app(
 
         stats = _autoplay_pool.import_pools(data, merge=merge)
         return jsonify({"ok": True, **stats})
+
+    # --- AI Autopilot Endpoints ---
+
+    @app.route("/api/autopilot/toggle", methods=["POST"])
+    def autopilot_toggle():
+        """Toggle AI autopilot on/off."""
+        enabled = _autopilot_engine.toggle()
+        return jsonify({"ok": True, "enabled": enabled})
+
+    @app.route("/api/autopilot/status")
+    def autopilot_status():
+        """Get AI autopilot status including profile and queue info."""
+        status = _autopilot_engine.get_status()
+        return jsonify(status)
+
+    @app.route("/api/autopilot/queue")
+    def autopilot_queue():
+        """Get the current autopilot queue preview."""
+        queue = _autopilot_engine.get_queue_preview()
+        return jsonify({"queue": queue, "count": len(queue)})
 
     # --- Discover Endpoints ---
 
