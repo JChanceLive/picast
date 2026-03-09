@@ -9,9 +9,8 @@ Designed to be idempotent — running multiple times updates existing config.
 """
 
 import json
-import os
-import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -109,8 +108,9 @@ def _write_toml(path: Path, data: dict):
                     # Could be double-nested (autoplay.themes.focus)
                     has_sub_dict = any(isinstance(sv, dict) for sv in sub_vals.values())
                     if has_sub_dict:
-                        simple_sub = {sk: sv for sk, sv in sub_vals.items()
-                                      if not isinstance(sv, dict)}
+                        simple_sub = {
+                            sk: sv for sk, sv in sub_vals.items() if not isinstance(sv, dict)
+                        }
                         if simple_sub:
                             lines.append(f"[{section}.{sub_name}]")
                             for sk, sv in simple_sub.items():
@@ -163,14 +163,16 @@ def validate_pushover(api_token: str, user_key: str) -> tuple[bool, str]:
 
     Returns (success, message).
     """
-    data = urllib.parse.urlencode({
-        "token": api_token,
-        "user": user_key,
-        "message": "PiCast setup test - notifications working!",
-        "title": "PiCast",
-        "priority": 0,
-        "sound": "pushover",
-    }).encode()
+    data = urllib.parse.urlencode(
+        {
+            "token": api_token,
+            "user": user_key,
+            "message": "PiCast setup test - notifications working!",
+            "title": "PiCast",
+            "priority": 0,
+            "sound": "pushover",
+        }
+    ).encode()
 
     try:
         req = urllib.request.Request(
@@ -194,10 +196,6 @@ def validate_pushover(api_token: str, user_key: str) -> tuple[bool, str]:
         return False, f"Connection failed: {e.reason}"
     except Exception as e:
         return False, f"Error: {e}"
-
-
-# Import urlencode at module level
-import urllib.parse
 
 
 def detect_chromium_cookies() -> str | None:
@@ -299,7 +297,9 @@ def run_wizard(config_path: str | None = None):
     changes_made = False
 
     # --- Step 1: Pushover ---
-    _print_step(1, "Pushover Notifications", "Push notifications for SD card alerts and daily summaries.")
+    _print_step(
+        1, "Pushover Notifications", "Push notifications for SD card alerts and daily summaries."
+    )
     print("  Get tokens at: https://pushover.net/apps/build")
 
     existing_po = config.get("pushover", {})
@@ -315,7 +315,9 @@ def run_wizard(config_path: str | None = None):
         print("  Skipped. You can run picast-setup again later.")
 
     # --- Step 2: YouTube Auth ---
-    _print_step(2, "YouTube Authentication", "Required for age-restricted and some region-locked videos.")
+    _print_step(
+        2, "YouTube Authentication", "Required for age-restricted and some region-locked videos."
+    )
 
     existing_cookies = config.get("server", {}).get("ytdl_cookies_from_browser", "")
     if existing_cookies:
@@ -330,7 +332,9 @@ def run_wizard(config_path: str | None = None):
         print("  Skipped. Videos may fail for age-restricted content.")
 
     # --- Step 3: PiPulse ---
-    _print_step(3, "PiPulse Integration", "Rich autoplay block metadata from your PiPulse instance.")
+    _print_step(
+        3, "PiPulse Integration", "Rich autoplay block metadata from your PiPulse instance."
+    )
 
     existing_pp = config.get("pipulse", {})
     if existing_pp.get("enabled"):
@@ -350,9 +354,9 @@ def run_wizard(config_path: str | None = None):
     if changes_made:
         print(f"\n  Saving config to {path}...")
         _write_toml(path, config)
-        print(f"  Saved!")
-        print(f"\n  Restart PiCast to apply changes:")
-        print(f"    sudo systemctl restart picast")
+        print("  Saved!")
+        print("\n  Restart PiCast to apply changes:")
+        print("    sudo systemctl restart picast")
     else:
         print("\n  No changes made.")
 
@@ -378,21 +382,29 @@ def _setup_pushover(config: dict) -> bool:
     ok, msg = validate_pushover(api_token, user_key)
     if ok:
         print(f"  OK: {msg}")
-        _merge_section(config, "pushover", {
-            "enabled": True,
-            "api_token": api_token,
-            "user_key": user_key,
-            "daily_summary_hour": config.get("pushover", {}).get("daily_summary_hour", 8),
-        })
+        _merge_section(
+            config,
+            "pushover",
+            {
+                "enabled": True,
+                "api_token": api_token,
+                "user_key": user_key,
+                "daily_summary_hour": config.get("pushover", {}).get("daily_summary_hour", 8),
+            },
+        )
         return True
     else:
         print(f"  FAILED: {msg}")
         if _prompt_yn("Save tokens anyway (fix later)?", default=False):
-            _merge_section(config, "pushover", {
-                "enabled": False,
-                "api_token": api_token,
-                "user_key": user_key,
-            })
+            _merge_section(
+                config,
+                "pushover",
+                {
+                    "enabled": False,
+                    "api_token": api_token,
+                    "user_key": user_key,
+                },
+            )
             return True
         return False
 
@@ -403,11 +415,15 @@ def _setup_youtube(config: dict) -> bool:
     if browser:
         print(f"  Detected: {browser} cookies available")
         if _prompt_yn("Use Chromium cookies for YouTube auth?"):
-            _merge_section(config, "server", {
-                **{k: v for k, v in config.get("server", {}).items()},
-                "ytdl_cookies_from_browser": browser,
-            })
-            print(f"  Saved cookie config.")
+            _merge_section(
+                config,
+                "server",
+                {
+                    **{k: v for k, v in config.get("server", {}).items()},
+                    "ytdl_cookies_from_browser": browser,
+                },
+            )
+            print("  Saved cookie config.")
             return True
     else:
         print("  No Chromium cookies detected.")
@@ -422,10 +438,14 @@ def _setup_youtube(config: dict) -> bool:
         if _prompt_yn("Or enter a PO token instead (for headless setups)?", default=False):
             po_token = _prompt("PO Token")
             if po_token:
-                _merge_section(config, "server", {
-                    **{k: v for k, v in config.get("server", {}).items()},
-                    "ytdl_po_token": po_token,
-                })
+                _merge_section(
+                    config,
+                    "server",
+                    {
+                        **{k: v for k, v in config.get("server", {}).items()},
+                        "ytdl_po_token": po_token,
+                    },
+                )
                 print("  Saved PO token config.")
                 return True
     return False
@@ -448,11 +468,15 @@ def _setup_pipulse(config: dict) -> bool:
     ok, msg = check_pipulse_connection(host, port)
     if ok:
         print(f"  OK: {msg}")
-        _merge_section(config, "pipulse", {
-            "enabled": True,
-            "host": host,
-            "port": port,
-        })
+        _merge_section(
+            config,
+            "pipulse",
+            {
+                "enabled": True,
+                "host": host,
+                "port": port,
+            },
+        )
 
         # Offer to import block metadata
         if _prompt_yn("Import block metadata from PiPulse?"):
@@ -469,10 +493,14 @@ def _setup_pipulse(config: dict) -> bool:
     else:
         print(f"  FAILED: {msg}")
         if _prompt_yn("Save config anyway (test later)?", default=False):
-            _merge_section(config, "pipulse", {
-                "enabled": False,
-                "host": host,
-                "port": port,
-            })
+            _merge_section(
+                config,
+                "pipulse",
+                {
+                    "enabled": False,
+                    "host": host,
+                    "port": port,
+                },
+            )
             return True
         return False

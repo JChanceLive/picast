@@ -44,6 +44,7 @@ def generate_wallpaper():
     def _get_version():
         try:
             from picast.__about__ import __version__
+
             return __version__
         except Exception:
             return "?.?.?"
@@ -55,8 +56,11 @@ def generate_wallpaper():
             names = ["DejaVuSans-Bold", "NotoSans-Bold", "LiberationSans-Bold"]
         else:
             names = ["DejaVuSans", "NotoSans-Regular", "LiberationSans-Regular"]
-        dirs = ["/usr/share/fonts/truetype/dejavu", "/usr/share/fonts/truetype/noto",
-                "/usr/share/fonts/truetype/liberation"]
+        dirs = [
+            "/usr/share/fonts/truetype/dejavu",
+            "/usr/share/fonts/truetype/noto",
+            "/usr/share/fonts/truetype/liberation",
+        ]
         for d, n in zip(dirs, names):
             try:
                 return ImageFont.truetype(f"{d}/{n}.ttf", size)
@@ -65,8 +69,10 @@ def generate_wallpaper():
         return ImageFont.load_default()
 
     def _load_icon():
-        for p in [Path(__file__).parent.parent.parent / "assets" / "icon.png",
-                   Path.home() / ".picast" / "icon.png"]:
+        for p in [
+            Path(__file__).parent.parent.parent / "assets" / "icon.png",
+            Path.home() / ".picast" / "icon.png",
+        ]:
             if p.exists():
                 try:
                     return Image.open(p)
@@ -74,8 +80,21 @@ def generate_wallpaper():
                     continue
         return None
 
-    def _draw_section(draw, x, y, w, title, lines, title_font, body_font, mono_font,
-                      label_w=140, line_h=28, pad=20, title_h=34):
+    def _draw_section(
+        draw,
+        x,
+        y,
+        w,
+        title,
+        lines,
+        title_font,
+        body_font,
+        mono_font,
+        label_w=140,
+        line_h=28,
+        pad=20,
+        title_h=34,
+    ):
         card_h = pad + title_h + 8 + (len(lines) * line_h) + pad
         draw.rounded_rectangle((x, y, x + w, y + card_h), radius=12, fill=CARD_BG)
         draw.text((x + pad, y + pad), title, fill=ACCENT, font=title_font)
@@ -122,7 +141,12 @@ def generate_wallpaper():
     badge_x = 60 + icon_offset + 250
     draw.rounded_rectangle((badge_x, 38, badge_x + 110, 70), radius=10, fill=ACCENT)
     draw.text((badge_x + 14, 40), f"v{version}", fill=BG, font=ver_font)
-    draw.text((60 + icon_offset, 88), "YouTube Queue Player for Raspberry Pi", fill=DIM, font=subtitle_font)
+    draw.text(
+        (60 + icon_offset, 88),
+        "YouTube Queue Player for Raspberry Pi",
+        fill=DIM,
+        font=subtitle_font,
+    )
     draw.ellipse((WIDTH - 180, 48, WIDTH - 164, 64), fill=ACCENT2)
     draw.text((WIDTH - 158, 42), "RUNNING", fill=ACCENT2, font=ver_font)
 
@@ -137,72 +161,156 @@ def generate_wallpaper():
 
     # Column 1
     cy = top_y
-    h = _draw_section(draw, col1_x, cy, col_w, "WHAT IS PICAST?", [
-        "A media queue player that turns your",
-        "Raspberry Pi into a dedicated YouTube",
-        "and Twitch streaming device.", "",
-        "Queue videos from any device on your",
-        "network. Plays continuously on your TV.",
-    ], section_font, body_font, mono_font, **kw)
+    h = _draw_section(
+        draw,
+        col1_x,
+        cy,
+        col_w,
+        "WHAT IS PICAST?",
+        [
+            "A media queue player that turns your",
+            "Raspberry Pi into a dedicated YouTube",
+            "and Twitch streaming device.",
+            "",
+            "Queue videos from any device on your",
+            "network. Plays continuously on your TV.",
+        ],
+        section_font,
+        body_font,
+        mono_font,
+        **kw,
+    )
     cy += h + 16
-    _draw_section(draw, col1_x, cy, col_w, "WEB UI", [
-        ("URL", f"http://{ip}:5050"),
-        ("Local", f"http://{hostname}.local:5050"), "",
-        "Open from any phone, tablet, or",
-        "computer on your local network.",
-    ], section_font, body_font, mono_font, label_w=90, **kw)
+    _draw_section(
+        draw,
+        col1_x,
+        cy,
+        col_w,
+        "WEB UI",
+        [
+            ("URL", f"http://{ip}:5050"),
+            ("Local", f"http://{hostname}.local:5050"),
+            "",
+            "Open from any phone, tablet, or",
+            "computer on your local network.",
+        ],
+        section_font,
+        body_font,
+        mono_font,
+        label_w=90,
+        **kw,
+    )
 
     # Column 2
     cy = top_y
-    h = _draw_section(draw, col2_x, cy, col_w, "HOW IT WORKS", [
-        "1. Open the Web UI from any device",
-        "2. Paste a YouTube or Twitch URL",
-        "3. Videos queue up and auto-play on TV",
-        "4. Control playback from the Web UI", "",
-        "No account needed. No app to install.",
-        "Works on any browser on your network.",
-    ], section_font, body_font, mono_font, **kw)
+    h = _draw_section(
+        draw,
+        col2_x,
+        cy,
+        col_w,
+        "HOW IT WORKS",
+        [
+            "1. Open the Web UI from any device",
+            "2. Paste a YouTube or Twitch URL",
+            "3. Videos queue up and auto-play on TV",
+            "4. Control playback from the Web UI",
+            "",
+            "No account needed. No app to install.",
+            "Works on any browser on your network.",
+        ],
+        section_font,
+        body_font,
+        mono_font,
+        **kw,
+    )
     cy += h + 16
-    _draw_section(draw, col2_x, cy, col_w, "FEATURES", [
-        "Queue management (add, reorder, replay)",
-        "YouTube, Twitch, and local file support",
-        "Playback history and library tracking",
-        "Collections (saved playlists)",
-        "AutoPlay pools (scheduled playback)",
-        "Sleep timer and stop-after-current",
-        "Archive.org movie discovery",
-        "Chrome extension for quick queueing",
-    ], section_font, body_font, mono_font, **kw)
+    _draw_section(
+        draw,
+        col2_x,
+        cy,
+        col_w,
+        "FEATURES",
+        [
+            "Queue management (add, reorder, replay)",
+            "YouTube, Twitch, and local file support",
+            "Playback history and library tracking",
+            "Collections (saved playlists)",
+            "AutoPlay pools (scheduled playback)",
+            "Sleep timer and stop-after-current",
+            "Archive.org movie discovery",
+            "Chrome extension for quick queueing",
+        ],
+        section_font,
+        body_font,
+        mono_font,
+        **kw,
+    )
 
     # Column 3
     cy = top_y
-    h = _draw_section(draw, col3_x, cy, col_w, "NETWORK", [
-        ("IP", ip),
-        ("Hostname", f"{hostname}.local"),
-        ("Port", "5050"),
-        ("SSH", f"ssh {os.environ.get('USER', 'pi')}@{ip}"),
-    ], section_font, body_font, mono_font, label_w=110, **kw)
+    h = _draw_section(
+        draw,
+        col3_x,
+        cy,
+        col_w,
+        "NETWORK",
+        [
+            ("IP", ip),
+            ("Hostname", f"{hostname}.local"),
+            ("Port", "5050"),
+            ("SSH", f"ssh {os.environ.get('USER', 'pi')}@{ip}"),
+        ],
+        section_font,
+        body_font,
+        mono_font,
+        label_w=110,
+        **kw,
+    )
     cy += h + 16
-    h = _draw_section(draw, col3_x, cy, col_w, "TROUBLESHOOTING", [
-        "No video?  Check journalctl -u picast -f",
-        "No audio?  Verify HDMI audio in mpv.conf",
-        "Blocked?   yt-dlp auto-generates PO tokens",
-        "Stale?     Run: picast-update",
-        "Crashed?   sudo systemctl restart picast",
-    ], section_font, body_font, mono_font, **kw)
+    h = _draw_section(
+        draw,
+        col3_x,
+        cy,
+        col_w,
+        "TROUBLESHOOTING",
+        [
+            "No video?  Check journalctl -u picast -f",
+            "No audio?  Verify HDMI audio in mpv.conf",
+            "Blocked?   yt-dlp auto-generates PO tokens",
+            "Stale?     Run: picast-update",
+            "Crashed?   sudo systemctl restart picast",
+        ],
+        section_font,
+        body_font,
+        mono_font,
+        **kw,
+    )
     cy += h + 16
-    _draw_section(draw, col3_x, cy, col_w, "AUTO-UPDATE", [
-        "Checks GitHub daily at 4 AM (+jitter).",
-        "Also upgrades yt-dlp automatically.",
-        ("Manual", "picast-update"),
-        ("Log", "~/.picast/update.log"),
-    ], section_font, body_font, mono_font, label_w=90, **kw)
+    _draw_section(
+        draw,
+        col3_x,
+        cy,
+        col_w,
+        "AUTO-UPDATE",
+        [
+            "Checks GitHub daily at 4 AM (+jitter).",
+            "Also upgrades yt-dlp automatically.",
+            ("Manual", "picast-update"),
+            ("Log", "~/.picast/update.log"),
+        ],
+        section_font,
+        body_font,
+        mono_font,
+        label_w=90,
+        **kw,
+    )
 
     # Footer
     draw.rectangle((0, HEIGHT - 32, WIDTH, HEIGHT), fill=CARD_BG)
     draw.text((60, HEIGHT - 26), "github.com/JChanceLive/picast", fill=DIM, font=small_font)
-    draw.text((WIDTH - 320, HEIGHT - 26),
-              f"{hostname}  |  {ip}  |  port 5050", fill=DIM, font=small_font)
+    draw.text(
+        (WIDTH - 320, HEIGHT - 26), f"{hostname}  |  {ip}  |  port 5050", fill=DIM, font=small_font
+    )
 
     # Save and apply
     output_dir = Path.home() / ".picast"
@@ -213,10 +321,12 @@ def generate_wallpaper():
 
     # Apply via pcmanfm (if desktop is running)
     import subprocess
+
     display = os.environ.get("DISPLAY", ":0")
     env = {**os.environ, "DISPLAY": display}
     try:
-        subprocess.run(["pcmanfm", "--set-wallpaper", output],
-                       env=env, timeout=5, capture_output=True)
+        subprocess.run(
+            ["pcmanfm", "--set-wallpaper", output], env=env, timeout=5, capture_output=True
+        )
     except Exception:
         pass

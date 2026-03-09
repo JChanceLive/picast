@@ -257,7 +257,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-02-27 | 32 active memories, 297 total_
+_Last updated: 2026-03-09 | 31 active memories, 312 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -272,17 +272,15 @@ _Last updated: 2026-02-27 | 32 active memories, 297 total_
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
 - PiCast idle TV wallpaper redesign decision: User requested viewing box contents before trimming; after review, 7 boxe... [picast, wallpaper, tv-ui, design, decision]
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
-- yt-dlp version pinning strategy for PiCast: downgrade to 2026.1.x LTS branch instead of upgrading plugin, since Debia... [picast, youtube, yt-dlp, version-pinning, debian, authentication]
-- v1.0.0 architecture uses three-phase implementation: S1 (PiPulse API endpoint + block_metadata table), S2 (PiCast poo... [picast, v1.0.0, architecture, ux-design]
 
 ## Patterns & Conventions
-- PiCast hamburger navigation pattern: dice icon and pool emoji (calendar 📅) remain fixed in header, all other nav lin... [picast, web-ui, navigation, mobile, responsive]
 - PiCast feature flag wiring pattern: New boolean config flags in picast.toml [autoplay] section (e.g., seasonal_rotati... [picast, config, feature-flags, autoplay, pattern]
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
 - PiCast CLI command aliases via pyproject.toml [project.scripts]: `pycast export` (replaces `picast autoplay export`) ... [picast, cli, entry-points, pattern]
-- PiCast pool page immediate playback pattern: `playPoolVideo(videoId)` JavaScript function sends POST to `/api/play` w... [picast, web-ui, autoplay, javascript, api-pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling]
 - PiCast setup wizard validation pattern: Pushover token validated via POST to Pushover API (send 1-sec timeout test me... [picast, setup-wizard, validation, pattern]
+- URL validation pattern in PiCast: autoplay_pool_add and queue_add endpoints both normalize_url() then validate_url(ur... [picast, url-validation, api-pattern, error-handling]
+- PiCast web UI patterns: (1) Hamburger nav - dice icon and pool emoji (📅) remain fixed in header, all other nav links... [picast, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern]
 
 ## Gotchas & Pitfalls
 - Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
@@ -290,12 +288,12 @@ _Last updated: 2026-02-27 | 32 active memories, 297 total_
 - Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
-- YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian]
-- PiCast autoplay rating thumbs race condition: when trigger endpoint calls play_now() to interrupt current video, the ... [picast, autoplay, race-condition, self-learning, timing, buffering, database, sqlite, threading, wal, persistence, systemd]
+- YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
 
 ## Current Progress
-- PiCast v1.0.1 released: autoplay toggle moved to pool.html header via new pill button (right-aligned 'ENABLED'/'DISAB... [picast, v1.0.0, v1.0.1, release, deployment, integration-testing, ui, autoplay]
-- Ultra Claude Stack (3-layer automation: Memory Extractor + TUI/MCP integration + brain.md sync) is COMPLETE and live.... [ultra-claude-stack, automation, system-architecture]
+- PiCast AI Autopilot Phase 0 (Clean House) validation complete (2026-03-09): 786 tests passing, lint checks passing on... [picast, ai-autopilot, testing, phase-0-complete]
+- PiCast AI Autopilot Phase 0 (Clean House) validation complete: 786 tests passing (improved coverage from 68.88% to 69... [picast, ai-autopilot, testing, lint, phase-0-complete]
+- PiCast AI Autopilot Session 1.1 COMPLETE (2026-03-09): DB migration v10→v11 deployed with 3 new autopilot tables (aut... [picast, ai-autopilot, session-1-1-complete, db-migration, testing]
 
 ## Context
 - PiCast auth roadmap shifted from cookie-based YouTube auth (YouTube requires now) to PO token setup via Pushover (v0.... [picast, youtube, authentication, bot-detection, roadmap]

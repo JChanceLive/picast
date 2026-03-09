@@ -42,8 +42,8 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 # Cascade protection thresholds
-MIN_PLAY_SECONDS = 5       # Under this = "didn't really play"
-MAX_RAPID_FAILURES = 3     # After this many rapid failures, mark failed
+MIN_PLAY_SECONDS = 5  # Under this = "didn't really play"
+MAX_RAPID_FAILURES = 3  # After this many rapid failures, mark failed
 FAILURE_BACKOFF = [1, 5, 30]  # Exponential backoff delays per retry attempt
 
 
@@ -83,7 +83,9 @@ def detect_hdmi_audio() -> str | None:
         # Check if the vc4hdmi ALSA card exists
         result = subprocess.run(
             ["aplay", "-l"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if "vc4hdmi" in result.stdout:
             logger.info("Detected HDMI audio: vc4hdmi")
@@ -111,13 +113,9 @@ class Player:
         mpv: MPVClient,
         queue: QueueManager,
         ytdl_format: str = (
-            "bestvideo[height<=720][fps<=30][vcodec^=avc]"
-            "+bestaudio/best[height<=720]"
+            "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]"
         ),
-        ytdl_format_live: str = (
-            "best[height<=480][vcodec^=avc]"
-            "/best[height<=480]"
-        ),
+        ytdl_format_live: str = ("best[height<=480][vcodec^=avc]/best[height<=480]"),
         library: "Library | None" = None,
         config: "ServerConfig | None" = None,
         event_bus: "EventBus | None" = None,
@@ -176,8 +174,10 @@ class Player:
         backup_hours = self._config.db_backup_interval_hours if self._config else 6
         if backup_hours > 0:
             self._backup_thread = threading.Thread(
-                target=self._backup_loop, args=(backup_hours,),
-                daemon=True, name="db-backup",
+                target=self._backup_loop,
+                args=(backup_hours,),
+                daemon=True,
+                name="db-backup",
             )
             self._backup_thread.start()
 
@@ -205,7 +205,9 @@ class Player:
         try:
             result = subprocess.run(
                 ["pgrep", "-x", "mpv"],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0:
                 pids = result.stdout.strip().split("\n")
@@ -272,7 +274,11 @@ class Player:
                 if self._loop_enabled and self.queue.has_loopable():
                     count = self.queue.reset_for_loop()
                     self._loop_count += 1
-                    self._emit("playback", f"Queue looped (pass #{self._loop_count})", f"Reset {count} videos")
+                    self._emit(
+                        "playback",
+                        f"Queue looped (pass #{self._loop_count})",
+                        f"Reset {count} videos",
+                    )
                     self._show_osd(f"Queue looped - pass #{self._loop_count}")
                     continue  # Re-check immediately
                 time.sleep(2)
@@ -280,8 +286,9 @@ class Player:
 
             self._play_item(next_item)
 
-    def _emit(self, event_type: str, title: str = "", detail: str = "",
-              queue_item_id: int | None = None):
+    def _emit(
+        self, event_type: str, title: str = "", detail: str = "", queue_item_id: int | None = None
+    ):
         """Emit an event if event bus is available."""
         if self.event_bus:
             self.event_bus.emit(event_type, title, detail, queue_item_id)
@@ -302,11 +309,14 @@ class Player:
         auth = []
         if self._config:
             from picast.config import ytdl_auth_args
+
             auth = ytdl_auth_args(self._config)
         try:
             result = subprocess.run(
                 ["yt-dlp", "-g", "-f", fmt, "--no-warnings", *auth, url],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if result.returncode == 0:
                 urls = result.stdout.strip().split("\n")
@@ -342,7 +352,7 @@ class Player:
                 return ids[0] if ids else None
             for prefix in ("/shorts/", "/embed/", "/live/"):
                 if parsed.path.startswith(prefix):
-                    vid = parsed.path[len(prefix):].split("/")[0].split("?")[0]
+                    vid = parsed.path[len(prefix) :].split("/")[0].split("?")[0]
                     return vid if vid else None
 
         return None
@@ -357,18 +367,20 @@ class Player:
         auth = []
         if self._config:
             from picast.config import ytdl_auth_args
+
             auth = ytdl_auth_args(self._config)
         try:
             result = subprocess.run(
-                ["yt-dlp", "--print", "duration", "-g", "-f", fmt,
-                 "--no-warnings", *auth, url],
-                capture_output=True, text=True, timeout=120,
+                ["yt-dlp", "--print", "duration", "-g", "-f", fmt, "--no-warnings", *auth, url],
+                capture_output=True,
+                text=True,
+                timeout=120,
             )
             if result.returncode != 0:
                 logger.warning("_resolve_for_seek failed: %s", result.stderr.strip())
                 return None, "", None
 
-            lines = [l for l in result.stdout.strip().split("\n") if l.strip()]
+            lines = [line for line in result.stdout.strip().split("\n") if line.strip()]
             if len(lines) < 2:
                 logger.warning("_resolve_for_seek: unexpected output (%d lines)", len(lines))
                 return None, "", None
@@ -423,6 +435,7 @@ class Player:
         raw_opts = "js-runtimes=deno,remote-components=ejs:github"
         if self._config:
             from picast.config import ytdl_raw_options_auth
+
             auth_opt = ytdl_raw_options_auth(self._config)
             if auth_opt:
                 raw_opts += f",{auth_opt}"
@@ -467,15 +480,17 @@ class Player:
 
         # Live stream optimizations (Twitch, etc.)
         if is_live:
-            cmd.extend([
-                "--profile=low-latency",
-                "--cache-secs=10",
-                "--demuxer-readahead-secs=5",
-                "--demuxer-lavf-o=live_start_index=-1,fflags=+discardcorrupt",
-                "--vd-lavc-threads=4",
-                "--framedrop=decoder+vo",
-                "--audio-stream-silence",
-            ])
+            cmd.extend(
+                [
+                    "--profile=low-latency",
+                    "--cache-secs=10",
+                    "--demuxer-readahead-secs=5",
+                    "--demuxer-lavf-o=live_start_index=-1,fflags=+discardcorrupt",
+                    "--vd-lavc-threads=4",
+                    "--framedrop=decoder+vo",
+                    "--audio-stream-silence",
+                ]
+            )
 
         # Add HDMI audio device if detected
         if self._audio_device:
@@ -545,7 +560,8 @@ class Player:
                     logger.warning(
                         "start_time %ds >= duration %ds — DRM-protected movie, "
                         "trailer only (Widevine)",
-                        int(seek_to), int(duration),
+                        int(seek_to),
+                        int(duration),
                     )
                     video_url = ""
                     is_protected_movie = True
@@ -553,8 +569,9 @@ class Player:
                 if seek_to > 0 and video_url:
                     # Load video with start position
                     # Index arg (0) required for mpv v0.38+ IPC: loadfile url flags index options
-                    resp = self.mpv.command("loadfile", video_url, "replace",
-                                           0, f"start={int(seek_to)}")
+                    resp = self.mpv.command(
+                        "loadfile", video_url, "replace", 0, f"start={int(seek_to)}"
+                    )
                     if not resp or resp.get("error") != "success":
                         logger.error("loadfile seek failed: %s", resp)
                     # Add audio track separately (CDN URLs have commas that
@@ -615,7 +632,7 @@ class Player:
                     "protected",
                     title=notice,
                     detail="This is a paid YouTube movie. Only the trailer "
-                           "is available without Widevine DRM decryption.",
+                    "is available without Widevine DRM decryption.",
                     queue_item_id=item.id,
                 )
 
@@ -697,8 +714,14 @@ class Player:
                         "INSERT INTO watch_sessions "
                         "(url, title, source_type, started_at, ended_at, duration_watched) "
                         "VALUES (?, ?, ?, ?, ?, ?)",
-                        (item.url, item.title or "", item.source_type,
-                         start_time_epoch, end_time_epoch, play_duration),
+                        (
+                            item.url,
+                            item.title or "",
+                            item.source_type,
+                            start_time_epoch,
+                            end_time_epoch,
+                            play_duration,
+                        ),
                     )
                     self.queue._db.commit()
                 except Exception as e:
@@ -731,7 +754,8 @@ class Player:
                             )
                             logger.info(
                                 "Auto-queued next episode: %s (index %d)",
-                                next_title, ep_index + 1,
+                                next_title,
+                                ep_index + 1,
                             )
                 except Exception as e:
                     logger.warning("Auto-next-episode failed: %s", e)
@@ -740,8 +764,10 @@ class Player:
             if self.on_item_complete:
                 try:
                     self.on_item_complete(
-                        item, play_duration,
-                        self._skip_requested, self._stop_requested,
+                        item,
+                        play_duration,
+                        self._skip_requested,
+                        self._stop_requested,
                     )
                 except Exception as cb_e:
                     logger.warning("on_item_complete callback failed: %s", cb_e)
@@ -749,7 +775,9 @@ class Player:
             self._current_item = None
             logger.info(
                 "Finished: %s (exit=%d, %.0fs)",
-                item.url, exit_code, play_duration,
+                item.url,
+                exit_code,
+                play_duration,
             )
 
     def _check_cascade(self, exit_code: int, duration: float, item: QueueItem) -> str:
@@ -784,7 +812,11 @@ class Player:
 
             logger.warning(
                 "RAPID FAILURE (exit=%d, %.0fs, streak=%d, errors=%d): %s",
-                exit_code, duration, self._consecutive_failures, error_count, item.url,
+                exit_code,
+                duration,
+                self._consecutive_failures,
+                error_count,
+                item.url,
             )
 
             if self._consecutive_failures >= MAX_RAPID_FAILURES:
@@ -802,7 +834,8 @@ class Player:
 
                 logger.warning(
                     "CASCADE PROTECTION: %d failures, marking failed: %s",
-                    error_count, item.url,
+                    error_count,
+                    item.url,
                 )
                 backoff = FAILURE_BACKOFF[-1]
                 time.sleep(backoff)
@@ -820,9 +853,7 @@ class Player:
                     error_reason,
                     item.id,
                 )
-                self._show_osd(
-                    f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}"
-                )
+                self._show_osd(f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}")
 
                 time.sleep(backoff)
                 return "retry"
@@ -837,7 +868,10 @@ class Player:
 
             logger.warning(
                 "RAPID EXIT (exit=0, %.0fs, streak=%d, errors=%d): %s",
-                duration, self._rapid_successes, error_count, item.url,
+                duration,
+                self._rapid_successes,
+                error_count,
+                item.url,
             )
 
             if self._rapid_successes >= MAX_RAPID_FAILURES:
@@ -867,9 +901,7 @@ class Player:
                     error_reason,
                     item.id,
                 )
-                self._show_osd(
-                    f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}"
-                )
+                self._show_osd(f"Retrying ({retry_num}/{MAX_RAPID_FAILURES}): {display_title}")
 
                 time.sleep(backoff)
                 return "retry"
@@ -925,6 +957,7 @@ class Player:
             auth = []
             if self._config:
                 from picast.config import ytdl_auth_args
+
                 auth = ytdl_auth_args(self._config)
             result = subprocess.run(
                 ["yt-dlp", "--get-title", "--no-warnings", *auth, url],

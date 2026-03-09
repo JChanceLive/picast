@@ -12,7 +12,7 @@ import time
 
 logger = logging.getLogger(__name__)
 
-SCHEMA_VERSION = 10
+SCHEMA_VERSION = 11
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -195,6 +195,36 @@ CREATE TABLE IF NOT EXISTS block_metadata (
     source TEXT DEFAULT 'manual',
     updated_at TEXT
 );
+
+CREATE TABLE IF NOT EXISTS autopilot_profile (
+    id INTEGER PRIMARY KEY DEFAULT 1,
+    profile_json TEXT NOT NULL,
+    generated_at TEXT NOT NULL,
+    loaded_at TEXT DEFAULT (datetime('now')),
+    version INTEGER NOT NULL DEFAULT 1
+);
+
+CREATE TABLE IF NOT EXISTS autopilot_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT DEFAULT (datetime('now')),
+    action TEXT NOT NULL,
+    video_id TEXT,
+    block_name TEXT,
+    source TEXT,
+    score REAL,
+    reason TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_autopilot_log_action ON autopilot_log(action);
+CREATE INDEX IF NOT EXISTS idx_autopilot_log_timestamp ON autopilot_log(timestamp);
+
+CREATE TABLE IF NOT EXISTS autopilot_devices (
+    device_id TEXT PRIMARY KEY,
+    room_name TEXT,
+    device_type TEXT DEFAULT 'single',
+    last_seen TEXT,
+    is_manual_override BOOLEAN DEFAULT 0
+);
 """
 
 
@@ -286,8 +316,13 @@ class Database:
                     rolled_at REAL NOT NULL
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_discover_history_url ON discover_history(url)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_discover_history_rolled ON discover_history(rolled_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_discover_history_url ON discover_history(url)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_discover_history_rolled "
+                "ON discover_history(rolled_at)"
+            )
         if from_version < 5:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS catalog_progress (
@@ -307,7 +342,10 @@ class Database:
                     duration_watched REAL NOT NULL DEFAULT 0
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_watch_sessions_started ON watch_sessions(started_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_watch_sessions_started "
+                "ON watch_sessions(started_at)"
+            )
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS sd_errors (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -316,7 +354,9 @@ class Database:
                     occurred_at REAL NOT NULL
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_sd_errors_occurred ON sd_errors(occurred_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_sd_errors_occurred ON sd_errors(occurred_at)"
+            )
         if from_version < 6:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS autoplay_videos (
@@ -334,8 +374,13 @@ class Database:
                     UNIQUE(video_id, block_name)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_videos_block ON autoplay_videos(block_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_videos_active ON autoplay_videos(active)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_autoplay_videos_block "
+                "ON autoplay_videos(block_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_autoplay_videos_active ON autoplay_videos(active)"
+            )
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS autoplay_history (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -346,15 +391,25 @@ class Database:
                     completed INTEGER NOT NULL DEFAULT 0
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_history_block ON autoplay_history(block_name)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_autoplay_history_played ON autoplay_history(played_at)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_autoplay_history_block "
+                "ON autoplay_history(block_name)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_autoplay_history_played "
+                "ON autoplay_history(played_at)"
+            )
         if from_version < 7:
             # Self-learning columns for autoplay
             for col in [
-                "ALTER TABLE autoplay_videos ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE autoplay_videos ADD COLUMN completion_count INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE autoplay_videos ADD COLUMN duration INTEGER NOT NULL DEFAULT 0",
-                "ALTER TABLE autoplay_history ADD COLUMN stop_reason TEXT NOT NULL DEFAULT ''",
+                "ALTER TABLE autoplay_videos "
+                "ADD COLUMN skip_count INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE autoplay_videos "
+                "ADD COLUMN completion_count INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE autoplay_videos "
+                "ADD COLUMN duration INTEGER NOT NULL DEFAULT 0",
+                "ALTER TABLE autoplay_history "
+                "ADD COLUMN stop_reason TEXT NOT NULL DEFAULT ''",
             ]:
                 try:
                     conn.execute(col)
@@ -402,6 +457,45 @@ class Database:
                     updated_at TEXT
                 )
             """)
+        if from_version < 11:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS autopilot_profile (
+                    id INTEGER PRIMARY KEY DEFAULT 1,
+                    profile_json TEXT NOT NULL,
+                    generated_at TEXT NOT NULL,
+                    loaded_at TEXT DEFAULT (datetime('now')),
+                    version INTEGER NOT NULL DEFAULT 1
+                )
+            """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS autopilot_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT (datetime('now')),
+                    action TEXT NOT NULL,
+                    video_id TEXT,
+                    block_name TEXT,
+                    source TEXT,
+                    score REAL,
+                    reason TEXT
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_autopilot_log_action "
+                "ON autopilot_log(action)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_autopilot_log_timestamp "
+                "ON autopilot_log(timestamp)"
+            )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS autopilot_devices (
+                    device_id TEXT PRIMARY KEY,
+                    room_name TEXT,
+                    device_type TEXT DEFAULT 'single',
+                    last_seen TEXT,
+                    is_manual_override BOOLEAN DEFAULT 0
+                )
+            """)
         conn.execute("UPDATE schema_version SET version = ?", (to_version,))
         conn.commit()
         logger.info("Migrated database from v%d to v%d", from_version, to_version)
@@ -428,7 +522,11 @@ class Database:
             for attempt, delay in enumerate(self._RETRY_DELAYS, start=1):
                 logger.warning(
                     "SQLite %s error (attempt %d/%d): %s — retrying in %.1fs",
-                    description, attempt, len(self._RETRY_DELAYS), e, delay,
+                    description,
+                    attempt,
+                    len(self._RETRY_DELAYS),
+                    e,
+                    delay,
                 )
                 self.close()
                 time.sleep(delay)
@@ -440,9 +538,7 @@ class Database:
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute a SQL statement. Retries on I/O error with backoff."""
-        return self._retry_on_io_error(
-            lambda conn: conn.execute(sql, params), "execute"
-        )
+        return self._retry_on_io_error(lambda conn: conn.execute(sql, params), "execute")
 
     def executemany(self, sql: str, params_list: list[tuple]) -> sqlite3.Cursor:
         """Execute a SQL statement with many param sets."""
@@ -485,9 +581,7 @@ class Database:
 
     def get_block_metadata(self, block_name: str) -> dict | None:
         """Get metadata for a single block."""
-        return self.fetchone(
-            "SELECT * FROM block_metadata WHERE block_name = ?", (block_name,)
-        )
+        return self.fetchone("SELECT * FROM block_metadata WHERE block_name = ?", (block_name,))
 
     def upsert_block_metadata(self, block_name: str, **fields):
         """Insert or update block metadata."""
@@ -513,9 +607,7 @@ class Database:
 
     def delete_block_metadata(self, block_name: str):
         """Delete metadata for a block."""
-        self.execute(
-            "DELETE FROM block_metadata WHERE block_name = ?", (block_name,)
-        )
+        self.execute("DELETE FROM block_metadata WHERE block_name = ?", (block_name,))
         self.commit()
 
     def close(self):

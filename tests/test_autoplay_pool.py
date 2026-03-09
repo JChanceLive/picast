@@ -610,11 +610,11 @@ class TestSchemaV9:
         conn.commit()
         conn.close()
 
-        # Open with Database class — should auto-migrate to v9
-        from picast.server.database import Database
+        # Open with Database class — should auto-migrate to current version
+        from picast.server.database import Database, SCHEMA_VERSION
         db = Database(db_path)
         version = db.fetchone("SELECT version FROM schema_version")
-        assert version["version"] == 10
+        assert version["version"] == SCHEMA_VERSION
         # New tables should exist
         db.fetchone("SELECT COUNT(*) FROM autoplay_seasonal_tags")
         db.fetchone("SELECT COUNT(*) FROM autoplay_cross_block_prefs")

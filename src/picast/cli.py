@@ -18,38 +18,31 @@ def run_server():
     parser = argparse.ArgumentParser(
         description="PiCast server - media center REST API for Raspberry Pi"
     )
+    parser.add_argument("--host", default=None, help="Host to bind to (default: 0.0.0.0)")
+    parser.add_argument("--port", type=int, default=None, help="Port to listen on (default: 5050)")
+    parser.add_argument("--config", default=None, help="Path to picast.toml config file")
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument(
-        "--host", default=None, help="Host to bind to (default: 0.0.0.0)"
-    )
-    parser.add_argument(
-        "--port", type=int, default=None, help="Port to listen on (default: 5050)"
-    )
-    parser.add_argument(
-        "--config", default=None, help="Path to picast.toml config file"
-    )
-    parser.add_argument(
-        "--debug", action="store_true", help="Enable debug mode"
-    )
-    parser.add_argument(
-        "--log-level", default="INFO",
+        "--log-level",
+        default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Log level (default: INFO)"
+        help="Log level (default: INFO)",
     )
     parser.add_argument(
-        "--no-player", action="store_true",
-        help="Disable player loop (for testing web UI without mpv)"
+        "--no-player",
+        action="store_true",
+        help="Disable player loop (for testing web UI without mpv)",
+    )
+    parser.add_argument("--quiet", action="store_true", help="Suppress per-request werkzeug logs")
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Test mode: --no-player + --quiet (for Mac-side web UI testing)",
     )
     parser.add_argument(
-        "--quiet", action="store_true",
-        help="Suppress per-request werkzeug logs"
-    )
-    parser.add_argument(
-        "--test", action="store_true",
-        help="Test mode: --no-player + --quiet (for Mac-side web UI testing)"
-    )
-    parser.add_argument(
-        "--telegram", action="store_true",
-        help="Enable Telegram bot (requires [telegram] config or PICAST_TELEGRAM_TOKEN env)"
+        "--telegram",
+        action="store_true",
+        help="Enable Telegram bot (requires [telegram] config or PICAST_TELEGRAM_TOKEN env)",
     )
     args = parser.parse_args()
 
@@ -75,14 +68,17 @@ def run_server():
     devices = [(d.name, d.host, d.port) for d in config.devices]
 
     app = create_app(
-        config.server, devices=devices,
-        autoplay_config=config.autoplay, pipulse_config=config.pipulse,
+        config.server,
+        devices=devices,
+        autoplay_config=config.autoplay,
+        pipulse_config=config.pipulse,
     )
 
     # Regenerate desktop wallpaper in background (keeps version badge current)
     def _refresh_wallpaper():
         try:
             from picast.wallpaper import generate_wallpaper
+
             generate_wallpaper()
         except Exception as e:
             logging.getLogger("picast").warning("Wallpaper refresh failed: %s", e)
@@ -104,7 +100,7 @@ def run_server():
         logging.getLogger("werkzeug").setLevel(logging.WARNING)
 
     # Start mDNS discovery
-    if hasattr(app, 'device_registry'):
+    if hasattr(app, "device_registry"):
         app.device_registry.start_discovery()
 
     logging.getLogger("picast").info(
@@ -114,6 +110,7 @@ def run_server():
     # Start Telegram bot if requested
     if args.telegram or config.telegram.enabled:
         import os
+
         token = config.telegram.bot_token or os.environ.get("PICAST_TELEGRAM_TOKEN", "")
         if not token:
             logging.getLogger("picast").error(
@@ -123,6 +120,7 @@ def run_server():
         else:
             try:
                 from picast.server.telegram_bot import PiCastBot
+
                 api_url = f"http://127.0.0.1:{config.server.port}"
                 bot = PiCastBot(
                     token=token,
@@ -135,6 +133,7 @@ def run_server():
                 # Start notification manager if chat_id configured
                 if config.telegram.notification_chat_id:
                     from picast.server.notifications import NotificationManager
+
                     notif_manager = NotificationManager(
                         db=app.db,
                         send_fn=bot.send_notification_sync,
@@ -162,15 +161,15 @@ def run_server():
 
     # Start Pushover notification manager if configured
     if config.pushover.enabled:
-        from picast.server.pushover_adapter import create_pushover_send_fn
         from picast.server.notifications import NotificationManager
+        from picast.server.pushover_adapter import create_pushover_send_fn
 
         pushover_send_fn = create_pushover_send_fn(
             api_token=config.pushover.api_token,
             user_key=config.pushover.user_key,
         )
 
-        if hasattr(app, 'notification_manager') and app.notification_manager:
+        if hasattr(app, "notification_manager") and app.notification_manager:
             # Telegram already created a NotificationManager — swap transport
             app.notification_manager._send_fn = pushover_send_fn
             logging.getLogger("picast").info("Pushover replaced Telegram transport")
@@ -253,9 +252,7 @@ def run_tui():
     parser.add_argument(
         "--port", type=int, default=None, help="Pi port (default: from config or 5000)"
     )
-    parser.add_argument(
-        "--config", default=None, help="Path to picast.toml config file"
-    )
+    parser.add_argument("--config", default=None, help="Path to picast.toml config file")
     args = parser.parse_args()
 
     from picast.config import load_config
@@ -283,15 +280,14 @@ def run_tui():
 def run_pool_cli():
     """Entry point for picast-pool command. Manage autoplay pools via HTTP API."""
     import json
-    import urllib.request
     import urllib.error
+    import urllib.request
 
-    parser = argparse.ArgumentParser(
-        description="PiCast AutoPlay Pool Manager"
-    )
+    parser = argparse.ArgumentParser(description="PiCast AutoPlay Pool Manager")
     parser.add_argument(
-        "--server", default="http://localhost:5050",
-        help="PiCast server URL (default: http://localhost:5050)"
+        "--server",
+        default="http://localhost:5050",
+        help="PiCast server URL (default: http://localhost:5050)",
     )
     sub = parser.add_subparsers(dest="command")
 
@@ -339,7 +335,9 @@ def run_pool_cli():
     # import-pools (not 'import' to avoid Python keyword confusion in help)
     p_import_pools = sub.add_parser("import-pools", help="Import pools from YAML file")
     p_import_pools.add_argument("file", help="YAML file to import")
-    p_import_pools.add_argument("--replace", action="store_true", help="Replace mode (deactivate existing before import)")
+    p_import_pools.add_argument(
+        "--replace", action="store_true", help="Replace mode (deactivate existing before import)"
+    )
 
     args = parser.parse_args()
     base = args.server.rstrip("/")
@@ -358,8 +356,9 @@ def run_pool_cli():
         url = f"{base}{path}"
         body = json.dumps(data or {}).encode()
         try:
-            req = urllib.request.Request(url, data=body, method="POST",
-                                        headers={"Content-Type": "application/json"})
+            req = urllib.request.Request(
+                url, data=body, method="POST", headers={"Content-Type": "application/json"}
+            )
             with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read())
         except urllib.error.HTTPError as e:
@@ -401,10 +400,16 @@ def run_pool_cli():
             print(f"{'Block':<25s} {'Videos':>7s} {'Liked':>6s} {'Disliked':>9s}")
             print("-" * 50)
             for b in blocks:
-                print(f"  {b['block_name']:<23s} {b['pool_size']:>5d}   {b.get('liked', 0):>4d}   {b.get('disliked', 0):>7d}")
+                name = b["block_name"]
+                size = b["pool_size"]
+                liked = b.get("liked", 0)
+                disliked = b.get("disliked", 0)
+                print(f"  {name:<23s} {size:>5d}   {liked:>4d}   {disliked:>7d}")
 
     elif args.command == "add":
-        result = api_post(f"/api/autoplay/pool/{args.block}", {"url": args.url, "title": args.title})
+        result = api_post(
+            f"/api/autoplay/pool/{args.block}", {"url": args.url, "title": args.title}
+        )
         if result.get("video_id"):
             print(f"Added {result['video_id']} to '{args.block}'")
         else:
@@ -454,8 +459,10 @@ def run_pool_cli():
             else:
                 failed += 1
                 print(f"  Skip: {url} ({result.get('error', 'unknown')})")
-        print(f"Imported {added}/{len(urls)} videos to '{args.block}'" +
-              (f" ({failed} failed)" if failed else ""))
+        print(
+            f"Imported {added}/{len(urls)} videos to '{args.block}'"
+            + (f" ({failed} failed)" if failed else "")
+        )
 
     elif args.command == "discover":
         if args.block:
@@ -474,10 +481,12 @@ def run_pool_cli():
             if result.get("error"):
                 print(f"Error: {result['error']}")
             else:
-                print(f"  Queries: {result.get('queries_run', 0)}, "
-                      f"Found: {result.get('found', 0)}, "
-                      f"Added: {result.get('added', 0)}, "
-                      f"Skipped: {result.get('skipped', 0)}")
+                print(
+                    f"  Queries: {result.get('queries_run', 0)}, "
+                    f"Found: {result.get('found', 0)}, "
+                    f"Added: {result.get('added', 0)}, "
+                    f"Skipped: {result.get('skipped', 0)}"
+                )
         else:
             # All blocks
             print("Discovering videos for all configured blocks...")
@@ -486,17 +495,22 @@ def run_pool_cli():
                 print(f"Error: {result['error']}")
             else:
                 for block_stats in result.get("blocks", []):
-                    print(f"  {block_stats['block']}: "
-                          f"found={block_stats['found']}, "
-                          f"added={block_stats['added']}, "
-                          f"skipped={block_stats['skipped']}")
-                print(f"\nTotal: found={result.get('total_found', 0)}, "
-                      f"added={result.get('total_added', 0)}")
+                    print(
+                        f"  {block_stats['block']}: "
+                        f"found={block_stats['found']}, "
+                        f"added={block_stats['added']}, "
+                        f"skipped={block_stats['skipped']}"
+                    )
+                print(
+                    f"\nTotal: found={result.get('total_found', 0)}, "
+                    f"added={result.get('total_added', 0)}"
+                )
 
     elif args.command == "export":
         data = api_get("/api/autoplay/export")
         try:
             import yaml
+
             output = yaml.dump(data, default_flow_style=False, sort_keys=False)
         except ImportError:
             output = json.dumps(data, indent=2)
@@ -518,6 +532,7 @@ def run_pool_cli():
         # Try YAML first, fall back to JSON
         try:
             import yaml
+
             data = yaml.safe_load(raw)
         except ImportError:
             data = json.loads(raw)
@@ -530,7 +545,9 @@ def run_pool_cli():
         body = json.dumps(data).encode()
         try:
             req = urllib.request.Request(
-                url, data=body, method="POST",
+                url,
+                data=body,
+                method="POST",
                 headers={"Content-Type": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -543,9 +560,11 @@ def run_pool_cli():
 
         if result.get("ok"):
             mode = "replace" if args.replace else "merge"
-            print(f"Imported ({mode}): {result.get('added', 0)} added, "
-                  f"{result.get('skipped', 0)} skipped, "
-                  f"{result.get('blocks', 0)} blocks")
+            print(
+                f"Imported ({mode}): {result.get('added', 0)} added, "
+                f"{result.get('skipped', 0)} skipped, "
+                f"{result.get('blocks', 0)} blocks"
+            )
         else:
             print(f"Error: {result.get('error', 'unknown')}")
 
@@ -556,8 +575,8 @@ def run_pool_cli():
 def run_export_cli():
     """Shortcut: picast-export [--file OUT] [--server URL]."""
     import json
-    import urllib.request
     import urllib.error
+    import urllib.request
 
     parser = argparse.ArgumentParser(description="Export PiCast autoplay pools")
     parser.add_argument("--server", default="http://picast.local:5050", help="PiCast server URL")
@@ -575,6 +594,7 @@ def run_export_cli():
 
     try:
         import yaml
+
         output = yaml.dump(data, default_flow_style=False, sort_keys=False)
     except ImportError:
         output = json.dumps(data, indent=2)
@@ -589,16 +609,14 @@ def run_export_cli():
 
 def run_setup():
     """Entry point for picast-setup command."""
-    parser = argparse.ArgumentParser(
-        description="PiCast interactive setup wizard"
-    )
+    parser = argparse.ArgumentParser(description="PiCast interactive setup wizard")
     parser.add_argument(
-        "--config", default=None,
-        help="Path to picast.toml (default: ~/.config/picast/picast.toml)"
+        "--config", default=None, help="Path to picast.toml (default: ~/.config/picast/picast.toml)"
     )
     args = parser.parse_args()
 
     from picast.setup_wizard import run_wizard
+
     run_wizard(config_path=args.config)
 
 

@@ -84,6 +84,31 @@ mpv_socket = "/tmp/mpv-socket"
 # min_duration = 600
 # max_results = 3
 
+# --- AI Autopilot (optional) ---
+# Autonomous content selection powered by daily Opus 4.6 taste profiles.
+# Requires a taste profile to be synced from Mac (see docs/ai-autopilot-architecture.md)
+#
+# [autopilot]
+# enabled = false
+# mode = "single"               # "single" or "fleet"
+# queue_depth = 4               # target items ahead in queue
+# pool_only = false             # restrict to existing pools only
+# discovery_ratio = 0.3         # % of picks from discovery vs pool
+# stale_threshold_hours = 48    # fall back to weighted random if profile older
+
+# Fleet mode: AI controls multiple PiCast devices
+# [autopilot.fleet.devices.bedroom]
+# host = "picast-bedroom.local"
+# port = 5050
+# room = "bedroom"
+# mood = "chill"
+#
+# [autopilot.fleet.devices.office]
+# host = "picast-office.local"
+# port = 5050
+# room = "office"
+# mood = "focus"
+
 # --- Device Registry (multi-Pi support) ---
 # Devices appear in TUI (Tab key) and Web UI device selector
 # mDNS auto-discovery also finds other PiCast instances

@@ -14,7 +14,7 @@ from picast.server.database import Database
 logger = logging.getLogger(__name__)
 
 _YT_VIDEO_ID_RE = re.compile(
-    r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})'
+    r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})"
 )
 
 
@@ -82,9 +82,7 @@ class AutoPlayPool:
         )
         if not row:
             return False
-        self.db.execute(
-            "UPDATE autoplay_videos SET active = 0 WHERE id = ?", (row["id"],)
-        )
+        self.db.execute("UPDATE autoplay_videos SET active = 0 WHERE id = ?", (row["id"],))
         self.db.commit()
         return True
 
@@ -96,9 +94,7 @@ class AutoPlayPool:
         )
         if not row:
             return False
-        self.db.execute(
-            "UPDATE autoplay_videos SET active = 1 WHERE id = ?", (row["id"],)
-        )
+        self.db.execute("UPDATE autoplay_videos SET active = 1 WHERE id = ?", (row["id"],))
         self.db.commit()
         return True
 
@@ -136,8 +132,7 @@ class AutoPlayPool:
                 (block_name,),
             )
         return self.db.fetchall(
-            "SELECT * FROM autoplay_videos WHERE block_name = ? AND active = 1 "
-            "ORDER BY added_date",
+            "SELECT * FROM autoplay_videos WHERE block_name = ? AND active = 1 ORDER BY added_date",
             (block_name,),
         )
 
@@ -201,13 +196,11 @@ class AutoPlayPool:
         # Log play and update stats
         now = datetime.now(timezone.utc).isoformat()
         self.db.execute(
-            "INSERT INTO autoplay_history (video_id, block_name, played_at) "
-            "VALUES (?, ?, ?)",
+            "INSERT INTO autoplay_history (video_id, block_name, played_at) VALUES (?, ?, ?)",
             (selected["video_id"], block_name, now),
         )
         self.db.execute(
-            "UPDATE autoplay_videos SET play_count = play_count + 1, last_played = ? "
-            "WHERE id = ?",
+            "UPDATE autoplay_videos SET play_count = play_count + 1, last_played = ? WHERE id = ?",
             (now, selected["id"]),
         )
         self.db.commit()
@@ -219,13 +212,15 @@ class AutoPlayPool:
         if block_name:
             return self.db.fetchall(
                 "SELECT h.*, v.title, v.rating FROM autoplay_history h "
-                "LEFT JOIN autoplay_videos v ON h.video_id = v.video_id AND h.block_name = v.block_name "
+                "LEFT JOIN autoplay_videos v "
+                "ON h.video_id = v.video_id AND h.block_name = v.block_name "
                 "WHERE h.block_name = ? ORDER BY h.played_at DESC LIMIT ?",
                 (block_name, limit),
             )
         return self.db.fetchall(
             "SELECT h.*, v.title, v.rating FROM autoplay_history h "
-            "LEFT JOIN autoplay_videos v ON h.video_id = v.video_id AND h.block_name = v.block_name "
+            "LEFT JOIN autoplay_videos v "
+            "ON h.video_id = v.video_id AND h.block_name = v.block_name "
             "ORDER BY h.played_at DESC LIMIT ?",
             (limit,),
         )
@@ -235,13 +230,15 @@ class AutoPlayPool:
         if block_name:
             return self.db.fetchone(
                 "SELECT h.*, v.title, v.rating FROM autoplay_history h "
-                "LEFT JOIN autoplay_videos v ON h.video_id = v.video_id AND h.block_name = v.block_name "
+                "LEFT JOIN autoplay_videos v "
+                "ON h.video_id = v.video_id AND h.block_name = v.block_name "
                 "WHERE h.block_name = ? ORDER BY h.played_at DESC LIMIT 1",
                 (block_name,),
             )
         return self.db.fetchone(
             "SELECT h.*, v.title, v.rating FROM autoplay_history h "
-            "LEFT JOIN autoplay_videos v ON h.video_id = v.video_id AND h.block_name = v.block_name "
+            "LEFT JOIN autoplay_videos v "
+            "ON h.video_id = v.video_id AND h.block_name = v.block_name "
             "ORDER BY h.played_at DESC LIMIT 1"
         )
 
@@ -272,8 +269,7 @@ class AutoPlayPool:
         Returns new skip_count, or -1 if not found.
         """
         row = self.db.fetchone(
-            "SELECT id, skip_count FROM autoplay_videos "
-            "WHERE block_name = ? AND video_id = ?",
+            "SELECT id, skip_count FROM autoplay_videos WHERE block_name = ? AND video_id = ?",
             (block_name, video_id),
         )
         if not row:
@@ -334,15 +330,12 @@ class AutoPlayPool:
 
     def set_seasonal_tags(self, video_id: str, seasons: list[str]):
         """Set seasonal tags for a video (replaces existing)."""
-        self.db.execute(
-            "DELETE FROM autoplay_seasonal_tags WHERE video_id = ?", (video_id,)
-        )
+        self.db.execute("DELETE FROM autoplay_seasonal_tags WHERE video_id = ?", (video_id,))
         for season in seasons:
             season = season.lower().strip()
             if season:
                 self.db.execute(
-                    "INSERT OR IGNORE INTO autoplay_seasonal_tags (video_id, season) "
-                    "VALUES (?, ?)",
+                    "INSERT OR IGNORE INTO autoplay_seasonal_tags (video_id, season) VALUES (?, ?)",
                     (video_id, season),
                 )
         self.db.commit()
@@ -374,7 +367,11 @@ class AutoPlayPool:
     # --- Cross-Block Learning ---
 
     def _emit_cross_block_signal(
-        self, video_id: str, source_block: str, signal_type: str, signal_strength: float = 1.0,
+        self,
+        video_id: str,
+        source_block: str,
+        signal_type: str,
+        signal_strength: float = 1.0,
     ):
         """Record a cross-block preference signal for a video.
 
@@ -391,7 +388,10 @@ class AutoPlayPool:
         self.db.commit()
         logger.debug(
             "Cross-block signal: %s in %s -> %s (%.1f)",
-            video_id, source_block, signal_type, signal_strength,
+            video_id,
+            source_block,
+            signal_type,
+            signal_strength,
         )
 
     def get_cross_block_suggestions(self, target_block: str, limit: int = 10) -> list[dict]:
@@ -486,7 +486,8 @@ class AutoPlayPool:
                     continue
                 url = self.video_id_to_url(video_id)
                 result = self.add_video(
-                    block_name, url,
+                    block_name,
+                    url,
                     title=v.get("title", ""),
                     tags=v.get("tags", ""),
                     source=v.get("source", "import"),

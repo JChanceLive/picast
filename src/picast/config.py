@@ -17,8 +17,8 @@ class TelegramConfig:
     bot_token: str = ""
     allowed_users: list[int] = field(default_factory=list)
     enabled: bool = False
-    notification_chat_id: int = 0     # Chat ID for push notifications
-    daily_summary_hour: int = 8       # Hour (0-23) for daily summary
+    notification_chat_id: int = 0  # Chat ID for push notifications
+    daily_summary_hour: int = 8  # Hour (0-23) for daily summary
 
 
 @dataclass
@@ -45,9 +45,9 @@ class ThemeConfig:
     """Per-block search theme for the discovery agent."""
 
     queries: list[str] = field(default_factory=list)
-    min_duration: int = 0      # seconds (0 = no minimum)
-    max_duration: int = 0      # seconds (0 = no maximum)
-    max_results: int = 5       # per query
+    min_duration: int = 0  # seconds (0 = no minimum)
+    max_duration: int = 0  # seconds (0 = no maximum)
+    max_results: int = 5  # per query
 
 
 @dataclass
@@ -63,6 +63,29 @@ class AutoplayConfig:
     # mappings: block_name -> URL (legacy single-URL fallback)
     themes: dict[str, ThemeConfig] = field(default_factory=dict)
     discovery_delay: float = 5.0  # seconds between yt-dlp calls
+
+
+@dataclass
+class FleetDeviceConfig:
+    """Configuration for a fleet-mode autopilot device."""
+
+    host: str = ""
+    port: int = 5050
+    room: str = ""
+    mood: str = ""
+
+
+@dataclass
+class AutopilotConfig:
+    """AI Autopilot configuration for autonomous content selection."""
+
+    enabled: bool = False
+    mode: str = "single"  # "single" or "fleet"
+    queue_depth: int = 4  # target items ahead in queue
+    pool_only: bool = False  # restrict to existing pools
+    discovery_ratio: float = 0.3  # % picks from discovery vs pool
+    stale_threshold_hours: int = 48  # profile age before fallback
+    fleet_devices: dict[str, FleetDeviceConfig] = field(default_factory=dict)
 
 
 @dataclass
@@ -86,12 +109,12 @@ class ServerConfig:
     ytdl_format: str = "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]"
     ytdl_format_live: str = "best[height<=480][vcodec^=avc]/best[height<=480]"
     ytdl_cookies_from_browser: str = ""  # e.g. "chromium"
-    ytdl_po_token: str = ""              # PO token for headless setups
+    ytdl_po_token: str = ""  # PO token for headless setups
     data_dir: str = ""
-    mpv_hwdec: str = "auto"              # mpv hardware decoding (Pi: v4l2m2m)
-    osd_enabled: bool = True             # Show OSD text on TV via mpv
-    osd_duration_ms: int = 2500          # OSD display duration in ms
-    db_backup_interval_hours: int = 6    # SQLite backup interval (0 = disabled)
+    mpv_hwdec: str = "auto"  # mpv hardware decoding (Pi: v4l2m2m)
+    osd_enabled: bool = True  # Show OSD text on TV via mpv
+    osd_duration_ms: int = 2500  # OSD display duration in ms
+    db_backup_interval_hours: int = 6  # SQLite backup interval (0 = disabled)
 
     def __post_init__(self):
         if not self.data_dir:
@@ -109,6 +132,7 @@ class Config:
     pushover: PushoverConfig = field(default_factory=PushoverConfig)
     pipulse: PipulseConfig = field(default_factory=PipulseConfig)
     autoplay: AutoplayConfig = field(default_factory=AutoplayConfig)
+    autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
 
     def get_default_device(self) -> DeviceConfig:
@@ -132,10 +156,12 @@ def load_config(path: str | None = None) -> Config:
     search_paths = []
     if path:
         search_paths.append(Path(path))
-    search_paths.extend([
-        Path("picast.toml"),
-        Path.home() / ".config" / "picast" / "picast.toml",
-    ])
+    search_paths.extend(
+        [
+            Path("picast.toml"),
+            Path.home() / ".config" / "picast" / "picast.toml",
+        ]
+    )
 
     for p in search_paths:
         if p.exists():
@@ -160,7 +186,8 @@ def _parse_config(data: dict) -> Config:
             ytdl_format=s.get("ytdl_format", config.server.ytdl_format),
             ytdl_format_live=s.get("ytdl_format_live", config.server.ytdl_format_live),
             ytdl_cookies_from_browser=s.get(
-                "ytdl_cookies_from_browser", config.server.ytdl_cookies_from_browser,
+                "ytdl_cookies_from_browser",
+                config.server.ytdl_cookies_from_browser,
             ),
             ytdl_po_token=s.get("ytdl_po_token", config.server.ytdl_po_token),
             data_dir=s.get("data_dir", config.server.data_dir),
@@ -168,7 +195,8 @@ def _parse_config(data: dict) -> Config:
             osd_enabled=s.get("osd_enabled", config.server.osd_enabled),
             osd_duration_ms=s.get("osd_duration_ms", config.server.osd_duration_ms),
             db_backup_interval_hours=s.get(
-                "db_backup_interval_hours", config.server.db_backup_interval_hours,
+                "db_backup_interval_hours",
+                config.server.db_backup_interval_hours,
             ),
         )
 
@@ -217,17 +245,47 @@ def _parse_config(data: dict) -> Config:
             mappings=dict(a.get("mappings", {})),
             themes=themes,
             discovery_delay=a.get("discovery_delay", config.autoplay.discovery_delay),
-            cross_block_learning=a.get("cross_block_learning", config.autoplay.cross_block_learning),
+            cross_block_learning=a.get(
+                "cross_block_learning", config.autoplay.cross_block_learning
+            ),
+        )
+
+    if "autopilot" in data:
+        ap = data["autopilot"]
+        fleet_devices = {}
+        fleet_data = ap.get("fleet", {}).get("devices", {})
+        for dev_name, dev_conf in fleet_data.items():
+            fleet_devices[dev_name] = FleetDeviceConfig(
+                host=dev_conf.get("host", ""),
+                port=dev_conf.get("port", 5050),
+                room=dev_conf.get("room", ""),
+                mood=dev_conf.get("mood", ""),
+            )
+        config.autopilot = AutopilotConfig(
+            enabled=ap.get("enabled", config.autopilot.enabled),
+            mode=ap.get("mode", config.autopilot.mode),
+            queue_depth=ap.get("queue_depth", config.autopilot.queue_depth),
+            pool_only=ap.get("pool_only", config.autopilot.pool_only),
+            discovery_ratio=ap.get(
+                "discovery_ratio", config.autopilot.discovery_ratio
+            ),
+            stale_threshold_hours=ap.get(
+                "stale_threshold_hours",
+                config.autopilot.stale_threshold_hours,
+            ),
+            fleet_devices=fleet_devices,
         )
 
     if "devices" in data:
         for name, d in data["devices"].items():
-            config.devices.append(DeviceConfig(
-                name=name,
-                host=d.get("host", "raspberrypi.local"),
-                port=d.get("port", 5000),
-                default=d.get("default", False),
-            ))
+            config.devices.append(
+                DeviceConfig(
+                    name=name,
+                    host=d.get("host", "raspberrypi.local"),
+                    port=d.get("port", 5000),
+                    default=d.get("default", False),
+                )
+            )
 
     return config
 

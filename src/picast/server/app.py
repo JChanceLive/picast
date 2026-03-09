@@ -17,6 +17,7 @@ from flask import Flask, Response, jsonify, redirect, render_template, request
 
 from picast.config import AutoplayConfig, PipulseConfig, ServerConfig, ThemeConfig
 from picast.server.autoplay_pool import AutoPlayPool, extract_video_id
+from picast.server.catalog import CATEGORIES, get_series_by_category, get_series_by_id
 from picast.server.database import Database
 from picast.server.discovery import DeviceRegistry
 from picast.server.events import EventBus
@@ -24,14 +25,19 @@ from picast.server.library import Library
 from picast.server.mpv_client import MPVClient
 from picast.server.player import Player
 from picast.server.queue_manager import QueueManager
-from picast.server.catalog import CATEGORIES, CATALOG, get_series_by_category, get_series_by_id
-from picast.server.sources import ArchiveSource, LocalSource, SourceRegistry, TwitchSource, YouTubeSource
+from picast.server.sources import (
+    ArchiveSource,
+    LocalSource,
+    SourceRegistry,
+    TwitchSource,
+    YouTubeSource,
+)
 from picast.server.youtube_discovery import DiscoveryAgent
 
 logger = logging.getLogger(__name__)
 
-_YT_VIDEO_ID_RE = re.compile(r'^[a-zA-Z0-9_-]{11}$')
-_YT_PLAYLIST_ID_RE = re.compile(r'^(PL|UU|FL|OL|RD|LL)[a-zA-Z0-9_-]+$')
+_YT_VIDEO_ID_RE = re.compile(r"^[a-zA-Z0-9_-]{11}$")
+_YT_PLAYLIST_ID_RE = re.compile(r"^(PL|UU|FL|OL|RD|LL)[a-zA-Z0-9_-]+$")
 
 
 def _normalize_youtube_input(raw: str) -> str:
@@ -117,12 +123,17 @@ def create_app(
 
     # Device registry
     device_registry = DeviceRegistry(local_port=config.port)
-    for name, host, port in (devices or []):
+    for name, host, port in devices or []:
         device_registry.add_from_config(name, host, port)
 
     player = Player(
-        mpv, queue, config.ytdl_format, config.ytdl_format_live,
-        library=library, config=config, event_bus=event_bus,
+        mpv,
+        queue,
+        config.ytdl_format,
+        config.ytdl_format_live,
+        library=library,
+        config=config,
+        event_bus=event_bus,
     )
 
     # Start the player loop
@@ -137,6 +148,7 @@ def create_app(
     @app.errorhandler(Exception)
     def handle_exception(e):
         from werkzeug.exceptions import HTTPException
+
         if isinstance(e, HTTPException):
             return e  # Let Flask handle normal HTTP errors (400, 404, etc.)
         logger.exception("Unhandled error: %s", e)
@@ -218,9 +230,8 @@ def create_app(
         # Determine if video was completed (natural end or >80% of known duration)
         video_data = _autoplay_pool.get_video(block_name, video_id)
         known_duration = video_data.get("duration", 0) if video_data else 0
-        is_completed = (
-            stop_reason == "completed"
-            or (known_duration > 0 and play_duration >= known_duration * 0.8)
+        is_completed = stop_reason == "completed" or (
+            known_duration > 0 and play_duration >= known_duration * 0.8
         )
 
         if is_completed:
@@ -229,7 +240,8 @@ def create_app(
         # Update history with watch data
         duration_watched = int(play_duration)
         _autoplay_pool.update_last_history(
-            video_id, block_name,
+            video_id,
+            block_name,
             duration_watched=duration_watched,
             completed=1 if is_completed else 0,
             stop_reason=stop_reason,
@@ -238,10 +250,20 @@ def create_app(
         # Apply implicit rating
         if is_completed:
             _autoplay_pool.record_completion(block_name, video_id)
-            logger.info("AutoPlay self-learn: completed %s in %s (%ds)", video_id, block_name, duration_watched)
+            logger.info(
+                "AutoPlay self-learn: completed %s in %s (%ds)",
+                video_id,
+                block_name,
+                duration_watched,
+            )
         elif stop_reason == "user_skip":
             _autoplay_pool.record_skip(block_name, video_id)
-            logger.info("AutoPlay self-learn: skipped %s in %s after %ds", video_id, block_name, duration_watched)
+            logger.info(
+                "AutoPlay self-learn: skipped %s in %s after %ds",
+                video_id,
+                block_name,
+                duration_watched,
+            )
         # block_transition, manual_override, user_stop: no implicit rating change
 
     player.on_item_complete = _handle_item_complete
@@ -265,42 +287,48 @@ def create_app(
     @app.route("/")
     def web_queue():
         return render_template(
-            "player.html", active="queue",
+            "player.html",
+            active="queue",
             devices=device_registry.list_devices(),
         )
 
     @app.route("/history")
     def web_history():
         return render_template(
-            "history.html", active="history",
+            "history.html",
+            active="history",
             devices=device_registry.list_devices(),
         )
 
     @app.route("/collections")
     def web_collections():
         return render_template(
-            "collections.html", active="collections",
+            "collections.html",
+            active="collections",
             devices=device_registry.list_devices(),
         )
 
     @app.route("/catalog")
     def web_catalog():
         return render_template(
-            "catalog.html", active="catalog",
+            "catalog.html",
+            active="catalog",
             devices=device_registry.list_devices(),
         )
 
     @app.route("/pool")
     def web_pool():
         return render_template(
-            "pool.html", active="pool",
+            "pool.html",
+            active="pool",
             devices=device_registry.list_devices(),
         )
 
     @app.route("/settings")
     def web_settings():
         return render_template(
-            "settings.html", active="settings",
+            "settings.html",
+            active="settings",
             devices=device_registry.list_devices(),
         )
 
@@ -311,8 +339,11 @@ def create_app(
         source_type = request.args.get("source_type", "youtube")
         playlists_list = library.list_playlists()
         return render_template(
-            "add_to_collection.html", active="queue",
-            url=url, title=title, source_type=source_type,
+            "add_to_collection.html",
+            active="queue",
+            url=url,
+            title=title,
+            source_type=source_type,
             playlists=playlists_list,
         )
 
@@ -336,10 +367,10 @@ def create_app(
         return redirect("/")
 
     # Redirects from old UI routes
-    app.add_url_rule("/library", "web_library_redirect",
-                     lambda: redirect("/history", code=301))
-    app.add_url_rule("/playlists", "web_playlists_redirect",
-                     lambda: redirect("/collections", code=301))
+    app.add_url_rule("/library", "web_library_redirect", lambda: redirect("/history", code=301))
+    app.add_url_rule(
+        "/playlists", "web_playlists_redirect", lambda: redirect("/collections", code=301)
+    )
 
     # --- Player Control Endpoints ---
 
@@ -613,13 +644,15 @@ def create_app(
             except Exception:
                 failed += 1
 
-        return jsonify({
-            "ok": True,
-            "added": added,
-            "failed": failed,
-            "collection_id": pl["id"],
-            "collection_name": collection_name,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "added": added,
+                "failed": failed,
+                "collection_id": pl["id"],
+                "collection_name": collection_name,
+            }
+        )
 
     # --- Timer Endpoints ---
 
@@ -704,11 +737,18 @@ def create_app(
                     _autoplay_current["block_name"] = block_name
                     _autoplay_current["title"] = vid_title
                     _autoplay_start_time["value"] = time.monotonic()
-                    logger.info("AutoPlay pool: %s -> %s (%s)", block_name, selected["video_id"], vid_title)
-                    return jsonify({
-                        "ok": True, "played": url, "block": block_name,
-                        "video_id": selected["video_id"], "pool_mode": True,
-                    })
+                    logger.info(
+                        "AutoPlay pool: %s -> %s (%s)", block_name, selected["video_id"], vid_title
+                    )
+                    return jsonify(
+                        {
+                            "ok": True,
+                            "played": url,
+                            "block": block_name,
+                            "video_id": selected["video_id"],
+                            "pool_mode": True,
+                        }
+                    )
                 except Exception as e:
                     logger.exception("AutoPlay pool trigger failed for %s: %s", block_name, e)
                     return jsonify({"ok": False, "error": str(e)}), 500
@@ -769,6 +809,16 @@ def create_app(
         url = data.get("url", "").strip()
         if not url:
             return jsonify({"error": "url required"}), 400
+        # Normalize bare video IDs to full YouTube URLs
+        url = _normalize_youtube_input(url)
+        # Validate URL before adding to pool
+        try:
+            valid, error = sources.validate_url(url)
+        except Exception as e:
+            logger.exception("URL validation failed for %s: %s", url, e)
+            return jsonify({"error": f"Validation failed: {e}"}), 500
+        if not valid:
+            return jsonify({"error": error}), 400
         title = data.get("title", "")
         tags = data.get("tags", "")
         source = data.get("source", "manual")
@@ -865,12 +915,14 @@ def create_app(
         all_stats = _discovery_agent.discover_all(_discovery_themes)
         total_found = sum(s["found"] for s in all_stats)
         total_added = sum(s["added"] for s in all_stats)
-        return jsonify({
-            "ok": True,
-            "blocks": all_stats,
-            "total_found": total_found,
-            "total_added": total_added,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "blocks": all_stats,
+                "total_found": total_found,
+                "total_added": total_added,
+            }
+        )
 
     # --- AutoPlay Cross-Block Learning Endpoints ---
 
@@ -913,6 +965,7 @@ def create_app(
         if "yaml" in accept or "yml" in accept:
             try:
                 import yaml
+
                 yaml_str = yaml.dump(data, default_flow_style=False, sort_keys=False)
                 return Response(yaml_str, mimetype="text/yaml")
             except ImportError:
@@ -928,6 +981,7 @@ def create_app(
         if "yaml" in content_type or "yml" in content_type:
             try:
                 import yaml
+
                 data = yaml.safe_load(request.data)
             except ImportError:
                 return jsonify({"error": "PyYAML not installed on server"}), 500
@@ -987,8 +1041,13 @@ def create_app(
 
         # Fetch top 50 from Archive.org
         results = archive_handler.search(
-            genre=genre, decade=decade, keyword=keyword, sort=sort, rows=50,
-            year_start=year_start, year_end=year_end,
+            genre=genre,
+            decade=decade,
+            keyword=keyword,
+            sort=sort,
+            rows=50,
+            year_start=year_start,
+            year_end=year_end,
         )
         if not results:
             return jsonify({"error": "No movies found for this filter"}), 404
@@ -1027,13 +1086,15 @@ def create_app(
         if added_movies:
             player.play_now(added_movies[0]["url"], added_movies[0]["title"])
 
-        return jsonify({
-            "ok": True,
-            "added": len(added_movies),
-            "genre": genre,
-            "decade": decade,
-            "movies": added_movies,
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "added": len(added_movies),
+                "genre": genre,
+                "decade": decade,
+                "movies": added_movies,
+            }
+        )
 
     # --- Catalog Endpoints ---
 
@@ -1100,13 +1161,15 @@ def create_app(
         for row in rows:
             series = get_series_by_id(row["series_id"])
             if series:
-                result.append({
-                    "series_id": row["series_id"],
-                    "series_title": series.title,
-                    "last_episode_index": row["last_episode_index"],
-                    "total_episodes": series.total_episodes,
-                    "updated_at": row["updated_at"],
-                })
+                result.append(
+                    {
+                        "series_id": row["series_id"],
+                        "series_title": series.title,
+                        "last_episode_index": row["last_episode_index"],
+                        "total_episodes": series.total_episodes,
+                        "updated_at": row["updated_at"],
+                    }
+                )
         return jsonify(result)
 
     @app.route("/api/catalog/series/<series_id>/continue", methods=["POST"])
@@ -1124,10 +1187,12 @@ def create_app(
             return jsonify({"error": "No more episodes"}), 404
         title = f"{series.title} - {ep.title}"
         player.play_now(ep.url, title)
-        return jsonify({
-            "ok": True,
-            "episode": {"title": title, "url": ep.url, "index": next_idx},
-        })
+        return jsonify(
+            {
+                "ok": True,
+                "episode": {"title": title, "url": ep.url, "index": next_idx},
+            }
+        )
 
     # --- Analytics Endpoint ---
 
@@ -1145,13 +1210,15 @@ def create_app(
             "FROM watch_sessions WHERE started_at >= ?",
             (cutoff,),
         )
-        return jsonify({
-            "hours": hours,
-            "total_sessions": total_row["cnt"] if total_row else 0,
-            "total_duration": total_row["total"] if total_row else 0,
-            "top_by_time": [],
-            "top_by_count": [],
-        })
+        return jsonify(
+            {
+                "hours": hours,
+                "total_sessions": total_row["cnt"] if total_row else 0,
+                "total_duration": total_row["total"] if total_row else 0,
+                "top_by_time": [],
+                "top_by_count": [],
+            }
+        )
 
     # --- Health Check ---
 
@@ -1191,6 +1258,7 @@ def create_app(
     @app.route("/api/events")
     def events_stream():
         """SSE stream of real-time events."""
+
         def generate():
             q = event_bus.subscribe()
             try:
@@ -1245,8 +1313,11 @@ def create_app(
         limit = int(request.args.get("limit", 50))
         offset = int(request.args.get("offset", 0))
         items = library.browse(
-            source_type=source, favorites_only=fav,
-            sort=sort, limit=limit, offset=offset,
+            source_type=source,
+            favorites_only=fav,
+            sort=sort,
+            limit=limit,
+            offset=offset,
         )
         return jsonify(items)
 
@@ -1469,6 +1540,7 @@ def create_app(
     def devices_health(name):
         """Check if a device is reachable."""
         from picast.server.discovery import check_device_health
+
         device = device_registry.get_device(name)
         if not device:
             return jsonify({"error": "device not found"}), 404
@@ -1514,7 +1586,9 @@ def create_app(
         try:
             result = subprocess.run(
                 ["cat", _CMDLINE_PATH],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             return 2 if _PANEL_ORIENTATION in result.stdout else 0
         except Exception:
@@ -1540,7 +1614,9 @@ def create_app(
         try:
             result = subprocess.run(
                 ["sudo", "cat", _CMDLINE_PATH],
-                capture_output=True, text=True, timeout=5,
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode != 0:
                 return jsonify({"error": "Failed to read cmdline.txt"}), 500
@@ -1554,7 +1630,10 @@ def create_app(
 
             result = subprocess.run(
                 ["sudo", "tee", _CMDLINE_PATH],
-                input=cmdline + "\n", capture_output=True, text=True, timeout=5,
+                input=cmdline + "\n",
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode != 0:
                 return jsonify({"error": "Failed to write cmdline.txt"}), 500
@@ -1569,7 +1648,8 @@ def create_app(
         try:
             subprocess.Popen(
                 ["sudo", "reboot"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             return jsonify({"ok": True, "message": "Reboot initiated"})
         except Exception as e:
@@ -1589,6 +1669,7 @@ def create_app(
         # IP address
         try:
             import socket
+
             s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             s.connect(("8.8.8.8", 80))
             info["ip"] = s.getsockname()[0]
@@ -1599,7 +1680,10 @@ def create_app(
         # Uptime
         try:
             result = subprocess.run(
-                ["uptime", "-p"], capture_output=True, text=True, timeout=5,
+                ["uptime", "-p"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             info["uptime"] = result.stdout.strip() if result.returncode == 0 else None
         except Exception:
@@ -1616,17 +1700,22 @@ def create_app(
         # Disk usage
         try:
             total, used, free = shutil.disk_usage("/")
-            info["disk"] = f"{used // (1024**3)}GB / {total // (1024**3)}GB ({100 * used // total}%)"
+            info["disk"] = (
+                f"{used // (1024**3)}GB / {total // (1024**3)}GB ({100 * used // total}%)"
+            )
         except Exception:
             info["disk"] = None
 
         # Audio device
         try:
             result = subprocess.run(
-                ["aplay", "-l"], capture_output=True, text=True, timeout=5,
+                ["aplay", "-l"],
+                capture_output=True,
+                text=True,
+                timeout=5,
             )
             if result.returncode == 0:
-                lines = [l for l in result.stdout.splitlines() if l.startswith("card")]
+                lines = [line for line in result.stdout.splitlines() if line.startswith("card")]
                 info["audio_device"] = lines[0] if lines else "No audio devices"
             else:
                 info["audio_device"] = None
@@ -1655,7 +1744,8 @@ def create_app(
         try:
             subprocess.Popen(
                 ["sudo", "systemctl", "restart", "picast"],
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
             )
             return jsonify({"ok": True, "message": "Restart initiated"})
         except Exception as e:
@@ -1673,11 +1763,13 @@ def create_app(
     @app.route("/api/settings/pipulse")
     def settings_pipulse_get():
         """Get PiPulse integration settings."""
-        return jsonify({
-            "enabled": db.get_setting("pipulse_enabled", "false") == "true",
-            "host": db.get_setting("pipulse_host", _pipulse_config.host),
-            "port": int(db.get_setting("pipulse_port", str(_pipulse_config.port))),
-        })
+        return jsonify(
+            {
+                "enabled": db.get_setting("pipulse_enabled", "false") == "true",
+                "host": db.get_setting("pipulse_host", _pipulse_config.host),
+                "port": int(db.get_setting("pipulse_port", str(_pipulse_config.port))),
+            }
+        )
 
     @app.route("/api/settings/pipulse", methods=["POST"])
     def settings_pipulse_set():
@@ -1704,8 +1796,15 @@ def create_app(
         if not block_name:
             return jsonify({"error": "block_name required"}), 400
         fields = {}
-        for key in ("display_name", "emoji", "block_start", "block_end",
-                     "tagline", "block_type", "energy"):
+        for key in (
+            "display_name",
+            "emoji",
+            "block_start",
+            "block_end",
+            "tagline",
+            "block_type",
+            "energy",
+        ):
             if key in data:
                 fields[key] = str(data[key])
         if not fields.get("display_name"):
@@ -1736,11 +1835,13 @@ def create_app(
         yt_method = ("cookies" if yt_cookies else "po_token") if (yt_cookies or yt_po_token) else ""
         # PiPulse: check settings DB
         pp_enabled = db.get_setting("pipulse_enabled", "false") == "true"
-        return jsonify({
-            "pushover": {"configured": po_enabled},
-            "youtube": {"configured": yt_configured, "method": yt_method},
-            "pipulse": {"configured": pp_enabled},
-        })
+        return jsonify(
+            {
+                "pushover": {"configured": po_enabled},
+                "youtube": {"configured": yt_configured, "method": yt_method},
+                "pipulse": {"configured": pp_enabled},
+            }
+        )
 
     @app.route("/api/settings/blocks/import", methods=["POST"])
     def settings_blocks_import():
@@ -1777,6 +1878,7 @@ def create_app(
 def _get_version() -> str:
     try:
         from picast.__about__ import __version__
+
         return __version__
     except ImportError:
         return "unknown"

@@ -17,8 +17,9 @@ class TestDatabase:
         assert "schema_version" in names
 
     def test_schema_version(self, db):
+        from picast.server.database import SCHEMA_VERSION
         row = db.fetchone("SELECT version FROM schema_version")
-        assert row["version"] == 10
+        assert row["version"] == SCHEMA_VERSION
 
     def test_settings_get_set(self, db):
         assert db.get_setting("volume") is None
