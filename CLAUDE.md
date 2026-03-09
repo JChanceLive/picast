@@ -257,13 +257,12 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-09 | 31 active memories, 328 total_
+_Last updated: 2026-03-09 | 30 active memories, 333 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - PiCast persistent title overlay uses mpv OSD level 3 with `--osd-status-msg=${media-title}` positioned bottom-left (a... [picast, mpv, osd, overlay, ui]
-- AutopilotEngine class uses tiered selection loop: (1) TasteProfile rates candidate videos from block pool, (2) engine... [picast, ai-autopilot, selection-algorithm, tiered-inference]
-- PiCast autopilot API integration: /api/autopilot/toggle (POST with {enabled: bool}) wires to app-level _autopilot_eng... [picast, ai-autopilot, api-design, integration]
+- PiCast AI Autopilot architecture: AutopilotEngine uses tiered selection loop where (1) TasteProfile rates candidate v... [picast, ai-autopilot, architecture, api-design, selection-algorithm]
 - v1.0.0 block metadata and Discovery Agent architecture: PiPulse exposes `/api/pitim/blocks` endpoint returning JSON a... [picast, pipulse, api-design, block-metadata, architecture, setup-wizard, settings-page, discovery-agent]
 
 ## Key Decisions
@@ -294,7 +293,7 @@ _Last updated: 2026-03-09 | 31 active memories, 328 total_
 - YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
 
 ## Current Progress
-- PiCast AI Autopilot Session 1.2 COMPLETE (2026-03-09): AutopilotEngine class with TasteProfile matching, tiered selec... [picast, ai-autopilot, session-1-2-complete, testing, engine-implementation]
+- PiCast AI Autopilot S1.3 Phase 1 API integration complete (2026-03-09): 5 endpoints fully wired (/api/autopilot/profi... [picast, ai-autopilot, api-integration, testing, phase-1-complete]
 
 ## Context
 - PiCast autoplay roadmap: Sessions 1-2 complete (pool system + web UI); Session 3 (optional) proposes YouTube discover... [picast, autoplay, roadmap, discovery-agent, ai-autopilot, next-action]

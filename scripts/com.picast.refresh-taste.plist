@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  PiCast AI Autopilot - Daily Taste Profile Refresh
+
+	  Runs refresh-taste-profile.sh daily at 6:00 AM to generate
+	  a fresh taste profile via Opus 4.6 and push it to PiCast.
+
+	  Install:
+	    cp scripts/com.picast.refresh-taste.plist ~/Library/LaunchAgents/
+	    launchctl load ~/Library/LaunchAgents/com.picast.refresh-taste.plist
+
+	  Uninstall:
+	    launchctl unload ~/Library/LaunchAgents/com.picast.refresh-taste.plist
+	    rm ~/Library/LaunchAgents/com.picast.refresh-taste.plist
+
+	  Manual test:
+	    launchctl start com.picast.refresh-taste
+
+	  Check status:
+	    launchctl list | grep picast
+
+	  Logs:
+	    tail -f ~/.picast/launchd/stdout.log
+	    tail -f ~/.picast/launchd/stderr.log
+	-->
+	<key>Label</key>
+	<string>com.picast.refresh-taste</string>
+
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>-l</string>
+		<string>/Users/josiahlachance/Documents/Projects/Claude/terminal/picast/scripts/refresh-taste-profile.sh</string>
+	</array>
+
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>6</integer>
+		<key>Minute</key>
+		<integer>0</integer>
+	</dict>
+
+	<key>StandardOutPath</key>
+	<string>/Users/josiahlachance/.picast/launchd/stdout.log</string>
+
+	<key>StandardErrorPath</key>
+	<string>/Users/josiahlachance/.picast/launchd/stderr.log</string>
+
+	<key>WorkingDirectory</key>
+	<string>/Users/josiahlachance/Documents/Projects/Claude/terminal/picast</string>
+
+	<key>RunAtLoad</key>
+	<false/>
+</dict>
+</plist>

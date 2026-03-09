@@ -1,0 +1,363 @@
+#!/usr/bin/env bash
+# refresh-taste-profile.sh — Daily taste profile generation for PiCast AI Autopilot
+#
+# Pulls viewing data from PiCast API, sends to Opus 4.6 for analysis,
+# validates the output, and pushes the new profile back to PiCast.
+#
+# Usage:
+#   ./refresh-taste-profile.sh              # Full run (API call + push)
+#   ./refresh-taste-profile.sh --dry-run    # Pull data, show prompt, skip API call
+#   ./refresh-taste-profile.sh --verbose    # Extra logging
+#
+# Requires:
+#   - ANTHROPIC_API_KEY environment variable
+#   - PiCast server running (default: picast.local:5050)
+#   - curl, jq
+#
+# Scheduled via launchd: com.picast.refresh-taste (daily at 6:00 AM)
+
+set -euo pipefail
+
+# --- Configuration ---
+PICAST_HOST="${PICAST_HOST:-picast.local}"
+PICAST_PORT="${PICAST_PORT:-5050}"
+PICAST_BASE="http://${PICAST_HOST}:${PICAST_PORT}"
+PIPULSE_HOST="${PIPULSE_HOST:-pipulse.local}"
+PIPULSE_PORT="${PIPULSE_PORT:-5055}"
+PIPULSE_BASE="http://${PIPULSE_HOST}:${PIPULSE_PORT}"
+MODEL="${PICAST_OPUS_MODEL:-claude-opus-4-6-20250415}"
+MAX_TOKENS=2000
+HISTORY_LIMIT=50
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROMPT_TEMPLATE="${SCRIPT_DIR}/taste-prompt.md"
+VALIDATOR="${SCRIPT_DIR}/validate-profile.py"
+LOG_DIR="${HOME}/.picast"
+LOG_FILE="${LOG_DIR}/refresh-log.json"
+CACHE_DIR="${LOG_DIR}/taste-cache"
+
+# --- Flags ---
+DRY_RUN=false
+VERBOSE=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) DRY_RUN=true ;;
+        --verbose) VERBOSE=true ;;
+        *) echo "Unknown flag: $arg"; exit 1 ;;
+    esac
+done
+
+# --- Helpers ---
+log() { echo "[$(date '+%H:%M:%S')] $*"; }
+debug() { [[ "$VERBOSE" == true ]] && log "DEBUG: $*" || true; }
+die() { log "ERROR: $*" >&2; alert_failure "$*"; exit 1; }
+
+retry_curl() {
+    # Retry a curl command with exponential backoff.
+    # Usage: retry_curl <max_retries> <base_delay_secs> <curl_args...>
+    local max_retries="$1"; shift
+    local base_delay="$1"; shift
+    local attempt=0
+    local delay="$base_delay"
+
+    while true; do
+        if curl "$@" 2>/dev/null; then
+            return 0
+        fi
+        attempt=$((attempt + 1))
+        if [[ $attempt -ge $max_retries ]]; then
+            return 1
+        fi
+        log "Retry $attempt/$max_retries in ${delay}s..."
+        sleep "$delay"
+        delay=$((delay * 2))
+    done
+}
+
+alert_failure() {
+    # Send a Pushover alert via PiPulse on failure (best-effort, don't block on failure)
+    local message="$1"
+    curl -sf --connect-timeout 5 --max-time 10 \
+        -X POST "${PIPULSE_BASE}/api/notify" \
+        -H "Content-Type: application/json" \
+        -d "$(jq -n --arg msg "[PiCast Taste] $message" --arg t "PiCast Autopilot" \
+            '{message: $msg, title: $t, priority: 0, sound: "gamelan"}')" \
+        >/dev/null 2>&1 || true
+}
+
+log_result() {
+    # Append a JSON entry to the refresh log
+    local status="$1"
+    local detail="${2:-}"
+    local cost="${3:-0}"
+    mkdir -p "$LOG_DIR"
+    local entry
+    entry=$(jq -n \
+        --arg ts "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+        --arg status "$status" \
+        --arg detail "$detail" \
+        --arg model "$MODEL" \
+        --argjson cost "$cost" \
+        --argjson dry_run "$DRY_RUN" \
+        '{timestamp: $ts, status: $status, detail: $detail, model: $model, cost: $cost, dry_run: $dry_run}')
+    # Append to JSONL log file
+    echo "$entry" >> "$LOG_FILE"
+    debug "Logged: $status"
+}
+
+# --- Preflight Checks ---
+command -v curl >/dev/null || die "curl not found"
+command -v jq >/dev/null || die "jq not found"
+
+if [[ "$DRY_RUN" == false ]]; then
+    [[ -n "${ANTHROPIC_API_KEY:-}" ]] || die "ANTHROPIC_API_KEY not set"
+fi
+
+# Check PiCast is reachable (3 retries with backoff: 2s, 4s, 8s)
+log "Checking PiCast at ${PICAST_BASE}..."
+if ! retry_curl 3 2 -sf --connect-timeout 5 "${PICAST_BASE}/api/health" -o /dev/null; then
+    log_result "error" "PiCast unreachable at ${PICAST_BASE} after 3 retries"
+    die "PiCast unreachable at ${PICAST_BASE} after 3 retries"
+fi
+log "PiCast is up."
+
+# --- Step 1: Pull Data from PiCast ---
+log "Pulling viewing data..."
+mkdir -p "$CACHE_DIR"
+
+# Play history (last 50 entries covers ~48h)
+HISTORY=$(curl -sf "${PICAST_BASE}/api/autoplay/history?limit=${HISTORY_LIMIT}" 2>/dev/null) \
+    || die "Failed to fetch play history"
+debug "History entries: $(echo "$HISTORY" | jq 'length')"
+
+# Pool summaries (all blocks with video counts, ratings, etc.)
+POOLS=$(curl -sf "${PICAST_BASE}/api/autoplay" 2>/dev/null) \
+    || die "Failed to fetch pool data"
+debug "Pool data fetched"
+
+# Autopilot status (includes block info)
+STATUS=$(curl -sf "${PICAST_BASE}/api/autopilot/status" 2>/dev/null) \
+    || die "Failed to fetch autopilot status"
+debug "Autopilot status fetched"
+
+# Feedback signals from autopilot log
+# Note: No dedicated API endpoint yet. Ratings/skips/completions in pool data
+# serve as implicit behavioral feedback signals for Opus.
+FEEDBACK="[]"
+
+# Save raw data for debugging
+echo "$HISTORY" > "${CACHE_DIR}/history.json"
+echo "$POOLS" > "${CACHE_DIR}/pools.json"
+echo "$STATUS" > "${CACHE_DIR}/status.json"
+debug "Raw data cached to ${CACHE_DIR}/"
+
+# --- Step 2: Build Opus Prompt ---
+log "Building Opus prompt..."
+
+[[ -f "$PROMPT_TEMPLATE" ]] || die "Prompt template not found: ${PROMPT_TEMPLATE}"
+
+# Format history for readability (compact: video_id, title, block, rating, played_at)
+HISTORY_FORMATTED=$(echo "$HISTORY" | jq -r '
+    [.[] | {
+        video_id,
+        title: (.title // "untitled"),
+        block: .block_name,
+        rating: (.rating // 0),
+        played_at,
+        completed: (.completed // 0),
+        stop_reason: (.stop_reason // "")
+    }]' 2>/dev/null || echo "[]")
+
+# Format pool summary (per-block video counts, avg ratings, tags)
+POOL_FORMATTED=$(echo "$POOLS" | jq '{
+    mappings: (.mappings // {}),
+    blocks: (
+        if .pools then
+            [.pools | to_entries[] | {
+                block: .key,
+                video_count: (.value | length),
+                liked: ([.value[] | select(.rating == 1)] | length),
+                disliked: ([.value[] | select(.rating == -1)] | length),
+                avg_skips: (if (.value | length) > 0 then ([.value[] | .skip_count] | add / length) else 0 end),
+                tags: ([.value[] | .tags // "" | split(",") | .[] | select(. != "")] | unique),
+                videos: [.value[] | {
+                    video_id,
+                    title: (.title // "untitled"),
+                    rating,
+                    skip_count: (.skip_count // 0),
+                    completion_count: (.completion_count // 0),
+                    play_count: (.play_count // 0),
+                    tags: (.tags // ""),
+                    duration: (.duration // 0)
+                }]
+            }]
+        else []
+        end
+    )
+}' 2>/dev/null || echo '{"blocks":[]}')
+
+# Format block schedule
+BLOCK_FORMATTED=$(echo "$STATUS" | jq '{
+    current_block: .current_block,
+    mode: .mode,
+    stale: .stale,
+    profile_version: .profile.version
+}' 2>/dev/null || echo '{}')
+
+# Read prompt template and inject data
+PROMPT=$(cat "$PROMPT_TEMPLATE")
+PROMPT="${PROMPT//\{\{PLAY_HISTORY\}\}/$HISTORY_FORMATTED}"
+PROMPT="${PROMPT//\{\{POOL_SUMMARY\}\}/$POOL_FORMATTED}"
+PROMPT="${PROMPT//\{\{BLOCK_SCHEDULE\}\}/$BLOCK_FORMATTED}"
+PROMPT="${PROMPT//\{\{FEEDBACK_SIGNALS\}\}/$FEEDBACK}"
+
+# Save assembled prompt
+echo "$PROMPT" > "${CACHE_DIR}/assembled-prompt.md"
+debug "Prompt assembled ($(echo "$PROMPT" | wc -c | tr -d ' ') bytes)"
+
+# --- Dry Run Exit ---
+if [[ "$DRY_RUN" == true ]]; then
+    log "=== DRY RUN ==="
+    log "Would call ${MODEL} with $(echo "$PROMPT" | wc -c | tr -d ' ') byte prompt"
+    log "Assembled prompt saved to: ${CACHE_DIR}/assembled-prompt.md"
+    log "Cached data in: ${CACHE_DIR}/"
+    echo ""
+    echo "--- Prompt Preview (first 80 lines) ---"
+    head -80 "${CACHE_DIR}/assembled-prompt.md"
+    echo ""
+    echo "--- Pool Summary ---"
+    echo "$POOL_FORMATTED" | jq '.blocks[] | {block, video_count, liked, disliked, tags}' 2>/dev/null || echo "(no pool data)"
+    log_result "dry_run" "Prompt assembled, API call skipped"
+    exit 0
+fi
+
+# --- Step 3: Call Anthropic API (with 1 retry on invalid JSON) ---
+
+call_opus() {
+    # Calls Opus API and extracts profile text. Sets PROFILE_RAW, INPUT_TOKENS, OUTPUT_TOKENS, COST.
+    log "Calling ${MODEL}..."
+
+    # Build API request
+    local api_body
+    api_body=$(jq -n \
+        --arg model "$MODEL" \
+        --argjson max_tokens "$MAX_TOKENS" \
+        --arg prompt "$PROMPT" \
+        '{
+            model: $model,
+            max_tokens: $max_tokens,
+            messages: [{
+                role: "user",
+                content: $prompt
+            }]
+        }')
+
+    API_RESPONSE=$(curl -sf \
+        --connect-timeout 30 \
+        --max-time 120 \
+        -H "Content-Type: application/json" \
+        -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+        -H "anthropic-version: 2023-06-01" \
+        -d "$api_body" \
+        "https://api.anthropic.com/v1/messages" 2>/dev/null) \
+        || return 1
+
+    echo "$API_RESPONSE" > "${CACHE_DIR}/api-response.json"
+
+    PROFILE_RAW=$(echo "$API_RESPONSE" | jq -r '.content[0].text' 2>/dev/null) \
+        || return 1
+
+    INPUT_TOKENS=$(echo "$API_RESPONSE" | jq -r '.usage.input_tokens // 0' 2>/dev/null)
+    OUTPUT_TOKENS=$(echo "$API_RESPONSE" | jq -r '.usage.output_tokens // 0' 2>/dev/null)
+    # Opus 4.6: $15/M input, $75/M output
+    COST=$(echo "scale=4; ($INPUT_TOKENS * 15 + $OUTPUT_TOKENS * 75) / 1000000" | bc 2>/dev/null || echo "0")
+    log "Tokens: ${INPUT_TOKENS} in / ${OUTPUT_TOKENS} out (~\$${COST})"
+    return 0
+}
+
+validate_profile_json() {
+    # Strip code fences and validate via validate-profile.py. Sets PROFILE_JSON.
+    PROFILE_JSON=$(echo "$PROFILE_RAW" | sed '/^```/d' | sed '/^$/d')
+
+    if echo "$PROFILE_JSON" | python3 "$VALIDATOR" >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+# First attempt
+TOTAL_COST=0
+if ! call_opus; then
+    log_result "error" "Anthropic API call failed"
+    die "Anthropic API call failed (check ANTHROPIC_API_KEY and network)"
+fi
+TOTAL_COST=$(echo "scale=4; $TOTAL_COST + ${COST:-0}" | bc 2>/dev/null || echo "0")
+
+# Validate
+log "Validating profile JSON..."
+if ! validate_profile_json; then
+    # Retry once on invalid JSON
+    log "Invalid JSON from Opus — retrying once..."
+    echo "$PROFILE_RAW" > "${CACHE_DIR}/invalid-response-attempt1.txt"
+
+    if ! call_opus; then
+        log_result "error" "Anthropic API retry failed" "$TOTAL_COST"
+        die "Anthropic API retry failed"
+    fi
+    TOTAL_COST=$(echo "scale=4; $TOTAL_COST + ${COST:-0}" | bc 2>/dev/null || echo "0")
+
+    if ! validate_profile_json; then
+        echo "$PROFILE_RAW" > "${CACHE_DIR}/invalid-response-attempt2.txt"
+        log_result "error" "Invalid JSON after 2 attempts" "$TOTAL_COST"
+        die "Opus returned invalid JSON after 2 attempts. Raw output saved to ${CACHE_DIR}/"
+    fi
+fi
+
+COST="$TOTAL_COST"
+
+# Get counts for logging
+GENRE_COUNT=$(echo "$PROFILE_JSON" | jq '.global_preferences.genre_weights | length' 2>/dev/null || echo 0)
+BLOCK_COUNT=$(echo "$PROFILE_JSON" | jq '.block_strategies | length' 2>/dev/null || echo 0)
+
+# Save validated profile
+echo "$PROFILE_JSON" > "${CACHE_DIR}/validated-profile.json"
+log "Profile valid: ${GENRE_COUNT} genres, ${BLOCK_COUNT} blocks"
+
+# --- Step 5: Push to PiCast (3 retries with backoff) ---
+log "Pushing profile to PiCast..."
+
+GENERATED_AT=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+# Build upload payload
+UPLOAD_BODY=$(jq -n \
+    --argjson profile "$PROFILE_JSON" \
+    --arg generated_at "$GENERATED_AT" \
+    '{profile: $profile, generated_at: $generated_at}')
+
+UPLOAD_RESPONSE=$(retry_curl 3 2 -sf \
+    --connect-timeout 10 \
+    --max-time 30 \
+    -X POST \
+    -H "Content-Type: application/json" \
+    -d "$UPLOAD_BODY" \
+    "${PICAST_BASE}/api/autopilot/profile") \
+    || {
+        echo "$PROFILE_JSON" > "${CACHE_DIR}/failed-upload-profile.json"
+        log_result "error" "Profile push failed after 3 retries (profile saved locally)" "$COST"
+        die "Failed to push profile to PiCast after 3 retries. Saved to ${CACHE_DIR}/failed-upload-profile.json"
+    }
+
+# Verify upload succeeded
+UPLOAD_OK=$(echo "$UPLOAD_RESPONSE" | jq -r '.ok // false' 2>/dev/null)
+if [[ "$UPLOAD_OK" != "true" ]]; then
+    UPLOAD_ERR=$(echo "$UPLOAD_RESPONSE" | jq -r '.error // "unknown"' 2>/dev/null)
+    log_result "error" "Upload rejected: ${UPLOAD_ERR}" "$COST"
+    die "PiCast rejected profile: ${UPLOAD_ERR}"
+fi
+
+PROFILE_VERSION=$(echo "$UPLOAD_RESPONSE" | jq -r '.profile.version // "?"' 2>/dev/null)
+log "Profile uploaded successfully (v${PROFILE_VERSION})"
+
+# --- Step 6: Log Result ---
+log_result "success" "v${PROFILE_VERSION}: ${GENRE_COUNT} genres, ${BLOCK_COUNT} blocks" "$COST"
+log "Done. Cost: ~\$${COST}"
