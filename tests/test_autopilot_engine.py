@@ -536,3 +536,328 @@ class TestAPI:
         # Check status shows enabled
         resp = client.get("/api/autopilot/status")
         assert resp.get_json()["enabled"] is True
+
+    # --- Mode Switch Tests ---
+
+    def test_mode_switch_to_fleet(self, client):
+        resp = client.post(
+            "/api/autopilot/mode",
+            json={"mode": "fleet"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["mode"] == "fleet"
+
+        # Verify status reflects new mode
+        resp = client.get("/api/autopilot/status")
+        assert resp.get_json()["mode"] == "fleet"
+
+    def test_mode_switch_to_single(self, client):
+        # First switch to fleet
+        client.post("/api/autopilot/mode", json={"mode": "fleet"})
+        # Then back to single
+        resp = client.post("/api/autopilot/mode", json={"mode": "single"})
+        assert resp.status_code == 200
+        assert resp.get_json()["mode"] == "single"
+
+    def test_mode_switch_invalid(self, client):
+        resp = client.post(
+            "/api/autopilot/mode",
+            json={"mode": "invalid"},
+        )
+        assert resp.status_code == 400
+        assert "error" in resp.get_json()
+
+    def test_mode_switch_missing(self, client):
+        resp = client.post("/api/autopilot/mode", json={})
+        assert resp.status_code == 400
+
+    # --- Profile Endpoint Tests ---
+
+    def test_profile_get_no_profile(self, client):
+        resp = client.get("/api/autopilot/profile")
+        assert resp.status_code == 404
+        assert "no profile" in resp.get_json()["error"]
+
+    def test_profile_upload_and_get(self, client):
+        profile = _make_profile()
+        resp = client.post(
+            "/api/autopilot/profile",
+            json={
+                "profile": profile,
+                "generated_at": "2026-03-09T06:00:00",
+            },
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["profile"]["loaded"] is True
+
+        # Now GET should return the profile
+        resp = client.get("/api/autopilot/profile")
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["version"] == 1
+        assert "global_preferences" in data
+        assert "block_strategies" in data
+
+    def test_profile_upload_as_json_string(self, client):
+        profile = _make_profile()
+        resp = client.post(
+            "/api/autopilot/profile",
+            json={
+                "profile": json.dumps(profile),
+                "generated_at": "2026-03-09T06:00:00",
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["ok"] is True
+
+    def test_profile_upload_missing_profile(self, client):
+        resp = client.post(
+            "/api/autopilot/profile",
+            json={"generated_at": "2026-03-09T06:00:00"},
+        )
+        assert resp.status_code == 400
+        assert "profile required" in resp.get_json()["error"]
+
+    def test_profile_upload_missing_generated_at(self, client):
+        resp = client.post(
+            "/api/autopilot/profile",
+            json={"profile": _make_profile()},
+        )
+        assert resp.status_code == 400
+        assert "generated_at required" in resp.get_json()["error"]
+
+    def test_profile_upload_invalid_json(self, client):
+        resp = client.post(
+            "/api/autopilot/profile",
+            json={
+                "profile": "not valid json {{{",
+                "generated_at": "2026-03-09T06:00:00",
+            },
+        )
+        assert resp.status_code == 400
+
+    def test_profile_upload_missing_keys(self, client):
+        resp = client.post(
+            "/api/autopilot/profile",
+            json={
+                "profile": {"incomplete": True},
+                "generated_at": "2026-03-09T06:00:00",
+            },
+        )
+        assert resp.status_code == 400
+
+    # --- Sources Endpoint Tests ---
+
+    def test_sources_set_pool_only(self, client):
+        resp = client.post(
+            "/api/autopilot/sources",
+            json={"pool_only": True},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["pool_only"] is True
+
+        # Verify it sticks in status
+        resp = client.get("/api/autopilot/status")
+        assert resp.get_json()["pool_only"] is True
+
+    def test_sources_set_discovery_ratio(self, client):
+        resp = client.post(
+            "/api/autopilot/sources",
+            json={"discovery_ratio": 0.5},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["discovery_ratio"] == 0.5
+
+    def test_sources_invalid_discovery_ratio(self, client):
+        resp = client.post(
+            "/api/autopilot/sources",
+            json={"discovery_ratio": 1.5},
+        )
+        assert resp.status_code == 400
+
+    def test_sources_set_both(self, client):
+        resp = client.post(
+            "/api/autopilot/sources",
+            json={"pool_only": False, "discovery_ratio": 0.2},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["pool_only"] is False
+        assert data["discovery_ratio"] == 0.2
+
+    # --- Feedback Endpoint Tests ---
+
+    def test_feedback_more(self, client, app_with_autopilot):
+        # Seed a pool and set current autoplay
+        pool = AutoPlayPool(app_with_autopilot.db)
+        _seed_pool(pool, "morning", count=1)
+
+        resp = client.post(
+            "/api/autopilot/feedback",
+            json={"signal": "more", "video_id": "vid000aaaaa", "block_name": "morning"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["signal"] == "more"
+        assert data["video_id"] == "vid000aaaaa"
+
+    def test_feedback_less(self, client):
+        resp = client.post(
+            "/api/autopilot/feedback",
+            json={"signal": "less", "video_id": "vid000aaaaa", "block_name": "morning"},
+        )
+        assert resp.status_code == 200
+        assert resp.get_json()["signal"] == "less"
+
+    def test_feedback_invalid_signal(self, client):
+        resp = client.post(
+            "/api/autopilot/feedback",
+            json={"signal": "invalid", "video_id": "vid000aaaaa"},
+        )
+        assert resp.status_code == 400
+
+    def test_feedback_no_video(self, client):
+        """Should fail when no video_id and no current video playing."""
+        resp = client.post(
+            "/api/autopilot/feedback",
+            json={"signal": "more"},
+        )
+        assert resp.status_code == 400
+        assert "no video_id" in resp.get_json()["error"]
+
+    # --- Status Stale Detection Tests ---
+
+    def test_status_shows_stale_no_profile(self, client):
+        resp = client.get("/api/autopilot/status")
+        data = resp.get_json()
+        assert data["stale"] is True
+        assert data["stale_reason"] == "no profile loaded"
+
+    def test_status_shows_stale_threshold(self, client):
+        # Upload a profile with old generated_at
+        profile = _make_profile()
+        client.post(
+            "/api/autopilot/profile",
+            json={
+                "profile": profile,
+                "generated_at": "2020-01-01T00:00:00",
+            },
+        )
+        resp = client.get("/api/autopilot/status")
+        data = resp.get_json()
+        assert data["stale"] is True
+        assert "older than" in data["stale_reason"]
+
+    def test_status_shows_not_stale(self, client):
+        # Upload a fresh profile
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc).isoformat()
+        profile = _make_profile(generated_at=now)
+        client.post(
+            "/api/autopilot/profile",
+            json={"profile": profile, "generated_at": now},
+        )
+        resp = client.get("/api/autopilot/status")
+        data = resp.get_json()
+        assert data["stale"] is False
+        assert data["stale_reason"] is None
+        assert "stale_threshold_hours" in data
+
+
+# --- Engine Method Tests (new in S1.3) ---
+
+
+class TestEngineNewMethods:
+    @pytest.fixture
+    def db(self, tmp_path):
+        return Database(str(tmp_path / "test.db"))
+
+    @pytest.fixture
+    def pool(self, db):
+        return AutoPlayPool(db, avoid_recent=2)
+
+    @pytest.fixture
+    def profile(self):
+        return TasteProfile()
+
+    @pytest.fixture
+    def config(self):
+        return AutopilotConfig(enabled=True, queue_depth=4)
+
+    @pytest.fixture
+    def engine(self, pool, profile, config, db):
+        return AutopilotEngine(pool=pool, profile=profile, config=config, db=db)
+
+    def test_set_mode_single(self, engine):
+        result = engine.set_mode("single")
+        assert result == "single"
+        assert engine.get_status()["mode"] == "single"
+
+    def test_set_mode_fleet(self, engine):
+        result = engine.set_mode("fleet")
+        assert result == "fleet"
+        assert engine.get_status()["mode"] == "fleet"
+
+    def test_set_mode_invalid(self, engine):
+        with pytest.raises(ValueError):
+            engine.set_mode("invalid")
+
+    def test_reload_profile_no_profile(self, engine):
+        result = engine.reload_profile()
+        assert result is None
+
+    def test_reload_profile_with_data(self, engine, db):
+        profile_dict = _make_profile()
+        _save_profile(db, profile_dict)
+        result = engine.reload_profile()
+        assert result is not None
+        assert result["version"] == 1
+
+    def test_reload_profile_refreshes_queue(self, engine, pool, db):
+        """reload_profile should clear and refill queue when running."""
+        _seed_pool(pool, "morning", count=5)
+        engine.start()
+        engine.on_block_change("morning")
+        assert engine.get_status()["queue_depth"] > 0
+
+        # Reload should refill
+        profile_dict = _make_profile()
+        _save_profile(db, profile_dict)
+        engine.reload_profile()
+        assert engine.get_status()["queue_depth"] > 0
+
+    def test_record_feedback(self, engine, db):
+        engine.record_feedback("vid000aaaaa", "more", "morning")
+        # Verify log entry
+        row = db.fetchone(
+            "SELECT action, video_id, reason FROM autopilot_log "
+            "WHERE action = 'feedback'"
+        )
+        assert row is not None
+        assert row["video_id"] == "vid000aaaaa"
+        assert row["reason"] == "more"
+
+    def test_get_profile_data_none(self, engine):
+        assert engine.get_profile_data() is None
+
+    def test_get_profile_data_loaded(self, engine, db):
+        profile_dict = _make_profile()
+        _save_profile(db, profile_dict)
+        engine._profile.load(db)
+        data = engine.get_profile_data()
+        assert data is not None
+        assert data["version"] == 1
+
+    def test_status_includes_stale_fields(self, engine):
+        status = engine.get_status()
+        assert "stale" in status
+        assert "stale_reason" in status
+        assert "stale_threshold_hours" in status

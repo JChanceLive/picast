@@ -257,15 +257,14 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-09 | 37 active memories, 319 total_
+_Last updated: 2026-03-09 | 31 active memories, 328 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
-- PiCast Discovery Agent uses YouTube API (yt-dlp) to populate autoplay pools based on theme-based search queries confi... [picast, autoplay, discovery, youtube, architecture]
 - PiCast persistent title overlay uses mpv OSD level 3 with `--osd-status-msg=${media-title}` positioned bottom-left (a... [picast, mpv, osd, overlay, ui]
-- v1.0.0 block metadata flow: PiPulse exposes new `/api/pitim/blocks` endpoint returning JSON array of blocks with {blo... [picast, pipulse, api-design, block-metadata, architecture, setup-wizard, settings-page]
 - AutopilotEngine class uses tiered selection loop: (1) TasteProfile rates candidate videos from block pool, (2) engine... [picast, ai-autopilot, selection-algorithm, tiered-inference]
 - PiCast autopilot API integration: /api/autopilot/toggle (POST with {enabled: bool}) wires to app-level _autopilot_eng... [picast, ai-autopilot, api-design, integration]
+- v1.0.0 block metadata and Discovery Agent architecture: PiPulse exposes `/api/pitim/blocks` endpoint returning JSON a... [picast, pipulse, api-design, block-metadata, architecture, setup-wizard, settings-page, discovery-agent]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -283,8 +282,7 @@ _Last updated: 2026-03-09 | 37 active memories, 319 total_
 - PiCast setup wizard validation pattern: Pushover token validated via POST to Pushover API (send 1-sec timeout test me... [picast, setup-wizard, validation, pattern]
 - URL validation pattern in PiCast: autoplay_pool_add and queue_add endpoints both normalize_url() then validate_url(ur... [picast, url-validation, api-pattern, error-handling]
 - PiCast web UI patterns: (1) Hamburger nav - dice icon and pool emoji (📅) remain fixed in header, all other nav links... [picast, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern]
-- AutopilotEngine initialization pattern: create_app() accepts optional autopilot_config parameter (default None), pass... [picast, ai-autopilot, initialization-pattern]
-- Autopilot engine test fixture pattern: _create_video_item(video_id) helper generates QueueItem with YouTube URL const... [picast, testing, autopilot, youtube, video-id]
+- AutopilotEngine initialization and testing patterns: create_app() accepts optional autopilot_config parameter (defaul... [picast, ai-autopilot, initialization-pattern, testing, youtube, video-id]
 
 ## Gotchas & Pitfalls
 - Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
@@ -292,19 +290,15 @@ _Last updated: 2026-03-09 | 37 active memories, 319 total_
 - Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
-- YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
 - Autopilot engine test flakiness from weighted shuffle: test_video_skip_removes_from_queue assumes skipped video will ... [picast, testing, autopilot, queue, randomness, flaky-test]
+- YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
 
 ## Current Progress
-- PiCast AI Autopilot Session 1.2 COMPLETE (2026-03-09): AutopilotEngine class implemented with 37 new tests covering i... [picast, ai-autopilot, session-1-2-complete, testing, engine-implementation]
-- Autopilot engine tests (test_autopilot_engine.py) complete with 37 passing tests covering TasteProfile matching, weig... [picast, ai-autopilot, testing, session-1-2]
-- PiCast AI Autopilot Phase 0 (Clean House) validation complete (2026-03-09): 786 tests passing, lint checks passing on... [picast, ai-autopilot, testing, phase-0-complete]
-- PiCast AI Autopilot Phase 0 (Clean House) validation complete: 786 tests passing (improved coverage from 68.88% to 69... [picast, ai-autopilot, testing, lint, phase-0-complete]
+- PiCast AI Autopilot Session 1.2 COMPLETE (2026-03-09): AutopilotEngine class with TasteProfile matching, tiered selec... [picast, ai-autopilot, session-1-2-complete, testing, engine-implementation]
 
 ## Context
-- PiCast auth roadmap shifted from cookie-based YouTube auth (YouTube requires now) to PO token setup via Pushover (v0.... [picast, youtube, authentication, bot-detection, roadmap]
-- PiCast v1.0.0 S3 next phase queued: install-pi.sh overhaul with 3-phase non-interactive setup (Phase 1: base dependen... [picast, v1.0.0, s3-planning, install-pi, roadmap]
-- PiCast autoplay roadmap: Sessions 1-2 complete (pool system + web UI); Session 3 (optional) proposes YouTube discover... [picast, autoplay, roadmap, discovery-agent]
+- PiCast autoplay roadmap: Sessions 1-2 complete (pool system + web UI); Session 3 (optional) proposes YouTube discover... [picast, autoplay, roadmap, discovery-agent, ai-autopilot, next-action]
+- PiCast v1.0.0 S3 next phase queued: install-pi.sh overhaul with 3-phase non-interactive setup (Phase 1: base dependen... [picast, v1.0.0, s3-planning, install-pi, roadmap, youtube, authentication]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-management, priorities]
 
 _For deeper context, use memory_search, memory_related, or memory_ask tools._

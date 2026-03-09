@@ -81,6 +81,12 @@ class AutopilotEngine:
     def get_status(self) -> dict:
         """Return status dict for API responses."""
         with self._lock:
+            stale = self._profile.is_stale(self._config.stale_threshold_hours)
+            stale_reason = None
+            if not self._profile.is_loaded:
+                stale_reason = "no profile loaded"
+            elif stale:
+                stale_reason = f"profile older than {self._config.stale_threshold_hours}h"
             return {
                 "enabled": self._running,
                 "mode": self._config.mode,
@@ -88,6 +94,9 @@ class AutopilotEngine:
                 "queue_depth": len(self._queue),
                 "target_depth": self._config.queue_depth,
                 "pool_only": self._config.pool_only,
+                "stale": stale,
+                "stale_reason": stale_reason,
+                "stale_threshold_hours": self._config.stale_threshold_hours,
                 "profile": self._profile.to_dict(),
             }
 
@@ -160,6 +169,42 @@ class AutopilotEngine:
         """Return a copy of the current queue for UI display."""
         with self._lock:
             return list(self._queue)
+
+    def set_mode(self, mode: str) -> str:
+        """Switch between 'single' and 'fleet' modes. Returns the new mode."""
+        if mode not in ("single", "fleet"):
+            raise ValueError(f"Invalid mode: {mode!r} (must be 'single' or 'fleet')")
+        with self._lock:
+            self._config.mode = mode
+            self._log("mode_change", reason=f"switched to {mode}")
+        logger.info("Autopilot mode changed to: %s", mode)
+        return mode
+
+    def reload_profile(self) -> dict | None:
+        """Force-reload the taste profile from database."""
+        with self._lock:
+            result = self._profile.load(self._db)
+            if self._running and self._current_block:
+                self._queue.clear()
+                self._fill_queue(self._current_block)
+            self._log("profile_reload",
+                       reason="profile reloaded" if result else "no profile found")
+        return result
+
+    def record_feedback(self, video_id: str, signal: str,
+                        block_name: str | None = None) -> None:
+        """Record a 'more like this' or 'less like this' feedback signal."""
+        block = block_name or self._current_block
+        self._log("feedback", video_id=video_id, block_name=block,
+                  reason=signal)
+        logger.info("Autopilot feedback: %s for %s in %s", signal, video_id, block)
+
+    def get_profile_data(self) -> dict | None:
+        """Return the raw taste profile dict for API responses."""
+        with self._lock:
+            if self._profile.is_loaded:
+                return self._profile._profile
+            return None
 
     # --- Internal Methods ---
 

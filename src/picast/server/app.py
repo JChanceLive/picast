@@ -1074,6 +1074,96 @@ def create_app(
         queue = _autopilot_engine.get_queue_preview()
         return jsonify({"queue": queue, "count": len(queue)})
 
+    @app.route("/api/autopilot/mode", methods=["POST"])
+    def autopilot_mode():
+        """Switch autopilot mode (single/fleet)."""
+        data = request.get_json(silent=True) or {}
+        mode = data.get("mode", "").strip()
+        if mode not in ("single", "fleet"):
+            return jsonify({"error": "mode must be 'single' or 'fleet'"}), 400
+        new_mode = _autopilot_engine.set_mode(mode)
+        return jsonify({"ok": True, "mode": new_mode})
+
+    @app.route("/api/autopilot/profile")
+    def autopilot_profile_get():
+        """Get the current taste profile JSON."""
+        profile_data = _autopilot_engine.get_profile_data()
+        if profile_data is None:
+            return jsonify({"error": "no profile loaded"}), 404
+        return jsonify(profile_data)
+
+    @app.route("/api/autopilot/profile", methods=["POST"])
+    def autopilot_profile_upload():
+        """Upload a new taste profile (from Mac refresh script)."""
+        data = request.get_json(silent=True) or {}
+        profile_json = data.get("profile")
+        generated_at = data.get("generated_at")
+
+        if not profile_json:
+            return jsonify({"error": "profile required (JSON object)"}), 400
+        if not generated_at:
+            return jsonify({"error": "generated_at required (ISO 8601)"}), 400
+
+        # Accept profile as dict or string
+        if isinstance(profile_json, dict):
+            profile_str = json.dumps(profile_json)
+        else:
+            profile_str = profile_json
+
+        try:
+            _taste_profile.save(db, profile_str, generated_at)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+
+        # Reload engine's view of the profile
+        _autopilot_engine.reload_profile()
+        logger.info("Taste profile uploaded (generated_at=%s)", generated_at)
+        return jsonify({"ok": True, "profile": _taste_profile.to_dict()})
+
+    @app.route("/api/autopilot/sources", methods=["POST"])
+    def autopilot_sources():
+        """Configure autopilot content sources."""
+        data = request.get_json(silent=True) or {}
+        if "pool_only" in data:
+            _autopilot_config.pool_only = bool(data["pool_only"])
+        if "discovery_ratio" in data:
+            ratio = float(data["discovery_ratio"])
+            if not 0.0 <= ratio <= 1.0:
+                return jsonify({"error": "discovery_ratio must be 0.0-1.0"}), 400
+            _autopilot_config.discovery_ratio = ratio
+        return jsonify({
+            "ok": True,
+            "pool_only": _autopilot_config.pool_only,
+            "discovery_ratio": _autopilot_config.discovery_ratio,
+        })
+
+    @app.route("/api/autopilot/feedback", methods=["POST"])
+    def autopilot_feedback():
+        """Record a 'more like this' feedback signal."""
+        data = request.get_json(silent=True) or {}
+        signal = data.get("signal", "").strip()
+        if signal not in ("more", "less"):
+            return jsonify({"error": "signal must be 'more' or 'less'"}), 400
+
+        video_id = data.get("video_id")
+        block_name = data.get("block_name")
+
+        # If no video specified, use current autoplay video
+        if not video_id:
+            video_id = _autoplay_current.get("video_id")
+            block_name = block_name or _autoplay_current.get("block_name")
+
+        if not video_id:
+            return jsonify({"error": "no video_id provided and no current video"}), 400
+
+        _autopilot_engine.record_feedback(video_id, signal, block_name)
+        return jsonify({
+            "ok": True,
+            "video_id": video_id,
+            "signal": signal,
+            "block_name": block_name,
+        })
+
     # --- Discover Endpoints ---
 
     DISCOVER_GENRES = [
