@@ -297,11 +297,24 @@ def create_app(
 
     _autopilot_config = autopilot_config or AutopilotConfig()
     _taste_profile = TasteProfile()
+
+    # Initialize fleet manager if devices are configured
+    _fleet_manager = None
+    if _autopilot_config.fleet_devices:
+        from picast.server.autopilot_fleet import FleetManager
+        _fleet_manager = FleetManager(_autopilot_config)
+        logger.info(
+            "Fleet manager initialized with %d device(s): %s",
+            len(_autopilot_config.fleet_devices),
+            ", ".join(_autopilot_config.fleet_devices.keys()),
+        )
+
     _autopilot_engine = AutopilotEngine(
         pool=_autoplay_pool,
         profile=_taste_profile,
         config=_autopilot_config,
         db=db,
+        fleet=_fleet_manager,
     )
     if _autopilot_config.enabled:
         _autopilot_engine.start()
