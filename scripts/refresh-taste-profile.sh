@@ -130,10 +130,24 @@ HISTORY=$(curl -sf "${PICAST_BASE}/api/autoplay/history?limit=${HISTORY_LIMIT}" 
     || die "Failed to fetch play history"
 debug "History entries: $(echo "$HISTORY" | jq 'length')"
 
-# Pool summaries (all blocks with video counts, ratings, etc.)
-POOLS=$(curl -sf "${PICAST_BASE}/api/autoplay" 2>/dev/null) \
-    || die "Failed to fetch pool data"
-debug "Pool data fetched"
+# Pool overview (block list + mappings)
+POOL_OVERVIEW=$(curl -sf "${PICAST_BASE}/api/autoplay" 2>/dev/null) \
+    || die "Failed to fetch pool overview"
+debug "Pool overview fetched"
+
+# Fetch full video details for each block
+BLOCK_NAMES=$(echo "$POOL_OVERVIEW" | jq -r '.pools[].block_name' 2>/dev/null)
+POOL_VIDEOS="{"
+first=true
+for block in $BLOCK_NAMES; do
+    videos=$(curl -sf "${PICAST_BASE}/api/autoplay/pool/${block}" 2>/dev/null) || continue
+    count=$(echo "$videos" | jq 'length' 2>/dev/null || echo 0)
+    debug "  ${block}: ${count} videos"
+    if [[ "$first" == true ]]; then first=false; else POOL_VIDEOS+=","; fi
+    POOL_VIDEOS+="\"${block}\":${videos}"
+done
+POOL_VIDEOS+="}"
+debug "Full pool data fetched"
 
 # Autopilot status (includes block info)
 STATUS=$(curl -sf "${PICAST_BASE}/api/autopilot/status" 2>/dev/null) \
@@ -147,7 +161,7 @@ FEEDBACK="[]"
 
 # Save raw data for debugging
 echo "$HISTORY" > "${CACHE_DIR}/history.json"
-echo "$POOLS" > "${CACHE_DIR}/pools.json"
+echo "$POOL_VIDEOS" > "${CACHE_DIR}/pools.json"
 echo "$STATUS" > "${CACHE_DIR}/status.json"
 debug "Raw data cached to ${CACHE_DIR}/"
 
@@ -168,32 +182,26 @@ HISTORY_FORMATTED=$(echo "$HISTORY" | jq -r '
         stop_reason: (.stop_reason // "")
     }]' 2>/dev/null || echo "[]")
 
-# Format pool summary (per-block video counts, avg ratings, tags)
-POOL_FORMATTED=$(echo "$POOLS" | jq '{
-    mappings: (.mappings // {}),
-    blocks: (
-        if .pools then
-            [.pools | to_entries[] | {
-                block: .key,
-                video_count: (.value | length),
-                liked: ([.value[] | select(.rating == 1)] | length),
-                disliked: ([.value[] | select(.rating == -1)] | length),
-                avg_skips: (if (.value | length) > 0 then ([.value[] | .skip_count] | add / length) else 0 end),
-                tags: ([.value[] | .tags // "" | split(",") | .[] | select(. != "")] | unique),
-                videos: [.value[] | {
-                    video_id,
-                    title: (.title // "untitled"),
-                    rating,
-                    skip_count: (.skip_count // 0),
-                    completion_count: (.completion_count // 0),
-                    play_count: (.play_count // 0),
-                    tags: (.tags // ""),
-                    duration: (.duration // 0)
-                }]
-            }]
-        else []
-        end
-    )
+# Format pool data (per-block video details with ratings, tags, skips)
+POOL_FORMATTED=$(echo "$POOL_VIDEOS" | jq '{
+    blocks: [to_entries[] | {
+        block: .key,
+        video_count: (.value | length),
+        liked: ([.value[] | select(.rating == 1)] | length),
+        disliked: ([.value[] | select(.rating == -1)] | length),
+        avg_skips: (if (.value | length) > 0 then ([.value[] | .skip_count] | add / length) else 0 end),
+        tags: ([.value[] | .tags // "" | split(",") | .[] | select(. != "")] | unique),
+        videos: [.value[] | {
+            video_id,
+            title: (.title // "untitled"),
+            rating,
+            skip_count: (.skip_count // 0),
+            completion_count: (.completion_count // 0),
+            play_count: (.play_count // 0),
+            tags: (.tags // ""),
+            duration: (.duration // 0)
+        }]
+    }]
 }' 2>/dev/null || echo '{"blocks":[]}')
 
 # Format block schedule
