@@ -8,6 +8,7 @@
 #   ./refresh-taste-profile.sh              # Full run (API call + push)
 #   ./refresh-taste-profile.sh --dry-run    # Pull data, show prompt, skip API call
 #   ./refresh-taste-profile.sh --verbose    # Extra logging
+#   ./refresh-taste-profile.sh --renew      # Reset 30-day trial for another cycle
 #
 # Requires:
 #   - ANTHROPIC_API_KEY environment variable
@@ -39,10 +40,13 @@ CACHE_DIR="${LOG_DIR}/taste-cache"
 DRY_RUN=false
 VERBOSE=false
 
+RENEW=false
+
 for arg in "$@"; do
     case "$arg" in
         --dry-run) DRY_RUN=true ;;
         --verbose) VERBOSE=true ;;
+        --renew) RENEW=true ;;
         *) echo "Unknown flag: $arg"; exit 1 ;;
     esac
 done
@@ -111,6 +115,40 @@ command -v jq >/dev/null || die "jq not found"
 
 # Load .env for headless/launchd runs (API key, overrides)
 [[ -f "${HOME}/.picast/.env" ]] && source "${HOME}/.picast/.env"
+
+# --- 30-Day Trial Guard ---
+TRIAL_FILE="${LOG_DIR}/trial-start"
+TRIAL_DAYS="${PICAST_TRIAL_DAYS:-30}"
+
+if [[ "$RENEW" == true ]]; then
+    date '+%Y-%m-%d' > "$TRIAL_FILE"
+    log "Trial renewed for ${TRIAL_DAYS} days (expires $(date -v+${TRIAL_DAYS}d '+%Y-%m-%d'))"
+fi
+
+if [[ ! -f "$TRIAL_FILE" ]]; then
+    # First run — start the trial
+    mkdir -p "$LOG_DIR"
+    date '+%Y-%m-%d' > "$TRIAL_FILE"
+    log "Trial started: ${TRIAL_DAYS} days (expires $(date -v+${TRIAL_DAYS}d '+%Y-%m-%d'))"
+elif [[ "$DRY_RUN" == false ]]; then
+    TRIAL_START=$(cat "$TRIAL_FILE")
+    TRIAL_START_EPOCH=$(date -j -f '%Y-%m-%d' "$TRIAL_START" '+%s' 2>/dev/null || echo 0)
+    NOW_EPOCH=$(date '+%s')
+    DAYS_ELAPSED=$(( (NOW_EPOCH - TRIAL_START_EPOCH) / 86400 ))
+    if [[ $DAYS_ELAPSED -ge $TRIAL_DAYS ]]; then
+        log "Trial expired after ${DAYS_ELAPSED} days (started ${TRIAL_START})"
+        log "Run with --renew to extend for another ${TRIAL_DAYS} days"
+        alert_failure "Trial expired (${DAYS_ELAPSED}d). Run: refresh-taste-profile.sh --renew"
+        log_result "trial_expired" "Started ${TRIAL_START}, ${DAYS_ELAPSED} days elapsed"
+        exit 0
+    fi
+    DAYS_LEFT=$((TRIAL_DAYS - DAYS_ELAPSED))
+    debug "Trial: day ${DAYS_ELAPSED}/${TRIAL_DAYS} (${DAYS_LEFT} days left)"
+    # Warn at 5 days remaining
+    if [[ $DAYS_LEFT -le 5 ]]; then
+        log "WARNING: Trial expires in ${DAYS_LEFT} days — run --renew to extend"
+    fi
+fi
 
 # --- Monthly Cost Cap (before API key check — no key needed if capped) ---
 MONTHLY_CAP="${PICAST_MONTHLY_CAP:-5.00}"
