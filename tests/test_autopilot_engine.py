@@ -5,10 +5,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from picast.config import AutopilotConfig, AutoplayConfig, ServerConfig
+from picast.config import AutopilotConfig, AutoplayConfig, FleetDeviceConfig, ServerConfig
 from picast.server.app import create_app
 from picast.server.autoplay_pool import AutoPlayPool
 from picast.server.autopilot_engine import AutopilotEngine, _weighted_shuffle
+from picast.server.autopilot_fleet import FleetManager
 from picast.server.database import Database
 from picast.server.taste_profile import TasteProfile
 from picast.server.youtube_discovery import DiscoveryAgent, DiscoveryResult
@@ -1033,3 +1034,94 @@ class TestQueueSkipEndpoint:
         data = resp.get_json()
         assert data["ok"] is True
         assert data["video_id"] == "test1234567"
+
+
+# --- Fleet Integration with Engine ---
+
+
+class TestEngineFleet:
+    @pytest.fixture
+    def fleet_config(self):
+        return AutopilotConfig(
+            enabled=True,
+            mode="fleet",
+            queue_depth=4,
+            fleet_devices={
+                "living-room": FleetDeviceConfig(
+                    host="10.0.0.10", port=5050, room="living room", mood="chill",
+                ),
+            },
+        )
+
+    @pytest.fixture
+    def fleet_engine(self, pool, profile, fleet_config, db):
+        fleet = FleetManager(fleet_config)
+        return AutopilotEngine(
+            pool=pool, profile=profile, config=fleet_config,
+            db=db, fleet=fleet,
+        )
+
+    def test_engine_has_fleet(self, fleet_engine):
+        assert fleet_engine.fleet is not None
+
+    def test_engine_no_fleet(self, engine):
+        assert engine.fleet is None
+
+    def test_status_includes_fleet_devices(self, fleet_engine):
+        status = fleet_engine.get_status()
+        assert "fleet_devices" in status
+        assert status["fleet_devices"] == 1
+
+    def test_status_no_fleet_key_without_fleet(self, engine):
+        status = engine.get_status()
+        assert "fleet_devices" not in status
+
+    def test_get_fleet_status_with_fleet(self, fleet_engine):
+        result = fleet_engine.get_fleet_status()
+        assert result is not None
+        assert len(result) == 1
+        assert result[0]["device_id"] == "living-room"
+
+    def test_get_fleet_status_without_fleet(self, engine):
+        assert engine.get_fleet_status() is None
+
+    def test_select_next_fleet_not_running(self, fleet_engine):
+        """Fleet selection should return empty when engine not running."""
+        results = fleet_engine.select_next_fleet()
+        assert results == []
+
+    def test_select_next_fleet_single_mode(self, fleet_engine):
+        """Fleet selection should return empty in single mode."""
+        fleet_engine._config.mode = "single"
+        fleet_engine.start()
+        results = fleet_engine.select_next_fleet()
+        assert results == []
+
+    @patch("picast.server.autopilot_fleet.urllib.request.urlopen")
+    def test_select_next_fleet_logs_push(self, mock_urlopen, fleet_engine, pool, db):
+        """Fleet push actions should be logged."""
+        import json as _json
+        # Make device online + idle
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _json.dumps({"idle": True}).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        _seed_pool(pool, "evening-transition", count=5)
+        fleet_engine.start()
+        fleet_engine.on_block_change("evening-transition")
+
+        # Change response for push
+        mock_resp_push = MagicMock()
+        mock_resp_push.read.return_value = _json.dumps({"ok": True}).encode()
+        mock_resp_push.__enter__ = MagicMock(return_value=mock_resp_push)
+        mock_resp_push.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp_push
+
+        results = fleet_engine.select_next_fleet()
+        # Check fleet_push was logged
+        rows = db.fetchall(
+            "SELECT * FROM autopilot_log WHERE action = 'fleet_push'"
+        )
+        assert len(rows) >= 1

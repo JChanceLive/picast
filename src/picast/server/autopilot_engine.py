@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 
 from picast.config import AutopilotConfig
 from picast.server.autoplay_pool import AutoPlayPool
+from picast.server.autopilot_fleet import FleetManager, select_for_fleet
 from picast.server.taste_profile import TasteProfile
 from picast.server.youtube_discovery import DiscoveryAgent
 
@@ -38,12 +39,14 @@ class AutopilotEngine:
         config: AutopilotConfig,
         db,
         discovery: DiscoveryAgent | None = None,
+        fleet: FleetManager | None = None,
     ):
         self._pool = pool
         self._profile = profile
         self._config = config
         self._db = db
         self._discovery = discovery
+        self._fleet = fleet
         self._running = False
         self._current_block: str | None = None
         self._queue: list[dict] = []
@@ -90,7 +93,7 @@ class AutopilotEngine:
                 stale_reason = "no profile loaded"
             elif stale:
                 stale_reason = f"profile older than {self._config.stale_threshold_hours}h"
-            return {
+            status = {
                 "enabled": self._running,
                 "mode": self._config.mode,
                 "current_block": self._current_block,
@@ -103,6 +106,9 @@ class AutopilotEngine:
                 "stale_threshold_hours": self._config.stale_threshold_hours,
                 "profile": self._profile.to_dict(),
             }
+            if self._fleet is not None:
+                status["fleet_devices"] = len(self._fleet.device_ids)
+            return status
 
     def on_block_change(self, block_name: str) -> None:
         """Handle PiPulse block transition. Clears and refills queue."""
@@ -209,6 +215,51 @@ class AutopilotEngine:
             if self._profile.is_loaded:
                 return self._profile._profile
             return None
+
+    # --- Fleet Mode ---
+
+    @property
+    def fleet(self) -> FleetManager | None:
+        return self._fleet
+
+    def select_next_fleet(self) -> list[dict]:
+        """Run fleet content distribution cycle.
+
+        Polls fleet devices, selects content for each idle device based
+        on its mood, and pushes it. Returns list of push results.
+
+        Only works when mode is 'fleet' and a FleetManager is configured.
+        """
+        if self._config.mode != "fleet" or self._fleet is None:
+            return []
+
+        if not self._running:
+            return []
+
+        # Poll device status first
+        self._fleet.poll_devices()
+
+        # Route content to idle devices
+        results = select_for_fleet(
+            self._fleet, self, self._profile, self._config,
+        )
+
+        for r in results:
+            self._log(
+                "fleet_push",
+                video_id=r["video"].get("video_id") if r["video"] else None,
+                block_name=None,
+                source="fleet",
+                reason=f"device={r['device_id']} success={r['success']}",
+            )
+
+        return results
+
+    def get_fleet_status(self) -> list[dict] | None:
+        """Return fleet device status for API. None if no fleet manager."""
+        if self._fleet is None:
+            return None
+        return self._fleet.get_fleet_status()
 
     # --- Internal Methods ---
 
