@@ -1,0 +1,391 @@
+{% extends "base.html" %}
+{% block title_suffix %} - Autopilot{% endblock %}
+
+{% block content %}
+<section class="ap-header">
+    <h2>&#x1F916; Autopilot</h2>
+    <button id="ap-toggle" class="autopool-pill" onclick="toggleAutopilot()">
+        <span id="ap-toggle-label">---</span>
+    </button>
+</section>
+
+<div class="ap-warning" id="staleWarning" style="display:none">
+    <span class="ap-warning-icon">&#x26A0;</span>
+    <div class="ap-warning-text">
+        <strong>AI profile is stale</strong>
+        <span id="staleReason"></span>
+    </div>
+</div>
+
+<div class="ap-status-bar" id="statusBar">
+    <div class="ap-stat">
+        <span class="ap-stat-label">Block</span>
+        <span class="ap-stat-value" id="statBlock">--</span>
+    </div>
+    <div class="ap-stat">
+        <span class="ap-stat-label">Mode</span>
+        <span class="ap-stat-value" id="statMode">--</span>
+    </div>
+    <div class="ap-stat">
+        <span class="ap-stat-label">Queue</span>
+        <span class="ap-stat-value" id="statQueue">--</span>
+    </div>
+</div>
+
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x23ED;</span>
+        <h3>Up Next</h3>
+    </div>
+    <div class="settings-card-body" id="upNextBody">
+        <div class="empty">Loading queue...</div>
+    </div>
+</div>
+
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F4E1;</span>
+        <h3>Sources</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="settings-row">
+            <label>Pool Only</label>
+            <button class="btn btn-sm" id="btnPoolOnly" onclick="togglePoolOnly()">--</button>
+        </div>
+        <div class="settings-note">When on, selects only from your curated autoplay pools</div>
+        <div class="settings-row">
+            <label for="discoverySlider">Discovery Ratio</label>
+            <div class="ap-slider-group">
+                <input type="range" id="discoverySlider" class="settings-slider" min="0" max="100" value="0">
+                <span class="ap-slider-label" id="discoveryLabel">0%</span>
+            </div>
+        </div>
+        <div class="settings-note">How often to try YouTube discovery vs pool videos</div>
+    </div>
+</div>
+
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x2699;</span>
+        <h3>Mode</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="ap-mode-buttons">
+            <button class="btn btn-sm ap-mode-btn" id="btnModeSingle" onclick="setMode('single')">Single</button>
+            <button class="btn btn-sm ap-mode-btn" id="btnModeFleet" onclick="setMode('fleet')">Fleet</button>
+        </div>
+        <div class="settings-note">Single = this device only. Fleet = coordinate across devices.</div>
+    </div>
+</div>
+
+<div class="settings-card">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F9E0;</span>
+        <h3>Taste Profile</h3>
+    </div>
+    <div class="settings-card-body">
+        <div class="ap-profile-info" id="profileInfo">
+            <div class="empty">Loading profile...</div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+let discoveryDebounce = null;
+let refreshTimer = null;
+
+async function loadStatus() {
+    try {
+        const r = await fetch('/api/autopilot/status');
+        const d = await r.json();
+        updateToggle(d);
+        updateStatus(d);
+        updateStaleWarning(d);
+        updateSources(d);
+        updateMode(d.mode);
+        updateProfile(d.profile);
+    } catch(e) {
+        document.getElementById('statBlock').textContent = 'Error';
+    }
+}
+
+async function loadQueue() {
+    try {
+        const r = await fetch('/api/autopilot/queue');
+        const d = await r.json();
+        updateUpNext(d.queue || []);
+    } catch(e) {
+        document.getElementById('upNextBody').innerHTML =
+            '<div class="empty">Failed to load queue</div>';
+    }
+}
+
+function updateToggle(d) {
+    const btn = document.getElementById('ap-toggle');
+    const lbl = document.getElementById('ap-toggle-label');
+    lbl.textContent = d.enabled ? 'ON' : 'OFF';
+    btn.className = 'autopool-pill ' + (d.enabled ? 'autopool-on' : 'autopool-off');
+    const navBtn = document.getElementById('btnAutopilot');
+    if (navBtn) {
+        const glow = d.enabled ? (d.mode === 'fleet' ? ' ap-nav-fleet' : ' ap-nav-active') : '';
+        navBtn.className = 'btn-dice' + glow;
+    }
+}
+
+function updateStatus(d) {
+    document.getElementById('statBlock').textContent = d.current_block || 'None';
+    document.getElementById('statMode').textContent = d.mode || '--';
+    document.getElementById('statQueue').textContent = d.queue_depth + ' / ' + d.target_depth;
+}
+
+function updateStaleWarning(d) {
+    const el = document.getElementById('staleWarning');
+    const reason = document.getElementById('staleReason');
+    if (d.stale || d.stale_reason) {
+        el.style.display = '';
+        let msg = d.stale_reason || 'Profile may be outdated';
+        if (d.profile && d.profile.generated_at) {
+            msg += ' (last refreshed: ' + timeSince(d.profile.generated_at) + ')';
+        }
+        reason.textContent = msg;
+    } else {
+        el.style.display = 'none';
+    }
+}
+
+function updateSources(d) {
+    const btn = document.getElementById('btnPoolOnly');
+    btn.textContent = d.pool_only ? 'On' : 'Off';
+    btn.className = 'btn btn-sm' + (d.pool_only ? ' btn-icon-active' : '');
+    const slider = document.getElementById('discoverySlider');
+    const label = document.getElementById('discoveryLabel');
+    if (d.pool_only) {
+        slider.disabled = true;
+        slider.value = 0;
+        label.textContent = '0%';
+    } else {
+        slider.disabled = false;
+        const pct = d.discovery_ratio != null ? Math.round(d.discovery_ratio * 100) : 0;
+        slider.value = pct;
+        label.textContent = pct + '%';
+    }
+}
+
+function updateMode(mode) {
+    const single = document.getElementById('btnModeSingle');
+    const fleet = document.getElementById('btnModeFleet');
+    single.className = 'btn btn-sm ap-mode-btn' + (mode === 'single' ? ' ap-mode-active' : '');
+    fleet.className = 'btn btn-sm ap-mode-btn' + (mode === 'fleet' ? ' ap-mode-active' : '');
+}
+
+function updateProfile(profile) {
+    const el = document.getElementById('profileInfo');
+    if (!profile || !profile.generated_at) {
+        el.innerHTML = '<div class="empty">No profile loaded. Run the Mac refresh script to generate one.</div>';
+        return;
+    }
+    const age = timeSince(profile.generated_at);
+    const genres = profile.genre_weights ? Object.keys(profile.genre_weights).length : 0;
+    const blocks = profile.block_strategies ? Object.keys(profile.block_strategies).length : 0;
+    const version = profile.version || '?';
+    el.innerHTML =
+        '<div class="ap-profile-grid">' +
+        '<div class="ap-profile-item"><span class="ap-stat-label">Version</span><span class="ap-stat-value">v' + esc(String(version)) + '</span></div>' +
+        '<div class="ap-profile-item"><span class="ap-stat-label">Refreshed</span><span class="ap-stat-value">' + esc(age) + ' ago</span></div>' +
+        '<div class="ap-profile-item"><span class="ap-stat-label">Genres</span><span class="ap-stat-value">' + genres + '</span></div>' +
+        '<div class="ap-profile-item"><span class="ap-stat-label">Blocks</span><span class="ap-stat-value">' + blocks + '</span></div>' +
+        '</div>';
+}
+
+function updateUpNext(queue) {
+    const el = document.getElementById('upNextBody');
+    if (!queue.length) {
+        el.innerHTML = '<div class="empty">Queue empty. Enable autopilot to fill it.</div>';
+        return;
+    }
+    let html = '';
+    queue.forEach((v, i) => {
+        const dur = v.duration ? fmtDuration(v.duration) : '';
+        const score = v.score != null ? v.score.toFixed(2) : '';
+        html +=
+            '<div class="ap-queue-item">' +
+            '<span class="ap-queue-pos">' + (i + 1) + '</span>' +
+            '<div class="ap-queue-info">' +
+            '<span class="ap-queue-title">' + esc(v.title || v.video_id) + '</span>' +
+            '<span class="ap-queue-meta">' +
+            (dur ? dur : '') +
+            (dur && score ? ' &middot; ' : '') +
+            (score ? 'score ' + score : '') +
+            '</span>' +
+            '</div>' +
+            '<div class="ap-queue-actions">' +
+            '<button class="btn btn-sm ap-queue-btn ap-queue-more" onclick="feedbackVideo(\'' + esc(v.video_id) + '\')" title="More like this">&#x1F44D;</button>' +
+            '<button class="btn btn-sm ap-queue-btn ap-queue-skip" onclick="skipVideo(\'' + esc(v.video_id) + '\')" title="Remove from queue">&#x2716;</button>' +
+            '</div>' +
+            '</div>';
+    });
+    el.innerHTML = html;
+}
+
+function fmtDuration(secs) {
+    if (!secs || secs <= 0) return '';
+    const h = Math.floor(secs / 3600);
+    const m = Math.floor((secs % 3600) / 60);
+    const s = secs % 60;
+    if (h > 0) return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+    return m + ':' + String(s).padStart(2, '0');
+}
+
+function timeSince(isoStr) {
+    const d = new Date(isoStr);
+    const now = new Date();
+    const secs = Math.floor((now - d) / 1000);
+    if (secs < 60) return secs + 's';
+    const mins = Math.floor(secs / 60);
+    if (mins < 60) return mins + 'm';
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return hrs + 'h';
+    const days = Math.floor(hrs / 24);
+    return days + 'd';
+}
+
+async function toggleAutopilot() {
+    try {
+        const r = await fetch('/api/autopilot/toggle', {method: 'POST'});
+        const d = await r.json();
+        updateToggle(d);
+        showToast('Autopilot ' + (d.enabled ? 'enabled' : 'disabled'));
+        loadStatus();
+        loadQueue();
+    } catch(e) {
+        showToast('Failed to toggle autopilot');
+    }
+}
+
+async function skipVideo(videoId) {
+    try {
+        const r = await fetch('/api/autopilot/queue/skip', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_id: videoId})
+        });
+        const d = await r.json();
+        if (d.ok) {
+            showToast('Removed from queue');
+            loadQueue();
+            loadStatus();
+        } else {
+            showToast(d.error || 'Failed to skip');
+        }
+    } catch(e) {
+        showToast('Failed to skip video');
+    }
+}
+
+async function feedbackVideo(videoId) {
+    try {
+        const r = await fetch('/api/autopilot/feedback', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({video_id: videoId, signal: 'more'})
+        });
+        const d = await r.json();
+        if (d.ok) {
+            showToast('Noted: more like this');
+        } else {
+            showToast(d.error || 'Failed to send feedback');
+        }
+    } catch(e) {
+        showToast('Failed to send feedback');
+    }
+}
+
+async function togglePoolOnly() {
+    const btn = document.getElementById('btnPoolOnly');
+    const isOn = btn.textContent === 'On';
+    try {
+        const r = await fetch('/api/autopilot/sources', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({pool_only: !isOn})
+        });
+        const d = await r.json();
+        if (d.ok) {
+            btn.textContent = d.pool_only ? 'On' : 'Off';
+            btn.className = 'btn btn-sm' + (d.pool_only ? ' btn-icon-active' : '');
+            document.getElementById('discoverySlider').disabled = d.pool_only;
+            showToast('Pool only ' + (d.pool_only ? 'enabled' : 'disabled'));
+        }
+    } catch(e) {
+        showToast('Failed to update sources');
+    }
+}
+
+document.getElementById('discoverySlider').addEventListener('input', function() {
+    document.getElementById('discoveryLabel').textContent = this.value + '%';
+    clearTimeout(discoveryDebounce);
+    discoveryDebounce = setTimeout(() => {
+        fetch('/api/autopilot/sources', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({discovery_ratio: parseInt(this.value) / 100})
+        }).then(r => r.json()).then(d => {
+            if (!d.ok) showToast('Failed to set discovery ratio');
+        }).catch(() => showToast('Failed to set discovery ratio'));
+    }, 300);
+});
+
+async function setMode(mode) {
+    try {
+        const r = await fetch('/api/autopilot/mode', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({mode})
+        });
+        const d = await r.json();
+        if (d.ok) {
+            updateMode(d.mode);
+            showToast('Mode: ' + d.mode);
+        } else {
+            showToast(d.error || 'Failed to set mode');
+        }
+    } catch(e) {
+        showToast('Failed to set mode');
+    }
+}
+
+// Auto-refresh polling (10s)
+function startRefresh() {
+    stopRefresh();
+    refreshTimer = setInterval(() => {
+        loadStatus();
+        loadQueue();
+    }, 10000);
+}
+
+function stopRefresh() {
+    if (refreshTimer) {
+        clearInterval(refreshTimer);
+        refreshTimer = null;
+    }
+}
+
+document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+        stopRefresh();
+    } else {
+        loadStatus();
+        loadQueue();
+        startRefresh();
+    }
+});
+
+// Initial load
+loadStatus();
+loadQueue();
+startRefresh();
+</script>
+{% endblock %}

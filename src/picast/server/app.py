@@ -349,6 +349,14 @@ def create_app(
             devices=device_registry.list_devices(),
         )
 
+    @app.route("/autopilot")
+    def web_autopilot():
+        return render_template(
+            "autopilot.html",
+            active="autopilot",
+            devices=device_registry.list_devices(),
+        )
+
     @app.route("/settings")
     def web_settings():
         return render_template(
@@ -1073,6 +1081,16 @@ def create_app(
         """Get the current autopilot queue preview."""
         queue = _autopilot_engine.get_queue_preview()
         return jsonify({"queue": queue, "count": len(queue)})
+
+    @app.route("/api/autopilot/queue/skip", methods=["POST"])
+    def autopilot_queue_skip():
+        """Remove a video from the autopilot queue (skip it)."""
+        data = request.get_json(silent=True) or {}
+        video_id = data.get("video_id", "").strip()
+        if not video_id:
+            return jsonify({"error": "video_id required"}), 400
+        _autopilot_engine.on_video_skip(video_id)
+        return jsonify({"ok": True, "video_id": video_id})
 
     @app.route("/api/autopilot/mode", methods=["POST"])
     def autopilot_mode():

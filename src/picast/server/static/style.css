@@ -1935,3 +1935,203 @@ body {
     gap: 0.5rem;
     flex-wrap: wrap;
 }
+
+/* Autopilot Page */
+.ap-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 1rem;
+}
+
+.ap-header h2 {
+    font-size: 1.2rem;
+    color: var(--neon-cyan);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.3);
+}
+
+.ap-warning {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    background: rgba(255, 200, 0, 0.08);
+    border: 1px solid rgba(255, 200, 0, 0.3);
+    border-radius: var(--radius);
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.75rem;
+    color: #ffc800;
+}
+
+.ap-warning-icon {
+    font-size: 1.2rem;
+    flex-shrink: 0;
+}
+
+.ap-warning-text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    font-size: 0.85rem;
+    line-height: 1.4;
+}
+
+.ap-warning-text strong {
+    font-size: 0.9rem;
+}
+
+.ap-status-bar {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+}
+
+.ap-stat {
+    background: var(--surface);
+    border-radius: var(--radius);
+    padding: 0.6rem 0.75rem;
+    border: 1px solid rgba(0, 240, 255, 0.1);
+    text-align: center;
+}
+
+.ap-stat-label {
+    display: block;
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    margin-bottom: 0.15rem;
+}
+
+.ap-stat-value {
+    display: block;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.ap-slider-group {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.ap-slider-label {
+    font-size: 0.85rem;
+    color: var(--accent);
+    min-width: 2.5rem;
+    text-align: right;
+}
+
+.ap-mode-buttons {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.ap-mode-btn {
+    flex: 1;
+}
+
+.ap-mode-active {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #0a0a1e !important;
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.4);
+}
+
+.ap-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+}
+
+.ap-profile-item {
+    background: var(--bg);
+    border-radius: calc(var(--radius) * 0.6);
+    padding: 0.5rem 0.6rem;
+    border: 1px solid rgba(0, 240, 255, 0.08);
+}
+
+/* AI nav button glow states */
+.ap-nav-active {
+    background: var(--neon-cyan) !important;
+    border-color: var(--neon-cyan) !important;
+    color: #0a0a1e !important;
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.5);
+}
+
+.ap-nav-fleet {
+    background: var(--neon-magenta) !important;
+    border-color: var(--neon-magenta) !important;
+    color: #0a0a1e !important;
+    box-shadow: var(--glow-sm) rgba(255, 0, 255, 0.5);
+}
+
+/* Up Next queue items */
+.ap-queue-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ap-queue-item:last-child {
+    border-bottom: none;
+}
+
+.ap-queue-pos {
+    font-size: 0.75rem;
+    color: var(--muted);
+    min-width: 1.2rem;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.ap-queue-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.ap-queue-title {
+    font-size: 0.85rem;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ap-queue-meta {
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+
+.ap-queue-actions {
+    display: flex;
+    gap: 0.25rem;
+    flex-shrink: 0;
+}
+
+.ap-queue-btn {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.85rem;
+    border-radius: var(--radius);
+}
+
+.ap-queue-more:hover {
+    background: rgba(0, 240, 255, 0.15);
+    border-color: var(--neon-cyan);
+}
+
+.ap-queue-skip:hover {
+    background: rgba(255, 80, 80, 0.15);
+    border-color: #ff5050;
+}

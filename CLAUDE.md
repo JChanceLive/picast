@@ -257,7 +257,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-09 | 30 active memories, 333 total_
+_Last updated: 2026-03-10 | 32 active memories, 345 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -282,6 +282,7 @@ _Last updated: 2026-03-09 | 30 active memories, 333 total_
 - URL validation pattern in PiCast: autoplay_pool_add and queue_add endpoints both normalize_url() then validate_url(ur... [picast, url-validation, api-pattern, error-handling]
 - PiCast web UI patterns: (1) Hamburger nav - dice icon and pool emoji (📅) remain fixed in header, all other nav links... [picast, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern]
 - AutopilotEngine initialization and testing patterns: create_app() accepts optional autopilot_config parameter (defaul... [picast, ai-autopilot, initialization-pattern, testing, youtube, video-id]
+- PiCast AI Autopilot Mac-side automation patterns: (1) refresh-taste-profile.sh uses exponential backoff retry helper ... [picast, autopilot, mac-side, retry, error-handling, automation, launchd, plist, taste-profile, validation, schema, python, testing, e2e]
 
 ## Gotchas & Pitfalls
 - Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
@@ -290,6 +291,7 @@ _Last updated: 2026-03-09 | 30 active memories, 333 total_
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Autopilot engine test flakiness from weighted shuffle: test_video_skip_removes_from_queue assumes skipped video will ... [picast, testing, autopilot, queue, randomness, flaky-test]
+- Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
 - YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
 
 ## Current Progress

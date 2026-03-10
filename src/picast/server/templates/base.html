@@ -19,6 +19,8 @@
             <a href="/" class="btn-dice {% if active == 'queue' %}btn-dice-active{% endif %}" title="Queue">&#x25B6;</a>
             <button class="btn-dice" id="btnDice" onclick="openDiscoverModal()" title="Discover movies">&#x1F3B2;</button>
             <a href="/pool" class="btn-dice {% if active == 'pool' %}btn-dice-active{% endif %}" title="AutoPlay Pool">&#x1F4C5;</a>
+            <a href="/autopilot" class="btn-dice {% if active == 'autopilot' %}btn-dice-active{% endif %}"
+               id="btnAutopilot" title="AI Autopilot">&#x1F916;</a>
             <button class="btn-dice" id="btnMenu" onclick="toggleMenu()" title="Menu" aria-label="Menu">&#x2630;</button>
         </div>
     </nav>
@@ -28,6 +30,7 @@
         <a href="/history" class="nav-menu-item {% if active == 'history' %}active{% endif %}">History</a>
         <a href="/collections" class="nav-menu-item {% if active == 'collections' %}active{% endif %}">Collections</a>
         <a href="/catalog" class="nav-menu-item {% if active == 'catalog' %}active{% endif %}">Catalog</a>
+        <a href="/autopilot" class="nav-menu-item {% if active == 'autopilot' %}active{% endif %}">&#x1F916; Autopilot</a>
         {% if devices and devices|length > 1 %}
         <div class="nav-menu-devices">
             <select id="device-select" onchange="switchDevice(this.value)" class="device-selector">

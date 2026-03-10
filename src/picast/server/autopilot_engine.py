@@ -94,6 +94,7 @@ class AutopilotEngine:
                 "queue_depth": len(self._queue),
                 "target_depth": self._config.queue_depth,
                 "pool_only": self._config.pool_only,
+                "discovery_ratio": self._config.discovery_ratio,
                 "stale": stale,
                 "stale_reason": stale_reason,
                 "stale_threshold_hours": self._config.stale_threshold_hours,
