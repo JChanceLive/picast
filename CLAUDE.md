@@ -257,7 +257,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-10 | 38 active memories, 383 total_
+_Last updated: 2026-03-10 | 52 active memories, 403 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -272,6 +272,7 @@ _Last updated: 2026-03-10 | 38 active memories, 383 total_
 - PiCast idle TV wallpaper redesign decision: User requested viewing box contents before trimming; after review, 7 boxe... [picast, wallpaper, tv-ui, design, decision]
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
+- Taste profile generation uses Sonnet 4.5 (not Opus 4.6) in refresh-taste-profile.sh to reduce cost from ~$0.29 to ~$0... [picast, autopilot, cost-optimization, taste-profile]
 
 ## Patterns & Conventions
 - PiCast feature flag wiring pattern: New boolean config flags in picast.toml [autoplay] section (e.g., seasonal_rotati... [picast, config, feature-flags, autoplay, pattern]
@@ -286,25 +287,36 @@ _Last updated: 2026-03-10 | 38 active memories, 383 total_
 - PiCast AI Autopilot Mac-side automation patterns: (1) refresh-taste-profile.sh uses exponential backoff retry helper ... [picast, autopilot, mac-side, retry, error-handling, automation, launchd, plist, taste-profile, validation, schema, python, testing, e2e]
 - PiCast fleet mode UI pattern: Mode toggle buttons ('Single' / 'Fleet') on autopilot page switch between modes via POS... [picast, autopilot, ui-pattern, fleet, javascript, api-design]
 - PiCast web UI patterns: (1) Hamburger nav - dice icon and pool emoji (📅) remain fixed in header, all other nav links... [picast, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern, queue-preview]
+- refresh-taste-profile.sh .env loading pattern: script sources ~/.picast/.env at line 113 via `[[ -f "${HOME}/.picast/... [picast, bash, environment-variables, configuration]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
+- Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Autopilot engine test flakiness from weighted shuffle: test_video_skip_removes_from_queue assumes skipped video will ... [picast, testing, autopilot, queue, randomness, flaky-test]
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
+- YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
 - picast-z1 (Pi Zero 2 W) fleet receiver: IP 10.0.0.161, hostname picast-z1, user jopi, Debian 13 trixie (aarch64). SSH... [picast-z1, fleet, receiver, hardware, network]
 - Test helper _save_profile() in test_autopilot_engine.py has default generated_at="2026-03-10T06:00:00". When testing ... [picast, testing, gotcha, taste-profile]
-- YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
-- picast-z1 (Pi Zero 2 W) fleet receiver: IP 10.0.0.161, hostname picast-z1, user jopi, Debian 13 trixie (aarch64). SSH... [picast-z1, fleet, receiver, hardware, network, deployment, apt-get]
+- picast-z1 apt-get install of mpv/flask/yt-dlp COMPLETED successfully — all dependencies verified installed during ses... [picast-z1, receiver, deployment, apt-get]
+- refresh-taste-profile.sh pool data bug FIXED in commit 1969152: /api/autoplay endpoint returns pools as a LIST of sum... [picast, autopilot, bash, api, jq, bug-fix]
+- FleetManager wiring bug FIXED in commit 28a8897: AutopilotEngine was created without fleet= parameter even when autop... [picast, autopilot, fleet, app-startup, bug-fix]
+- refresh-taste-profile.sh API error handling silences actual HTTP responses with `curl -sf ... 2>/dev/null`, causing g... [picast, autopilot, bash, api-debugging, error-handling]
+- refresh-taste-profile.sh hardcoded model ID `claude-opus-4-6-20250415` returns HTTP 404 from Anthropic API; correct I... [picast, autopilot, api, anthropic, bash]
+- refresh-taste-profile.sh Opus pricing is ~$0.29 per profile generation (12,870 in + 1,227 out tokens at claude-opus-4... [picast, autopilot, cost, refresh-taste-profile, tokens]
+- refresh-taste-profile.sh validation output shows '0 blocks' for v2 Taste Profile (energy_profiles-based architecture)... [picast, autopilot, taste-profile, v2-migration, logging]
+- Taste Profile v2 generated by Sonnet via refresh-taste-profile.sh includes 62 genre_weights and 3 energy_profiles but... [picast, autopilot, taste-profile, discovery, prompt-engineering]
+- refresh-taste-profile.sh cost cap logic uses MONTHLY_CAP environment variable (sourced from ~/.picast/.env) to preven... [picast, autopilot, cost-control, environment-variables]
 
 ## Current Progress
-- PiCast AI Autopilot S5.2 COMPLETE (2026-03-10): Taste Profile v2 migration and picast-receiver created.
-
-Part B (Tast... [picast, autopilot, s5.2, taste-profile-v2, receiver, fleet, progress]
+- PiCast AI Autopilot S5.2 COMPLETE (2026-03-10): Taste Profile v2 migration + picast-receiver deployed. Part A (picast... [picast, autopilot, s5.2-complete, fleet, receiver, taste-profile-v2, progress, deployment]
+- PiCast S5.2 fully deployed and verified (2026-03-10): (1) picast-receiver systemd service running on picast-z1 (Pi Ze... [picast, autopilot, s5.2-complete, fleet, receiver, deployment, testing]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-10): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
 
 ## Context
+- PiCast S5.3 queued (next after S5.2): Multi-block mood inference (block_name → mood translation) + discovery scaling ... [picast, autopilot, s5.3-queued, mood-inference, discovery, next-phase]
+- User's actual PiCast viewing preferences (for taste profile seeding): PRIMARY is Boston and Maine Live webcam (always... [picast, autopilot, taste-profile, user-preferences]
 - PiCast Autopilot design phase: User clarified that taste profile should generate discovery queries based on user's hi... [picast, autopilot, design-decision, discovery, taste-profile]
 - PiCast S5.2 queued: API endpoints for fleet control (/api/autopilot/fleet/status, /api/autopilot/fleet/select, /api/a... [picast, autopilot, s5.2-queued, savepoint, workflow]
 - PiCast AI Autopilot S4.1 COMPLETE (2026-03-10): Profile-driven YouTube discovery and discovery/pool ratio splitting i... [picast, ai-autopilot, phase-4-complete, progress, discovery, twitch]

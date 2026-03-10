@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # refresh-taste-profile.sh — Daily taste profile generation for PiCast AI Autopilot
 #
-# Pulls viewing data from PiCast API, sends to Opus 4.6 for analysis,
+# Pulls viewing data from PiCast API, sends to Sonnet 4.5 for analysis,
 # validates the output, and pushes the new profile back to PiCast.
 #
 # Usage:
@@ -25,7 +25,7 @@ PICAST_BASE="http://${PICAST_HOST}:${PICAST_PORT}"
 PIPULSE_HOST="${PIPULSE_HOST:-pipulse.local}"
 PIPULSE_PORT="${PIPULSE_PORT:-5055}"
 PIPULSE_BASE="http://${PIPULSE_HOST}:${PIPULSE_PORT}"
-MODEL="${PICAST_OPUS_MODEL:-claude-opus-4-6-20250415}"
+MODEL="${PICAST_MODEL:-claude-sonnet-4-5-20250929}"
 MAX_TOKENS=2000
 HISTORY_LIMIT=50
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -109,6 +109,24 @@ log_result() {
 command -v curl >/dev/null || die "curl not found"
 command -v jq >/dev/null || die "jq not found"
 
+# Load .env for headless/launchd runs (API key, overrides)
+[[ -f "${HOME}/.picast/.env" ]] && source "${HOME}/.picast/.env"
+
+# --- Monthly Cost Cap (before API key check — no key needed if capped) ---
+MONTHLY_CAP="${PICAST_MONTHLY_CAP:-5.00}"
+if [[ -f "$LOG_FILE" && "$DRY_RUN" == false ]]; then
+    CURRENT_MONTH=$(date '+%Y-%m')
+    MONTH_SPEND=$(jq -r "select(.timestamp | startswith(\"${CURRENT_MONTH}\")) | .cost" "$LOG_FILE" 2>/dev/null \
+        | awk '{s+=$1} END {printf "%.4f", s+0}')
+    CAP_EXCEEDED=$(echo "$MONTH_SPEND >= $MONTHLY_CAP" | bc 2>/dev/null || echo 0)
+    if [[ "$CAP_EXCEEDED" -eq 1 ]]; then
+        log "Monthly cost cap reached (\$${MONTH_SPEND} / \$${MONTHLY_CAP}), skipping"
+        log_result "skipped" "Monthly cost cap: \$${MONTH_SPEND} / \$${MONTHLY_CAP}"
+        exit 0
+    fi
+    debug "Monthly spend: \$${MONTH_SPEND} / \$${MONTHLY_CAP}"
+fi
+
 if [[ "$DRY_RUN" == false ]]; then
     [[ -n "${ANTHROPIC_API_KEY:-}" ]] || die "ANTHROPIC_API_KEY not set"
 fi
@@ -165,8 +183,8 @@ echo "$POOL_VIDEOS" > "${CACHE_DIR}/pools.json"
 echo "$STATUS" > "${CACHE_DIR}/status.json"
 debug "Raw data cached to ${CACHE_DIR}/"
 
-# --- Step 2: Build Opus Prompt ---
-log "Building Opus prompt..."
+# --- Step 2: Build Prompt ---
+log "Building prompt for ${MODEL}..."
 
 [[ -f "$PROMPT_TEMPLATE" ]] || die "Prompt template not found: ${PROMPT_TEMPLATE}"
 
@@ -241,7 +259,7 @@ fi
 
 # --- Step 3: Call Anthropic API (with 1 retry on invalid JSON) ---
 
-call_opus() {
+call_api() {
     # Calls Opus API and extracts profile text. Sets PROFILE_RAW, INPUT_TOKENS, OUTPUT_TOKENS, COST.
     log "Calling ${MODEL}..."
 
@@ -260,25 +278,37 @@ call_opus() {
             }]
         }')
 
-    API_RESPONSE=$(curl -sf \
+    local http_code
+    API_RESPONSE=$(curl -s \
         --connect-timeout 30 \
         --max-time 120 \
+        -w "\n%{http_code}" \
         -H "Content-Type: application/json" \
         -H "x-api-key: ${ANTHROPIC_API_KEY}" \
         -H "anthropic-version: 2023-06-01" \
         -d "$api_body" \
-        "https://api.anthropic.com/v1/messages" 2>/dev/null) \
-        || return 1
+        "https://api.anthropic.com/v1/messages") \
+        || { log "curl failed (network error)"; return 1; }
+
+    http_code=$(echo "$API_RESPONSE" | tail -1)
+    API_RESPONSE=$(echo "$API_RESPONSE" | sed '$d')
 
     echo "$API_RESPONSE" > "${CACHE_DIR}/api-response.json"
+
+    if [[ "$http_code" != "200" ]]; then
+        local api_error
+        api_error=$(echo "$API_RESPONSE" | jq -r '.error.message // .error.type // "unknown"' 2>/dev/null || echo "unknown")
+        log "API returned HTTP ${http_code}: ${api_error}"
+        return 1
+    fi
 
     PROFILE_RAW=$(echo "$API_RESPONSE" | jq -r '.content[0].text' 2>/dev/null) \
         || return 1
 
     INPUT_TOKENS=$(echo "$API_RESPONSE" | jq -r '.usage.input_tokens // 0' 2>/dev/null)
     OUTPUT_TOKENS=$(echo "$API_RESPONSE" | jq -r '.usage.output_tokens // 0' 2>/dev/null)
-    # Opus 4.6: $15/M input, $75/M output
-    COST=$(echo "scale=4; ($INPUT_TOKENS * 15 + $OUTPUT_TOKENS * 75) / 1000000" | bc 2>/dev/null || echo "0")
+    # Sonnet 4.5: $3/M input, $15/M output
+    COST=$(echo "scale=4; ($INPUT_TOKENS * 3 + $OUTPUT_TOKENS * 15) / 1000000" | bc 2>/dev/null || echo "0")
     log "Tokens: ${INPUT_TOKENS} in / ${OUTPUT_TOKENS} out (~\$${COST})"
     return 0
 }
@@ -295,7 +325,7 @@ validate_profile_json() {
 
 # First attempt
 TOTAL_COST=0
-if ! call_opus; then
+if ! call_api; then
     log_result "error" "Anthropic API call failed"
     die "Anthropic API call failed (check ANTHROPIC_API_KEY and network)"
 fi
@@ -305,10 +335,10 @@ TOTAL_COST=$(echo "scale=4; $TOTAL_COST + ${COST:-0}" | bc 2>/dev/null || echo "
 log "Validating profile JSON..."
 if ! validate_profile_json; then
     # Retry once on invalid JSON
-    log "Invalid JSON from Opus — retrying once..."
+    log "Invalid JSON from model — retrying once..."
     echo "$PROFILE_RAW" > "${CACHE_DIR}/invalid-response-attempt1.txt"
 
-    if ! call_opus; then
+    if ! call_api; then
         log_result "error" "Anthropic API retry failed" "$TOTAL_COST"
         die "Anthropic API retry failed"
     fi
@@ -317,7 +347,7 @@ if ! validate_profile_json; then
     if ! validate_profile_json; then
         echo "$PROFILE_RAW" > "${CACHE_DIR}/invalid-response-attempt2.txt"
         log_result "error" "Invalid JSON after 2 attempts" "$TOTAL_COST"
-        die "Opus returned invalid JSON after 2 attempts. Raw output saved to ${CACHE_DIR}/"
+        die "Model returned invalid JSON after 2 attempts. Raw output saved to ${CACHE_DIR}/"
     fi
 fi
 
@@ -325,11 +355,15 @@ COST="$TOTAL_COST"
 
 # Get counts for logging
 GENRE_COUNT=$(echo "$PROFILE_JSON" | jq '.global_preferences.genre_weights | length' 2>/dev/null || echo 0)
-BLOCK_COUNT=$(echo "$PROFILE_JSON" | jq '.block_strategies | length' 2>/dev/null || echo 0)
+ENERGY_COUNT=$(echo "$PROFILE_JSON" | jq '.energy_profiles | length' 2>/dev/null || echo 0)
+DISCOVERY_COUNT=$(echo "$PROFILE_JSON" | jq '.discovery_queries | length' 2>/dev/null || echo 0)
 
 # Save validated profile
 echo "$PROFILE_JSON" > "${CACHE_DIR}/validated-profile.json"
-log "Profile valid: ${GENRE_COUNT} genres, ${BLOCK_COUNT} blocks"
+log "Profile valid: ${GENRE_COUNT} genres, ${ENERGY_COUNT} energy profiles, ${DISCOVERY_COUNT} discovery queries"
+if [[ "$DISCOVERY_COUNT" -eq 0 ]]; then
+    log "WARNING: No discovery queries in profile — autopilot discovery will be limited"
+fi
 
 # --- Step 5: Push to PiCast (3 retries with backoff) ---
 log "Pushing profile to PiCast..."
@@ -367,5 +401,5 @@ PROFILE_VERSION=$(echo "$UPLOAD_RESPONSE" | jq -r '.profile.version // "?"' 2>/d
 log "Profile uploaded successfully (v${PROFILE_VERSION})"
 
 # --- Step 6: Log Result ---
-log_result "success" "v${PROFILE_VERSION}: ${GENRE_COUNT} genres, ${BLOCK_COUNT} blocks" "$COST"
+log_result "success" "v${PROFILE_VERSION}: ${GENRE_COUNT} genres, ${ENERGY_COUNT} energy profiles, ${DISCOVERY_COUNT} discovery queries" "$COST"
 log "Done. Cost: ~\$${COST}"

@@ -466,17 +466,32 @@ class TestThemeConfigParsing:
 
 
 def _make_profile_with_queries(block_name="morning", queries=None, max_duration=0):
-    """Build a taste profile dict with discovery queries."""
+    """Build a v2 taste profile dict with discovery queries."""
     return {
-        "version": 1,
+        "version": 2,
         "generated_at": "2026-03-10T06:00:00",
         "global_preferences": {"genre_weights": {"ambient": 0.9}},
-        "block_strategies": {
-            block_name: {"energy": "low", "max_duration": max_duration},
+        "energy_profiles": {
+            "chill": {
+                "genres": ["ambient"],
+                "max_duration": max_duration or 7200,
+                "tempo": "slow",
+                "description": "Relaxing content",
+            },
+            "focus": {
+                "genres": ["ambient"],
+                "max_duration": max_duration or 5400,
+                "tempo": "steady",
+                "description": "Work content",
+            },
+            "vibes": {
+                "genres": ["ambient"],
+                "max_duration": max_duration or 3600,
+                "tempo": "any",
+                "description": "Variety content",
+            },
         },
-        "discovery_queries": {
-            block_name: queries or ["chill ambient music", "nature documentary"],
-        },
+        "discovery_queries": queries or ["chill ambient music", "nature documentary"],
     }
 
 
@@ -521,7 +536,7 @@ class TestDiscoverFromProfile:
         mock_run.return_value = _mock_run_ok(
             _make_ytdlp_output(("disc_vid_001", "Ambient Track", "1200"))
         )
-        results = discovery_agent.discover_from_profile(taste_profile, "morning")
+        results = discovery_agent.discover_from_profile(taste_profile, "chill")
         assert len(results) >= 1
         assert results[0].video_id == "disc_vid_001"
 
@@ -532,12 +547,21 @@ class TestDiscoverFromProfile:
             _mock_run_ok(_make_ytdlp_output(("q1_vid_00001", "Q1", "600"))),
             _mock_run_ok(_make_ytdlp_output(("q2_vid_00001", "Q2", "600"))),
         ]
-        results = discovery_agent.discover_from_profile(taste_profile, "morning")
+        results = discovery_agent.discover_from_profile(taste_profile, "chill")
         assert mock_run.call_count == 2
         assert len(results) == 2
 
-    def test_no_queries_for_block(self, discovery_agent, taste_profile):
-        results = discovery_agent.discover_from_profile(taste_profile, "nonexistent")
+    def test_no_queries_returns_empty(self, profile_db):
+        """Profile without discovery queries returns empty list."""
+        pool = AutoPlayPool(profile_db)
+        agent = DiscoveryAgent(pool=pool, delay=0)
+        profile_dict = _make_profile_with_queries(queries=[])
+        # Override: remove discovery_queries entirely
+        del profile_dict["discovery_queries"]
+        _save_profile_for_discovery(profile_db, profile_dict)
+        prof = TasteProfile()
+        prof.load(profile_db)
+        results = agent.discover_from_profile(prof, "chill")
         assert results == []
 
     @patch("shutil.which", return_value="/usr/bin/yt-dlp")
@@ -547,7 +571,7 @@ class TestDiscoverFromProfile:
             _mock_run_ok(_make_ytdlp_output(("same_vid_001", "Same Video", "600"))),
             _mock_run_ok(_make_ytdlp_output(("same_vid_001", "Same Video", "600"))),
         ]
-        results = discovery_agent.discover_from_profile(taste_profile, "morning")
+        results = discovery_agent.discover_from_profile(taste_profile, "chill")
         assert len(results) == 1
 
     @patch("shutil.which", return_value="/usr/bin/yt-dlp")
@@ -580,7 +604,7 @@ class TestDiscoverFromProfile:
                 ("long_vid_001", "Long", "600"),
             )
         )
-        results = agent.discover_from_profile(prof, "morning")
+        results = agent.discover_from_profile(prof, "chill")
         assert len(results) == 1
         assert results[0].video_id == "short_vid_01"
 

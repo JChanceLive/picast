@@ -788,7 +788,20 @@ def create_app(
                         block_name, mood, selected["video_id"], vid_title,
                         selected.get("score", 0),
                     )
-                    return jsonify({
+                    # Hybrid fleet: also push to fleet devices if in fleet mode
+                    fleet_pushed = 0
+                    if (_autopilot_engine.fleet is not None
+                            and _autopilot_engine._config.mode == "fleet"):
+                        try:
+                            fleet_results = _autopilot_engine.select_next_fleet()
+                            fleet_pushed = sum(
+                                1 for r in fleet_results if r.get("success")
+                            )
+                            logger.info("Fleet hybrid push: %d/%d devices",
+                                        fleet_pushed, len(fleet_results))
+                        except Exception as fleet_err:
+                            logger.warning("Fleet push failed: %s", fleet_err)
+                    response = {
                         "ok": True,
                         "played": url,
                         "block": block_name,
@@ -796,7 +809,10 @@ def create_app(
                         "video_id": selected["video_id"],
                         "autopilot": True,
                         "score": selected.get("score"),
-                    })
+                    }
+                    if fleet_pushed > 0:
+                        response["fleet_pushed"] = fleet_pushed
+                    return jsonify(response)
                 except Exception as e:
                     logger.exception("Autopilot trigger failed for %s: %s", block_name, e)
                     return jsonify({"ok": False, "error": str(e)}), 500

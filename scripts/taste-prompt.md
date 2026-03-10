@@ -51,11 +51,11 @@ Generate ONLY a valid JSON object matching this exact schema. No commentary, no 
       "description": "short human-readable description"
     }
   },
+  "discovery_queries": ["youtube search query 1", "query 2", "...(6 total)"],
   "creator_affinity": {
     "channel_name_or_id": 0.0-2.0
   },
-  "avoid_patterns": ["pattern1", "pattern2"],
-  "discovery_queries": ["youtube search query 1", "query 2"]
+  "avoid_patterns": ["pattern1", "pattern2"]
 }
 ```
 
@@ -82,12 +82,17 @@ For each profile:
 - Channels with frequent skips -> 0.3-0.7
 - Only include creators that appear in pool data
 
+**discovery_queries** (REQUIRED — exactly 6): YouTube search queries the system uses to find new videos. These are CRITICAL — without them, the autopilot cannot discover new content. You MUST include exactly 6 queries. Base them on:
+- The owner's most-played and highest-rated content types
+- Gaps in the current pool (content types they'd likely enjoy but aren't represented)
+- Be specific: "relaxing train journey through Norway 4K" not "relaxing videos"
+- Mix query styles: some for known preferences, some for adjacent discovery
+- Example: If owner watches ambient nature, include "peaceful forest stream ambience 4K", "Japanese zen garden nature sounds", "Northern lights timelapse Iceland"
+
 **avoid_patterns**: Title/tag patterns to actively filter out. Based on:
 - Genres/tags with consistent skips across multiple videos
 - Content types the owner clearly dislikes based on viewing data
 - Keep this list short (3-8 patterns max)
-
-**discovery_queries**: 4-8 YouTube search queries that would find new videos matching the owner's overall taste. NOT per-block — these are global queries that reflect their general preferences. Be specific and varied. Avoid generic queries.
 
 ### Rules
 
@@ -96,6 +101,6 @@ For each profile:
 3. genre_weights values must be 0.0-1.0
 4. creator_affinity values must be 0.0-2.0
 5. max_duration must be positive integer (seconds)
-6. Discovery queries should reflect actual viewing patterns, not generic suggestions
+6. discovery_queries MUST contain exactly 6 specific YouTube search queries — this field is REQUIRED, not optional
 7. avoid_patterns should be lowercase strings
 8. Heavily skipped videos (skip_count >= 5) indicate strong dislike — de-weight those genres and add to avoid_patterns

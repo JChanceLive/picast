@@ -24,15 +24,20 @@ REQUIRED_PREFS_KEYS = {"genre_weights"}
 REQUIRED_ENERGY_PROFILES = {"chill", "focus", "vibes"}
 
 
-def validate(profile: dict) -> list[str]:
-    """Validate a taste profile dict. Returns list of error strings (empty = valid)."""
+def validate(profile: dict) -> tuple[list[str], list[str]]:
+    """Validate a taste profile dict.
+
+    Returns (errors, warnings). Empty errors = valid profile.
+    Warnings are non-fatal issues printed to stderr but don't fail validation.
+    """
     errors = []
+    warnings = []
 
     # Top-level keys
     missing = REQUIRED_TOP_KEYS - set(profile.keys())
     if missing:
         errors.append(f"Missing required keys: {sorted(missing)}")
-        return errors  # Can't continue without structure
+        return errors, warnings  # Can't continue without structure
 
     # version must be a positive integer
     version = profile["version"]
@@ -100,15 +105,19 @@ def validate(profile: dict) -> list[str]:
         elif not all(isinstance(p, str) for p in ap):
             errors.append("avoid_patterns must contain only strings")
 
-    # discovery_queries (optional but must be list of strings if present)
+    # discovery_queries (recommended — warn if missing or insufficient)
     if "discovery_queries" in profile:
         dq = profile["discovery_queries"]
         if not isinstance(dq, list):
             errors.append(f"discovery_queries must be a list, got: {type(dq).__name__}")
         elif not all(isinstance(q, str) for q in dq):
             errors.append("discovery_queries must contain only strings")
+        elif len(dq) < 4:
+            warnings.append(f"discovery_queries has only {len(dq)} entries (recommend 6)")
+    else:
+        warnings.append("discovery_queries missing — autopilot discovery will be limited")
 
-    return errors
+    return errors, warnings
 
 
 SAMPLE_PROFILE = {
@@ -195,18 +204,23 @@ def main():
         return 1
 
     # Validate
-    errors = validate(profile)
+    errors, warnings = validate(profile)
     if errors:
         print(f"INVALID — {len(errors)} error(s):", file=sys.stderr)
         for err in errors:
             print(f"  - {err}", file=sys.stderr)
         return 1
 
+    # Print warnings to stderr (non-fatal)
+    for warn in warnings:
+        print(f"  WARNING: {warn}", file=sys.stderr)
+
     # Valid
     version = profile["version"]
     genres = len(profile["global_preferences"]["genre_weights"])
     energy = len(profile["energy_profiles"])
-    print(f"VALID — v{version}, {genres} genres, {energy} energy profiles")
+    dq = len(profile.get("discovery_queries", []))
+    print(f"VALID — v{version}, {genres} genres, {energy} energy profiles, {dq} discovery queries")
     return 0
 
 

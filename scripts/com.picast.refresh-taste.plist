@@ -6,7 +6,8 @@
 	  PiCast AI Autopilot - Daily Taste Profile Refresh
 
 	  Runs refresh-taste-profile.sh daily at 6:00 AM to generate
-	  a fresh taste profile via Opus 4.6 and push it to PiCast.
+	  a fresh taste profile via Sonnet 4.5 and push it to PiCast.
+	  API key loaded from ~/.picast/.env (chmod 600).
 
 	  Install:
 	    cp scripts/com.picast.refresh-taste.plist ~/Library/LaunchAgents/

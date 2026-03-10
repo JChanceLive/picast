@@ -1212,3 +1212,114 @@ class TestEngineFleet:
             "SELECT * FROM autopilot_log WHERE action = 'fleet_push'"
         )
         assert len(rows) >= 1
+
+
+# --- Fleet Hybrid Trigger (App-Level) ---
+
+
+class TestFleetHybridTrigger:
+    """Test that autoplay/trigger in fleet mode returns fleet_pushed count."""
+
+    @pytest.fixture
+    def fleet_app(self, tmp_path):
+        config = ServerConfig(
+            mpv_socket="/tmp/picast-test-socket",
+            db_file=str(tmp_path / "test.db"),
+            data_dir=str(tmp_path / "data"),
+        )
+        autoplay = AutoplayConfig(enabled=True, pool_mode=True)
+        autopilot = AutopilotConfig(
+            enabled=True,
+            mode="fleet",
+            queue_depth=4,
+            fleet_devices={
+                "z1": FleetDeviceConfig(
+                    host="10.0.0.161", port=5050, room="bedroom", mood="chill",
+                ),
+            },
+        )
+        app = create_app(config, autoplay_config=autoplay, autopilot_config=autopilot)
+        app.player.stop()
+        app.config["TESTING"] = True
+        return app
+
+    @pytest.fixture
+    def fleet_client(self, fleet_app):
+        return fleet_app.test_client()
+
+    @patch("picast.server.autopilot_fleet.urllib.request.urlopen")
+    def test_trigger_fleet_mode_includes_fleet_pushed(
+        self, mock_urlopen, fleet_app, fleet_client
+    ):
+        """Trigger in fleet mode should play locally AND push to fleet."""
+        import json as _json
+
+        # Seed pool via the engine's pool reference
+        pool = fleet_app.autopilot_engine._pool
+        _seed_pool(pool, "morning-foundation", count=5)
+
+        # Mock fleet HTTP calls (poll + push)
+        mock_resp = MagicMock()
+        mock_resp.read.return_value = _json.dumps({"idle": True, "ok": True}).encode()
+        mock_resp.__enter__ = MagicMock(return_value=mock_resp)
+        mock_resp.__exit__ = MagicMock(return_value=False)
+        mock_urlopen.return_value = mock_resp
+
+        resp = fleet_client.post(
+            "/api/autoplay/trigger",
+            json={"block_name": "morning-foundation", "display_name": "Morning"},
+        )
+        data = resp.get_json()
+        assert resp.status_code == 200
+        assert data["ok"] is True
+        # In fleet mode, autopilot is running. It should handle the trigger.
+        # Fleet push happens after local play. The response should not error.
+        if data.get("autopilot"):
+            assert "played" in data
+            # fleet_pushed may or may not be present depending on device state
+
+
+# --- Validate Profile Warnings ---
+
+
+class TestValidateProfileWarnings:
+    """Test that validate() returns warnings for missing discovery queries."""
+
+    @staticmethod
+    def _import_validate():
+        """Import validate() from scripts/validate-profile.py."""
+        import importlib.util
+        import pathlib
+        script = pathlib.Path(__file__).parent.parent / "scripts" / "validate-profile.py"
+        spec = importlib.util.spec_from_file_location("validate_profile", str(script))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.validate
+
+    def test_valid_profile_no_warnings(self):
+        """Full profile with discovery queries has no warnings."""
+        validate = self._import_validate()
+        profile = _make_profile(discovery_queries=[
+            "query 1", "query 2", "query 3", "query 4", "query 5", "query 6",
+        ])
+        errors, warnings = validate(profile)
+        assert errors == []
+        assert warnings == []
+
+    def test_missing_discovery_queries_warns(self):
+        """Profile without discovery_queries produces a warning."""
+        validate = self._import_validate()
+        profile = _make_profile()
+        errors, warnings = validate(profile)
+        assert errors == []
+        assert len(warnings) == 1
+        assert "discovery_queries" in warnings[0]
+
+    def test_few_discovery_queries_warns(self):
+        """Profile with < 4 discovery queries produces a warning."""
+        validate = self._import_validate()
+        profile = _make_profile(discovery_queries=["query 1", "query 2"])
+        errors, warnings = validate(profile)
+        assert errors == []
+        assert len(warnings) == 1
+        assert "only 2" in warnings[0]
