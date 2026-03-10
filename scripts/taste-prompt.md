@@ -15,6 +15,10 @@ You will receive the owner's recent viewing data: play history, pool contents wi
 ### Autopilot Feedback Signals
 {{FEEDBACK_SIGNALS}}
 
+### Block-to-Mood Mapping
+Each time block maps to an energy profile. Use this to ensure the right content types are weighted for each block:
+{{BLOCK_MOODS}}
+
 ## Output Requirements
 
 Generate ONLY a valid JSON object matching this exact schema. No commentary, no markdown fencing, no explanation — just the JSON.

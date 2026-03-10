@@ -975,6 +975,13 @@ def create_app(
         history = _autoplay_pool.get_history(block_name=block, limit=limit)
         return jsonify(history)
 
+    @app.route("/api/autoplay/feedback-summary")
+    def autoplay_feedback_summary():
+        """Aggregated behavioral signals for taste profile generation."""
+        days = int(request.args.get("days", 7))
+        summary = _autoplay_pool.get_feedback_summary(days=days)
+        return jsonify(summary)
+
     @app.route("/api/autoplay/seed", methods=["POST"])
     def autoplay_seed():
         """Seed pools from legacy mappings in config."""

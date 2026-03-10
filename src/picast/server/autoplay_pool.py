@@ -427,6 +427,121 @@ class AutoPlayPool:
             (video_id,),
         )
 
+    # --- Feedback Summary (for taste profile generation) ---
+
+    def get_feedback_summary(self, days: int = 7) -> dict:
+        """Aggregate behavioral signals for AI taste profile generation.
+
+        Returns a summary of viewing patterns over the last N days,
+        designed to replace the hardcoded FEEDBACK_SIGNALS=[] in the
+        refresh script prompt.
+        """
+        cutoff = datetime.now(timezone.utc).isoformat()[:10]  # today
+        # SQLite date math: subtract days
+        cutoff_clause = (
+            f"date(played_at) >= date('now', '-{days} days')"
+        )
+        history_cutoff = (
+            f"date(h.played_at) >= date('now', '-{days} days')"
+        )
+
+        # 1. Per-block completion rates
+        block_rates = self.db.fetchall(
+            f"SELECT block_name, "
+            f"  COUNT(*) as plays, "
+            f"  SUM(completed) as completions, "
+            f"  ROUND(AVG(completed) * 100, 1) as completion_pct "
+            f"FROM autoplay_history "
+            f"WHERE {cutoff_clause} "
+            f"GROUP BY block_name ORDER BY block_name"
+        )
+
+        # 2. Rating velocity (likes/dislikes in period via history + videos join)
+        rating_velocity = self.db.fetchone(
+            f"SELECT "
+            f"  SUM(CASE WHEN v.rating = 1 THEN 1 ELSE 0 END) as liked, "
+            f"  SUM(CASE WHEN v.rating = -1 THEN 1 ELSE 0 END) as disliked "
+            f"FROM autoplay_history h "
+            f"JOIN autoplay_videos v ON h.video_id = v.video_id AND h.block_name = v.block_name "
+            f"WHERE {history_cutoff}"
+        ) or {"liked": 0, "disliked": 0}
+
+        # 3. Skip trends — most skipped tags in period
+        skip_trends = self.db.fetchall(
+            "SELECT v.tags, SUM(v.skip_count) as total_skips, COUNT(*) as video_count "
+            "FROM autoplay_videos v "
+            "WHERE v.active = 1 AND v.skip_count > 0 "
+            "GROUP BY v.tags ORDER BY total_skips DESC LIMIT 10"
+        )
+
+        # 4. Pool health — videos near auto-shelve threshold
+        near_shelve = self.db.fetchall(
+            f"SELECT video_id, title, block_name, skip_count "
+            f"FROM autoplay_videos "
+            f"WHERE active = 1 AND skip_count >= {self.AUTO_SHELVE_SKIP_COUNT - 2} "
+            f"ORDER BY skip_count DESC LIMIT 10"
+        )
+
+        # 5. Discovery effectiveness — compare discovery vs manual sources
+        discovery_stats = self.db.fetchone(
+            "SELECT source, COUNT(*) as total, "
+            "  SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as liked, "
+            "  SUM(CASE WHEN rating = -1 THEN 1 ELSE 0 END) as disliked, "
+            "  SUM(CASE WHEN active = 0 THEN 1 ELSE 0 END) as shelved "
+            "FROM autoplay_videos WHERE source = 'discovery' "
+            "GROUP BY source"
+        )
+        manual_stats = self.db.fetchone(
+            "SELECT COUNT(*) as total, "
+            "  SUM(CASE WHEN rating = 1 THEN 1 ELSE 0 END) as liked, "
+            "  SUM(CASE WHEN rating = -1 THEN 1 ELSE 0 END) as disliked "
+            "FROM autoplay_videos WHERE source != 'discovery'"
+        )
+
+        # 6. Top completed tags (what the user actually watches)
+        top_completed = self.db.fetchall(
+            f"SELECT v.tags, SUM(h.completed) as completions, COUNT(*) as plays "
+            f"FROM autoplay_history h "
+            f"JOIN autoplay_videos v ON h.video_id = v.video_id AND h.block_name = v.block_name "
+            f"WHERE {history_cutoff} AND v.tags != '' "
+            f"GROUP BY v.tags ORDER BY completions DESC LIMIT 10"
+        )
+
+        return {
+            "period_days": days,
+            "block_completion_rates": [dict(r) for r in block_rates],
+            "rating_velocity": {
+                "liked": rating_velocity["liked"] or 0,
+                "disliked": rating_velocity["disliked"] or 0,
+            },
+            "skip_trends": [
+                {"tags": r["tags"], "total_skips": r["total_skips"], "videos": r["video_count"]}
+                for r in skip_trends
+            ],
+            "near_shelve": [
+                {"video_id": r["video_id"], "title": r["title"],
+                 "block": r["block_name"], "skips": r["skip_count"]}
+                for r in near_shelve
+            ],
+            "discovery_effectiveness": {
+                "discovery": {
+                    "total": discovery_stats["total"] if discovery_stats else 0,
+                    "liked": discovery_stats["liked"] if discovery_stats else 0,
+                    "disliked": discovery_stats["disliked"] if discovery_stats else 0,
+                    "shelved": discovery_stats["shelved"] if discovery_stats else 0,
+                },
+                "manual": {
+                    "total": manual_stats["total"] if manual_stats else 0,
+                    "liked": manual_stats["liked"] if manual_stats else 0,
+                    "disliked": manual_stats["disliked"] if manual_stats else 0,
+                },
+            },
+            "top_completed_tags": [
+                {"tags": r["tags"], "completions": r["completions"], "plays": r["plays"]}
+                for r in top_completed
+            ],
+        }
+
     # --- Pool Export / Import ---
 
     def export_pools(self) -> dict:

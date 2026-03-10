@@ -94,6 +94,7 @@ log_result() {
     local status="$1"
     local detail="${2:-}"
     local cost="${3:-0}"
+    local baseline="${4:-null}"
     mkdir -p "$LOG_DIR"
     local entry
     entry=$(jq -n \
@@ -103,7 +104,8 @@ log_result() {
         --arg model "$MODEL" \
         --argjson cost "$cost" \
         --argjson dry_run "$DRY_RUN" \
-        '{timestamp: $ts, status: $status, detail: $detail, model: $model, cost: $cost, dry_run: $dry_run}')
+        --argjson baseline "$baseline" \
+        '{timestamp: $ts, status: $status, detail: $detail, model: $model, cost: $cost, dry_run: $dry_run, baseline: $baseline}')
     # Append to JSONL log file
     echo "$entry" >> "$LOG_FILE"
     debug "Logged: $status"
@@ -210,15 +212,26 @@ STATUS=$(curl -sf "${PICAST_BASE}/api/autopilot/status" 2>/dev/null) \
     || die "Failed to fetch autopilot status"
 debug "Autopilot status fetched"
 
-# Feedback signals from autopilot log
-# Note: No dedicated API endpoint yet. Ratings/skips/completions in pool data
-# serve as implicit behavioral feedback signals for Opus.
-FEEDBACK="[]"
+# Feedback signals from behavioral summary endpoint
+FEEDBACK=$(curl -sf "${PICAST_BASE}/api/autoplay/feedback-summary?days=7" 2>/dev/null) \
+    || FEEDBACK="[]"
+debug "Feedback summary fetched"
+
+# Build effectiveness baseline from feedback + history (for cross-generation comparison)
+BASELINE=$(echo "$FEEDBACK" | jq '{
+    completion_rates: [.block_completion_rates[]? | {block: .block_name, pct: .completion_pct}],
+    rating_velocity: .rating_velocity,
+    discovery: .discovery_effectiveness.discovery,
+    total_plays: ([.block_completion_rates[]?.plays] | add // 0),
+    total_completions: ([.block_completion_rates[]?.completions] | add // 0)
+}' 2>/dev/null || echo "null")
+debug "Baseline captured"
 
 # Save raw data for debugging
 echo "$HISTORY" > "${CACHE_DIR}/history.json"
 echo "$POOL_VIDEOS" > "${CACHE_DIR}/pools.json"
 echo "$STATUS" > "${CACHE_DIR}/status.json"
+echo "$FEEDBACK" > "${CACHE_DIR}/feedback.json"
 debug "Raw data cached to ${CACHE_DIR}/"
 
 # --- Step 2: Build Prompt ---
@@ -268,12 +281,29 @@ BLOCK_FORMATTED=$(echo "$STATUS" | jq '{
     profile_version: .profile.version
 }' 2>/dev/null || echo '{}')
 
+# Block-to-mood mapping (connects time blocks to energy profiles)
+BLOCK_MOODS=$(cat <<'MOODS'
+{
+  "morning-foundation": {"mood": "chill", "context": "Early morning routine, gentle start to the day"},
+  "creation-stack": {"mood": "focus", "context": "Deep creative work session, needs steady non-distracting content"},
+  "pro-gears": {"mood": "focus", "context": "Professional development and learning blocks"},
+  "midday-reset": {"mood": "vibes", "context": "Lunch break, casual browsing energy"},
+  "sys-gears": {"mood": "focus", "context": "System maintenance and technical work"},
+  "evening-transition": {"mood": "chill", "context": "Winding down from work, relaxing content"},
+  "night-restoration": {"mood": "chill", "context": "Late evening, ambient background viewing"},
+  "night-lab": {"mood": "focus", "context": "Late-night tinkering and experimentation"}
+}
+MOODS
+)
+debug "Block-mood mapping loaded"
+
 # Read prompt template and inject data
 PROMPT=$(cat "$PROMPT_TEMPLATE")
 PROMPT="${PROMPT//\{\{PLAY_HISTORY\}\}/$HISTORY_FORMATTED}"
 PROMPT="${PROMPT//\{\{POOL_SUMMARY\}\}/$POOL_FORMATTED}"
 PROMPT="${PROMPT//\{\{BLOCK_SCHEDULE\}\}/$BLOCK_FORMATTED}"
 PROMPT="${PROMPT//\{\{FEEDBACK_SIGNALS\}\}/$FEEDBACK}"
+PROMPT="${PROMPT//\{\{BLOCK_MOODS\}\}/$BLOCK_MOODS}"
 
 # Save assembled prompt
 echo "$PROMPT" > "${CACHE_DIR}/assembled-prompt.md"
@@ -439,5 +469,5 @@ PROFILE_VERSION=$(echo "$UPLOAD_RESPONSE" | jq -r '.profile.version // "?"' 2>/d
 log "Profile uploaded successfully (v${PROFILE_VERSION})"
 
 # --- Step 6: Log Result ---
-log_result "success" "v${PROFILE_VERSION}: ${GENRE_COUNT} genres, ${ENERGY_COUNT} energy profiles, ${DISCOVERY_COUNT} discovery queries" "$COST"
+log_result "success" "v${PROFILE_VERSION}: ${GENRE_COUNT} genres, ${ENERGY_COUNT} energy profiles, ${DISCOVERY_COUNT} discovery queries" "$COST" "$BASELINE"
 log "Done. Cost: ~\$${COST}"

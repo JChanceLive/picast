@@ -1216,3 +1216,111 @@ class TestConfigFlags:
         }
         config = _parse_config(data)
         assert config.autoplay.cross_block_learning is False
+
+
+# --- Feedback Summary ---
+
+class TestFeedbackSummary:
+    def test_empty_pool_returns_structure(self, pool):
+        """Feedback summary should return valid structure even with no data."""
+        summary = pool.get_feedback_summary(days=7)
+        assert "period_days" in summary
+        assert summary["period_days"] == 7
+        assert summary["block_completion_rates"] == []
+        assert summary["rating_velocity"] == {"liked": 0, "disliked": 0}
+        assert summary["skip_trends"] == []
+        assert summary["near_shelve"] == []
+        assert "discovery_effectiveness" in summary
+        assert summary["top_completed_tags"] == []
+
+    def test_block_completion_rates(self, pool):
+        """Should calculate per-block completion rates from history."""
+        pool.add_video("morning", "https://www.youtube.com/watch?v=abc12345678", "Test")
+        # Create history entries with completions
+        pool.select_video("morning")
+        pool.update_last_history("abc12345678", "morning", completed=1)
+        pool.select_video("morning")
+        pool.update_last_history("abc12345678", "morning", completed=0)
+        summary = pool.get_feedback_summary(days=7)
+        rates = summary["block_completion_rates"]
+        assert len(rates) == 1
+        assert rates[0]["block_name"] == "morning"
+        assert rates[0]["plays"] == 2
+        assert rates[0]["completions"] == 1
+        assert rates[0]["completion_pct"] == 50.0
+
+    def test_skip_trends(self, pool):
+        """Should surface most-skipped tag groups."""
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Test", tags="ambient,nature")
+        pool.record_skip("test", "abc12345678")
+        pool.record_skip("test", "abc12345678")
+        summary = pool.get_feedback_summary(days=7)
+        assert len(summary["skip_trends"]) == 1
+        assert summary["skip_trends"][0]["tags"] == "ambient,nature"
+        assert summary["skip_trends"][0]["total_skips"] == 2
+
+    def test_near_shelve(self, pool):
+        """Should flag videos approaching auto-shelve threshold."""
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Almost Shelved")
+        # Skip 3 times (threshold is 5, we flag at 3+)
+        for _ in range(3):
+            pool.record_skip("test", "abc12345678")
+        summary = pool.get_feedback_summary(days=7)
+        assert len(summary["near_shelve"]) == 1
+        assert summary["near_shelve"][0]["skips"] == 3
+
+    def test_discovery_effectiveness(self, pool):
+        """Should separate discovery vs manual source stats."""
+        pool.add_video("test", "https://www.youtube.com/watch?v=disc1234567", "Discovered", source="discovery")
+        pool.add_video("test", "https://www.youtube.com/watch?v=manu1234567", "Manual", source="manual")
+        pool.rate_video("test", "disc1234567", 1)
+        summary = pool.get_feedback_summary(days=7)
+        disc = summary["discovery_effectiveness"]["discovery"]
+        assert disc["total"] == 1
+        assert disc["liked"] == 1
+        manual = summary["discovery_effectiveness"]["manual"]
+        assert manual["total"] == 1
+
+    def test_top_completed_tags(self, pool):
+        """Should surface most-completed tag groups."""
+        pool.add_video("test", "https://www.youtube.com/watch?v=abc12345678", "Train", tags="train,journey")
+        pool.select_video("test")
+        pool.update_last_history("abc12345678", "test", completed=1)
+        pool.select_video("test")
+        pool.update_last_history("abc12345678", "test", completed=1)
+        summary = pool.get_feedback_summary(days=7)
+        assert len(summary["top_completed_tags"]) == 1
+        assert summary["top_completed_tags"][0]["tags"] == "train,journey"
+        assert summary["top_completed_tags"][0]["completions"] == 2
+
+    def test_custom_days_param(self, pool):
+        """Should respect days parameter."""
+        summary = pool.get_feedback_summary(days=30)
+        assert summary["period_days"] == 30
+
+
+class TestFeedbackSummaryAPI:
+    def test_endpoint_returns_200(self, client):
+        resp = client.get("/api/autoplay/feedback-summary")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert "period_days" in data
+        assert data["period_days"] == 7
+
+    def test_custom_days_param(self, client):
+        resp = client.get("/api/autoplay/feedback-summary?days=30")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert data["period_days"] == 30
+
+    def test_with_pool_data(self, client):
+        """Endpoint should return real data after pool operations."""
+        client.post("/api/autoplay/pool/test", json={
+            "url": "https://www.youtube.com/watch?v=abc12345678",
+            "title": "Test Video",
+            "tags": "ambient,chill",
+        })
+        resp = client.get("/api/autoplay/feedback-summary")
+        assert resp.status_code == 200
+        data = json.loads(resp.data)
+        assert "discovery_effectiveness" in data
