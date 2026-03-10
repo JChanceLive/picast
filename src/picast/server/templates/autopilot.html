@@ -78,6 +78,17 @@
     </div>
 </div>
 
+<div class="settings-card" id="fleetCard" style="display:none">
+    <div class="settings-card-header">
+        <span class="settings-card-icon">&#x1F4E1;</span>
+        <h3>Fleet Status</h3>
+        <button class="btn btn-sm ap-fleet-refresh" onclick="refreshFleet()" title="Refresh fleet status">&#x21BB;</button>
+    </div>
+    <div class="settings-card-body" id="fleetBody">
+        <div class="empty">Loading fleet...</div>
+    </div>
+</div>
+
 <div class="settings-card">
     <div class="settings-card-header">
         <span class="settings-card-icon">&#x1F9E0;</span>
@@ -107,6 +118,14 @@ async function loadStatus() {
         updateSources(d);
         updateMode(d.mode);
         updateProfile(d.profile);
+        // Show fleet card when fleet devices are configured
+        const fleetCard = document.getElementById('fleetCard');
+        if (d.fleet_devices > 0 || d.mode === 'fleet') {
+            fleetCard.style.display = '';
+            loadFleet();
+        } else {
+            fleetCard.style.display = 'none';
+        }
     } catch(e) {
         document.getElementById('statBlock').textContent = 'Error';
     }
@@ -230,6 +249,63 @@ function updateUpNext(queue) {
     el.innerHTML = html;
 }
 
+async function loadFleet() {
+    try {
+        const r = await fetch('/api/autopilot/fleet');
+        const d = await r.json();
+        updateFleet(d.devices || []);
+    } catch(e) {
+        document.getElementById('fleetBody').innerHTML =
+            '<div class="empty">Failed to load fleet</div>';
+    }
+}
+
+function updateFleet(devices) {
+    const el = document.getElementById('fleetBody');
+    if (!devices.length) {
+        el.innerHTML = '<div class="empty">No fleet devices configured</div>';
+        return;
+    }
+    let html = '';
+    devices.forEach(dev => {
+        let stateClass, stateLabel;
+        if (!dev.online) {
+            stateClass = 'ap-fleet-offline';
+            stateLabel = 'Offline';
+        } else if (dev.manual_override) {
+            stateClass = 'ap-fleet-override';
+            stateLabel = 'Manual';
+        } else if (!dev.idle) {
+            stateClass = 'ap-fleet-playing';
+            stateLabel = 'Playing';
+        } else {
+            stateClass = 'ap-fleet-idle';
+            stateLabel = 'Idle';
+        }
+        const title = dev.playing_title ? esc(dev.playing_title) : '';
+        html +=
+            '<div class="ap-fleet-device">' +
+            '<div class="ap-fleet-indicator ' + stateClass + '"></div>' +
+            '<div class="ap-fleet-info">' +
+            '<span class="ap-fleet-name">' + esc(dev.device_id) + '</span>' +
+            '<span class="ap-fleet-meta">' +
+            esc(dev.room || '') +
+            (dev.room && dev.mood ? ' &middot; ' : '') +
+            esc(dev.mood || '') +
+            '</span>' +
+            (title ? '<span class="ap-fleet-title">' + title + '</span>' : '') +
+            '</div>' +
+            '<span class="ap-fleet-state ' + stateClass + '">' + stateLabel + '</span>' +
+            '</div>';
+    });
+    el.innerHTML = html;
+}
+
+async function refreshFleet() {
+    await loadFleet();
+    showToast('Fleet refreshed');
+}
+
 function fmtDuration(secs) {
     if (!secs || secs <= 0) return '';
     const h = Math.floor(secs / 3600);
@@ -349,6 +425,12 @@ async function setMode(mode) {
         if (d.ok) {
             updateMode(d.mode);
             showToast('Mode: ' + d.mode);
+            // Show/hide fleet card on mode change
+            const fleetCard = document.getElementById('fleetCard');
+            if (d.mode === 'fleet') {
+                fleetCard.style.display = '';
+                loadFleet();
+            }
         } else {
             showToast(d.error || 'Failed to set mode');
         }

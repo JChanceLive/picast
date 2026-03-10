@@ -2135,3 +2135,89 @@ body {
     background: rgba(255, 80, 80, 0.15);
     border-color: #ff5050;
 }
+
+/* Fleet Status */
+.ap-fleet-refresh {
+    margin-left: auto;
+    font-size: 1rem;
+    padding: 0.2rem 0.5rem;
+}
+
+.ap-fleet-device {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.ap-fleet-device:last-child {
+    border-bottom: none;
+}
+
+.ap-fleet-indicator {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.ap-fleet-idle {
+    background: var(--neon-green);
+    box-shadow: var(--glow-sm) rgba(57, 255, 20, 0.4);
+}
+
+.ap-fleet-playing {
+    background: var(--neon-cyan);
+    box-shadow: var(--glow-sm) rgba(0, 240, 255, 0.4);
+}
+
+.ap-fleet-override {
+    background: var(--neon-magenta);
+    box-shadow: var(--glow-sm) rgba(255, 0, 255, 0.4);
+}
+
+.ap-fleet-offline {
+    background: var(--muted);
+    opacity: 0.5;
+}
+
+.ap-fleet-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+}
+
+.ap-fleet-name {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.ap-fleet-meta {
+    font-size: 0.7rem;
+    color: var(--muted);
+}
+
+.ap-fleet-title {
+    font-size: 0.75rem;
+    color: var(--accent);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.ap-fleet-state {
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    flex-shrink: 0;
+}
+
+.ap-fleet-state.ap-fleet-idle { color: var(--neon-green); }
+.ap-fleet-state.ap-fleet-playing { color: var(--neon-cyan); }
+.ap-fleet-state.ap-fleet-override { color: var(--neon-magenta); }
+.ap-fleet-state.ap-fleet-offline { color: var(--muted); }

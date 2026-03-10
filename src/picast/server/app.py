@@ -1155,6 +1155,28 @@ def create_app(
             "discovery_ratio": _autopilot_config.discovery_ratio,
         })
 
+    @app.route("/api/autopilot/fleet")
+    def autopilot_fleet_status():
+        """Get fleet device status for UI display."""
+        fleet_data = _autopilot_engine.get_fleet_status()
+        if fleet_data is None:
+            return jsonify({"devices": [], "configured": False})
+        return jsonify({"devices": fleet_data, "configured": True})
+
+    @app.route("/api/autopilot/fleet/push", methods=["POST"])
+    def autopilot_fleet_push():
+        """Trigger fleet content distribution to idle devices."""
+        if _autopilot_engine.fleet is None:
+            return jsonify({"error": "no fleet configured"}), 404
+        if not _autopilot_engine.running:
+            return jsonify({"error": "autopilot not running"}), 400
+        results = _autopilot_engine.select_next_fleet()
+        return jsonify({
+            "ok": True,
+            "results": results,
+            "pushed": sum(1 for r in results if r["success"]),
+        })
+
     @app.route("/api/autopilot/feedback", methods=["POST"])
     def autopilot_feedback():
         """Record a 'more like this' feedback signal."""
