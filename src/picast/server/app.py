@@ -757,10 +757,11 @@ def create_app(
         # AI Autopilot mode: engine manages selection with AI scoring
         if _autopilot_engine.running:
             _autopilot_engine.on_block_change(block_name)
-            selected = _autopilot_engine.select_next(block_name)
+            selected = _autopilot_engine.select_next()
             if selected:
                 url = selected["url"]
                 vid_title = selected.get("title") or selected["video_id"]
+                mood = _autopilot_engine.current_mood or "vibes"
                 title = f"Autopilot: {display_name} - {vid_title}"
                 try:
                     _snapshot_autoplay_for_completion("block_transition")
@@ -770,14 +771,15 @@ def create_app(
                     _autoplay_current["title"] = vid_title
                     _autoplay_start_time["value"] = time.monotonic()
                     logger.info(
-                        "Autopilot: %s -> %s (%s, score=%.3f)",
-                        block_name, selected["video_id"], vid_title,
+                        "Autopilot: %s (mood=%s) -> %s (%s, score=%.3f)",
+                        block_name, mood, selected["video_id"], vid_title,
                         selected.get("score", 0),
                     )
                     return jsonify({
                         "ok": True,
                         "played": url,
                         "block": block_name,
+                        "mood": mood,
                         "video_id": selected["video_id"],
                         "autopilot": True,
                         "score": selected.get("score"),
@@ -785,7 +787,8 @@ def create_app(
                 except Exception as e:
                     logger.exception("Autopilot trigger failed for %s: %s", block_name, e)
                     return jsonify({"ok": False, "error": str(e)}), 500
-            logger.info("Autopilot: no videos for %s, falling through", block_name)
+            logger.info("Autopilot: no videos for %s (mood=%s), falling through",
+                        block_name, _autopilot_engine.current_mood)
 
         # Pool mode: weighted random selection from pool
         if _autoplay_config.pool_mode:
@@ -1177,6 +1180,16 @@ def create_app(
             "pushed": sum(1 for r in results if r["success"]),
         })
 
+    @app.route("/api/autopilot/mood", methods=["POST"])
+    def autopilot_set_mood():
+        """Set autopilot mood directly (chill/focus/vibes)."""
+        data = request.get_json(silent=True) or {}
+        mood = data.get("mood", "").strip()
+        if mood not in ("chill", "focus", "vibes"):
+            return jsonify({"error": "mood must be 'chill', 'focus', or 'vibes'"}), 400
+        _autopilot_engine.on_mood_change(mood)
+        return jsonify({"ok": True, "mood": mood})
+
     @app.route("/api/autopilot/feedback", methods=["POST"])
     def autopilot_feedback():
         """Record a 'more like this' feedback signal."""
@@ -1186,22 +1199,21 @@ def create_app(
             return jsonify({"error": "signal must be 'more' or 'less'"}), 400
 
         video_id = data.get("video_id")
-        block_name = data.get("block_name")
+        mood = data.get("mood")
 
         # If no video specified, use current autoplay video
         if not video_id:
             video_id = _autoplay_current.get("video_id")
-            block_name = block_name or _autoplay_current.get("block_name")
 
         if not video_id:
             return jsonify({"error": "no video_id provided and no current video"}), 400
 
-        _autopilot_engine.record_feedback(video_id, signal, block_name)
+        _autopilot_engine.record_feedback(video_id, signal, mood)
         return jsonify({
             "ok": True,
             "video_id": video_id,
             "signal": signal,
-            "block_name": block_name,
+            "mood": mood,
         })
 
     # --- Discover Endpoints ---

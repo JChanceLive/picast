@@ -168,22 +168,26 @@ class DiscoveryAgent:
     def discover_from_profile(
         self,
         profile: TasteProfile,
-        block_name: str,
+        mood: str | None = None,
         max_queries: int = 3,
         max_results_per_query: int = 3,
     ) -> list[DiscoveryResult]:
         """Run discovery using AI-generated queries from a taste profile.
 
-        Returns filtered results (no duplicates, duration-checked).
-        Does NOT add to pool — caller decides what to do with results.
+        Uses global discovery queries (v2) filtered by the mood's energy
+        profile for duration limits. Returns filtered results (no duplicates,
+        duration-checked). Does NOT add to pool — caller decides.
         """
-        queries = profile.get_discovery_queries(block_name)
+        queries = profile.get_discovery_queries()
         if not queries:
-            logger.info("No discovery queries for block: %s", block_name)
+            logger.info("No discovery queries in profile")
             return []
 
-        strategy = profile.get_block_strategy(block_name)
-        max_duration = strategy.get("max_duration", 0)
+        # Use mood's energy profile for duration filtering
+        max_duration = 0
+        if mood:
+            energy = profile.get_energy_profile(mood)
+            max_duration = energy.get("max_duration", 0)
 
         seen_ids: set[str] = set()
         results: list[DiscoveryResult] = []
@@ -201,8 +205,8 @@ class DiscoveryAgent:
                     results.append(hit)
 
         logger.info(
-            "Profile discovery for %s: %d queries -> %d results",
-            block_name, min(len(queries), max_queries), len(results),
+            "Profile discovery (mood=%s): %d queries -> %d results",
+            mood, min(len(queries), max_queries), len(results),
         )
         return results
 

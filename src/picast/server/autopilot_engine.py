@@ -1,11 +1,15 @@
-"""AI Autopilot engine for autonomous content selection.
+"""AI Autopilot engine for autonomous content selection (v2 — freeform).
 
 Combines self-learning weights from the pool system with taste profile
-genre weights from Opus 4.6 to score and rank videos. Maintains a
-pre-filled queue of upcoming selections per block.
+energy profiles from Opus 4.6 to score and rank videos. Maintains a
+pre-filled queue of upcoming selections per mood.
+
+v2 changes: scores ALL pools (not per-block), uses mood-based energy
+profiles instead of block strategies, supports creator affinity and
+avoid patterns.
 
 When a taste profile is available, scoring uses:
-  ai_score = base_weight * genre_match * duration_fit * recency_penalty
+  ai_score = base_weight * genre_match * duration_fit * creator_boost * recency_penalty
 
 When no profile (or stale), falls back to pure weighted random.
 """
@@ -29,7 +33,10 @@ class AutopilotEngine:
 
     The engine is a stateful coordinator called by API endpoints — it does
     not run a background thread. It maintains a pre-selected queue of videos
-    for each block, refilling as needed when videos are played or skipped.
+    for the current mood, refilling as needed when videos are played or skipped.
+
+    v2: Freeform mode — scores ALL pools regardless of block assignment,
+    uses mood (chill/focus/vibes) instead of TIM block names.
     """
 
     def __init__(
@@ -48,7 +55,7 @@ class AutopilotEngine:
         self._discovery = discovery
         self._fleet = fleet
         self._running = False
-        self._current_block: str | None = None
+        self._current_mood: str | None = None
         self._queue: list[dict] = []
         self._lock = threading.Lock()
 
@@ -57,8 +64,8 @@ class AutopilotEngine:
         return self._running
 
     @property
-    def current_block(self) -> str | None:
-        return self._current_block
+    def current_mood(self) -> str | None:
+        return self._current_mood
 
     def start(self) -> None:
         """Enable autopilot. Loads profile if needed."""
@@ -96,7 +103,7 @@ class AutopilotEngine:
             status = {
                 "enabled": self._running,
                 "mode": self._config.mode,
-                "current_block": self._current_block,
+                "current_mood": self._current_mood,
                 "queue_depth": len(self._queue),
                 "target_depth": self._config.queue_depth,
                 "pool_only": self._config.pool_only,
@@ -110,65 +117,73 @@ class AutopilotEngine:
                 status["fleet_devices"] = len(self._fleet.device_ids)
             return status
 
-    def on_block_change(self, block_name: str) -> None:
-        """Handle PiPulse block transition. Clears and refills queue."""
+    def on_mood_change(self, mood: str) -> None:
+        """Handle mood change. Clears and refills queue for new mood."""
         with self._lock:
-            old_block = self._current_block
-            self._current_block = block_name
+            old_mood = self._current_mood
+            self._current_mood = mood
             self._queue.clear()
             self._profile.load(self._db)  # Reload in case profile was updated
-            self._fill_queue(block_name)
-            self._log("block_change", block_name=block_name,
-                       reason=f"from {old_block}")
+            self._fill_queue(mood)
+            self._log("mood_change", mood=mood,
+                       reason=f"from {old_mood}")
         logger.info(
-            "Autopilot block change: %s -> %s (queue: %d)",
-            old_block, block_name, len(self._queue),
+            "Autopilot mood change: %s -> %s (queue: %d)",
+            old_mood, mood, len(self._queue),
         )
+
+    def on_block_change(self, block_name: str) -> None:
+        """Handle PiPulse block transition (backward compat).
+
+        Maps block names to moods and delegates to on_mood_change.
+        """
+        mood = _block_to_mood(block_name)
+        self.on_mood_change(mood)
 
     def on_video_complete(self, video_id: str) -> None:
         """Video finished playing naturally. Remove from queue and refill."""
         with self._lock:
             self._queue = [v for v in self._queue if v["video_id"] != video_id]
-            if self._current_block:
-                self._fill_queue(self._current_block)
+            if self._current_mood:
+                self._fill_queue(self._current_mood)
             self._log("video_complete", video_id=video_id,
-                       block_name=self._current_block)
+                       mood=self._current_mood)
 
     def on_video_skip(self, video_id: str) -> None:
         """Video was skipped by user. Remove from queue and refill."""
         with self._lock:
             self._queue = [v for v in self._queue if v["video_id"] != video_id]
-            if self._current_block:
-                self._fill_queue(self._current_block)
+            if self._current_mood:
+                self._fill_queue(self._current_mood)
             self._log("video_skip", video_id=video_id,
-                       block_name=self._current_block)
+                       mood=self._current_mood)
 
-    def select_next(self, block_name: str | None = None) -> dict | None:
+    def select_next(self, mood: str | None = None) -> dict | None:
         """Pop the next video from the queue.
 
         If the queue is empty, fills it first. Returns None if no videos
-        available in the pool.
+        available in the library.
         """
         with self._lock:
-            block = block_name or self._current_block
-            if not block:
+            target_mood = mood or self._current_mood
+            if not target_mood:
                 return None
 
-            if block != self._current_block:
-                self._current_block = block
+            if target_mood != self._current_mood:
+                self._current_mood = target_mood
                 self._queue.clear()
 
             if not self._queue:
-                self._fill_queue(block)
+                self._fill_queue(target_mood)
 
             if not self._queue:
                 return None
 
             selected = self._queue.pop(0)
-            self._fill_queue(block)
+            self._fill_queue(target_mood)
             self._log(
                 "select", video_id=selected["video_id"],
-                block_name=block, score=selected.get("score"),
+                mood=target_mood, score=selected.get("score"),
                 source="ai" if self._profile.is_loaded
                        and not self._profile.is_stale(self._config.stale_threshold_hours)
                        else "fallback",
@@ -194,20 +209,20 @@ class AutopilotEngine:
         """Force-reload the taste profile from database."""
         with self._lock:
             result = self._profile.load(self._db)
-            if self._running and self._current_block:
+            if self._running and self._current_mood:
                 self._queue.clear()
-                self._fill_queue(self._current_block)
+                self._fill_queue(self._current_mood)
             self._log("profile_reload",
                        reason="profile reloaded" if result else "no profile found")
         return result
 
     def record_feedback(self, video_id: str, signal: str,
-                        block_name: str | None = None) -> None:
+                        mood: str | None = None) -> None:
         """Record a 'more like this' or 'less like this' feedback signal."""
-        block = block_name or self._current_block
-        self._log("feedback", video_id=video_id, block_name=block,
+        m = mood or self._current_mood
+        self._log("feedback", video_id=video_id, mood=m,
                   reason=signal)
-        logger.info("Autopilot feedback: %s for %s in %s", signal, video_id, block)
+        logger.info("Autopilot feedback: %s for %s in mood %s", signal, video_id, m)
 
     def get_profile_data(self) -> dict | None:
         """Return the raw taste profile dict for API responses."""
@@ -248,7 +263,7 @@ class AutopilotEngine:
             self._log(
                 "fleet_push",
                 video_id=r["video"].get("video_id") if r["video"] else None,
-                block_name=None,
+                mood=None,
                 source="fleet",
                 reason=f"device={r['device_id']} success={r['success']}",
             )
@@ -263,8 +278,8 @@ class AutopilotEngine:
 
     # --- Internal Methods ---
 
-    def _fill_queue(self, block_name: str) -> None:
-        """Fill queue to target depth with scored pool + discovery videos."""
+    def _fill_queue(self, mood: str) -> None:
+        """Fill queue to target depth with scored library + discovery videos."""
         needed = self._config.queue_depth - len(self._queue)
         if needed <= 0:
             return
@@ -289,7 +304,7 @@ class AutopilotEngine:
         if discovery_slots > 0 and self._discovery is not None:
             try:
                 results = self._discovery.discover_from_profile(
-                    self._profile, block_name,
+                    self._profile, mood=mood,
                 )
                 for r in results:
                     if r.video_id not in queued_ids:
@@ -306,13 +321,13 @@ class AutopilotEngine:
                     if len(discovery_items) >= discovery_slots:
                         break
             except Exception:
-                logger.warning("Discovery failed for %s", block_name, exc_info=True)
+                logger.warning("Discovery failed for mood %s", mood, exc_info=True)
 
-        # Fill remaining slots from pool
+        # Fill remaining slots from library (all pools)
         pool_needed = needed - len(discovery_items)
         pool_items: list[dict] = []
         if pool_needed > 0:
-            scored = self._score_pool(block_name)
+            scored = self._score_library(mood)
             scored = [v for v in scored if v["video_id"] not in queued_ids]
             if scored:
                 shuffled = _weighted_shuffle(scored)
@@ -321,21 +336,24 @@ class AutopilotEngine:
         # Interleave: discovery items spread across the queue
         self._queue.extend(discovery_items + pool_items)
 
-    def _score_pool(self, block_name: str) -> list[dict]:
-        """Score all active pool videos for a block.
+    def _score_library(self, mood: str) -> list[dict]:
+        """Score all active pool videos across ALL blocks for a mood.
 
         Uses AI-enhanced scoring when a fresh profile is available,
         falls back to pure self-learning weights otherwise.
         """
-        pool = self._pool.get_pool(block_name)
-        if not pool:
+        # Get ALL active pool videos across all blocks
+        all_videos = self._db.fetchall(
+            "SELECT * FROM autoplay_videos WHERE active = 1 ORDER BY added_date"
+        )
+        if not all_videos:
             return []
 
-        # Get recent plays to avoid
+        # Get recent plays to avoid (across all blocks)
         recent = self._db.fetchall(
             "SELECT video_id FROM autoplay_history "
-            "WHERE block_name = ? ORDER BY played_at DESC LIMIT ?",
-            (block_name, self._pool.avoid_recent),
+            "ORDER BY played_at DESC LIMIT ?",
+            (self._pool.avoid_recent,),
         )
         recent_ids = {r["video_id"] for r in recent}
 
@@ -347,23 +365,34 @@ class AutopilotEngine:
 
         # Get AI scoring data if available
         genre_weights = self._profile.get_genre_weights() if use_ai else {}
-        strategy = self._profile.get_block_strategy(block_name) if use_ai else {}
-        max_duration = strategy.get("max_duration", 0)
+        energy = self._profile.get_energy_profile(mood) if use_ai else {}
+        max_duration = energy.get("max_duration", 0)
+        energy_genres = set(energy.get("genres", []))
+        creator_affinity = self._profile.get_creator_affinity() if use_ai else {}
+        avoid_patterns = self._profile.get_avoid_patterns() if use_ai else []
 
         # Get today's plays for recency penalty
         today_ids: set[str] = set()
         if use_ai:
             today_plays = self._db.fetchall(
                 "SELECT DISTINCT video_id FROM autoplay_history "
-                "WHERE block_name = ? AND date(played_at) = date('now')",
-                (block_name,),
+                "WHERE date(played_at) = date('now')"
             )
             today_ids = {r["video_id"] for r in today_plays}
 
         scored = []
-        for v in pool:
+        for v in all_videos:
             if v["video_id"] in recent_ids:
                 continue
+
+            title = v.get("title", "") or ""
+            title_lower = title.lower()
+
+            # Check avoid patterns
+            if use_ai and avoid_patterns:
+                tags_lower = (v.get("tags", "") or "").lower()
+                if any(p in title_lower or p in tags_lower for p in avoid_patterns):
+                    continue
 
             # Base weight from self-learning (same formula as AutoPlayPool)
             if v["rating"] == 1:
@@ -378,7 +407,7 @@ class AutopilotEngine:
             base_weight = base * skip_penalty * completion_boost
 
             if use_ai:
-                # Genre match: check video tags against profile weights
+                # Genre match: check video tags against profile weights + energy fit
                 video_tags = [
                     t.strip().lower()
                     for t in (v.get("tags", "") or "").split(",")
@@ -387,7 +416,11 @@ class AutopilotEngine:
                 genre_match = 0.5  # default for untagged/unmatched
                 for tag in video_tags:
                     if tag in genre_weights:
-                        genre_match = max(genre_match, genre_weights[tag])
+                        tag_weight = genre_weights[tag]
+                        # Boost if tag matches energy profile's preferred genres
+                        if tag in energy_genres:
+                            tag_weight = min(tag_weight * 1.3, 1.0)
+                        genre_match = max(genre_match, tag_weight)
 
                 # Duration fit
                 duration = v.get("duration", 0) or 0
@@ -396,18 +429,26 @@ class AutopilotEngine:
                 else:
                     duration_fit = 1.0
 
+                # Creator affinity boost
+                creator_boost = 1.0
+                for creator, affinity in creator_affinity.items():
+                    if creator.lower() in title_lower:
+                        creator_boost = affinity
+                        break
+
                 # Recency penalty
                 recency_penalty = 0.5 if v["video_id"] in today_ids else 1.0
 
-                score = base_weight * genre_match * duration_fit * recency_penalty
+                score = base_weight * genre_match * duration_fit * creator_boost * recency_penalty
             else:
                 score = base_weight
 
             scored.append({
                 "video_id": v["video_id"],
-                "title": v.get("title", ""),
+                "title": title,
                 "tags": v.get("tags", ""),
                 "duration": v.get("duration", 0),
+                "block_name": v.get("block_name", ""),
                 "score": round(score, 4),
                 "url": self._pool.video_id_to_url(v["video_id"]),
             })
@@ -420,7 +461,7 @@ class AutopilotEngine:
         self,
         action: str,
         video_id: str | None = None,
-        block_name: str | None = None,
+        mood: str | None = None,
         source: str | None = None,
         score: float | None = None,
         reason: str | None = None,
@@ -431,11 +472,29 @@ class AutopilotEngine:
                 "INSERT INTO autopilot_log "
                 "(action, video_id, block_name, source, score, reason) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (action, video_id, block_name, source, score, reason),
+                (action, video_id, mood, source, score, reason),
             )
             self._db.commit()
         except Exception:
             logger.debug("Failed to write autopilot log", exc_info=True)
+
+
+# --- Block-to-Mood Mapping (backward compat for PiPulse triggers) ---
+
+_BLOCK_MOOD_MAP: dict[str, str] = {
+    "morning-foundation": "chill",
+    "evening-transition": "chill",
+    "night-restoration": "chill",
+    "creation-stack": "focus",
+    "pro-gears": "focus",
+    "sys-gears": "focus",
+    "midday-reset": "vibes",
+}
+
+
+def _block_to_mood(block_name: str) -> str:
+    """Map a TIM block name to a mood. Defaults to 'vibes' for unknown blocks."""
+    return _BLOCK_MOOD_MAP.get(block_name, "vibes")
 
 
 def _weighted_shuffle(scored: list[dict]) -> list[dict]:

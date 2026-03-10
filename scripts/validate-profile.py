@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate a PiCast AI Autopilot taste profile JSON.
+"""Validate a PiCast AI Autopilot taste profile JSON (v2).
 
 Shared validator for Mac (after Opus generation) and Pi (on upload).
 Checks structure, required keys, and value constraints.
@@ -19,8 +19,9 @@ import json
 import sys
 from datetime import datetime
 
-REQUIRED_TOP_KEYS = {"version", "generated_at", "global_preferences", "block_strategies"}
+REQUIRED_TOP_KEYS = {"version", "generated_at", "global_preferences", "energy_profiles"}
 REQUIRED_PREFS_KEYS = {"genre_weights"}
+REQUIRED_ENERGY_PROFILES = {"chill", "focus", "vibes"}
 
 
 def validate(profile: dict) -> list[str]:
@@ -67,61 +68,92 @@ def validate(profile: dict) -> list[str]:
                     elif not (0 <= weight <= 10):
                         errors.append(f"genre_weights[{tag!r}] out of range [0,10]: {weight}")
 
-    # block_strategies must be a non-empty dict
-    strategies = profile["block_strategies"]
-    if not isinstance(strategies, dict):
-        errors.append(f"block_strategies must be a dict, got: {type(strategies).__name__}")
-    elif len(strategies) == 0:
-        errors.append("block_strategies must have at least one block")
+    # energy_profiles must contain chill, focus, vibes
+    profiles = profile["energy_profiles"]
+    if not isinstance(profiles, dict):
+        errors.append(f"energy_profiles must be a dict, got: {type(profiles).__name__}")
     else:
-        for block_name, strategy in strategies.items():
-            if not isinstance(strategy, dict):
-                errors.append(f"block_strategies[{block_name!r}] must be a dict")
+        ep_missing = REQUIRED_ENERGY_PROFILES - set(profiles.keys())
+        if ep_missing:
+            errors.append(f"energy_profiles missing required profiles: {sorted(ep_missing)}")
+        for ep_name, ep_data in profiles.items():
+            if not isinstance(ep_data, dict):
+                errors.append(f"energy_profiles[{ep_name!r}] must be a dict")
 
-    # discovery_queries (optional but must be dict of string lists if present)
+    # creator_affinity (optional but must be dict of floats if present)
+    if "creator_affinity" in profile:
+        ca = profile["creator_affinity"]
+        if not isinstance(ca, dict):
+            errors.append(f"creator_affinity must be a dict, got: {type(ca).__name__}")
+        else:
+            for creator, weight in ca.items():
+                if not isinstance(weight, (int, float)):
+                    errors.append(f"creator_affinity[{creator!r}] must be numeric")
+                elif not (0 <= weight <= 2):
+                    errors.append(f"creator_affinity[{creator!r}] out of range [0,2]: {weight}")
+
+    # avoid_patterns (optional but must be list of strings if present)
+    if "avoid_patterns" in profile:
+        ap = profile["avoid_patterns"]
+        if not isinstance(ap, list):
+            errors.append(f"avoid_patterns must be a list, got: {type(ap).__name__}")
+        elif not all(isinstance(p, str) for p in ap):
+            errors.append("avoid_patterns must contain only strings")
+
+    # discovery_queries (optional but must be list of strings if present)
     if "discovery_queries" in profile:
         dq = profile["discovery_queries"]
-        if not isinstance(dq, dict):
-            errors.append(f"discovery_queries must be a dict, got: {type(dq).__name__}")
-        else:
-            for block_name, queries in dq.items():
-                if not isinstance(queries, list):
-                    errors.append(f"discovery_queries[{block_name!r}] must be a list")
-                elif not all(isinstance(q, str) for q in queries):
-                    errors.append(f"discovery_queries[{block_name!r}] must contain only strings")
+        if not isinstance(dq, list):
+            errors.append(f"discovery_queries must be a list, got: {type(dq).__name__}")
+        elif not all(isinstance(q, str) for q in dq):
+            errors.append("discovery_queries must contain only strings")
 
     return errors
 
 
 SAMPLE_PROFILE = {
-    "version": 1,
-    "generated_at": "2026-03-09T06:00:00Z",
+    "version": 2,
+    "generated_at": "2026-03-10T06:00:00Z",
     "global_preferences": {
         "genre_weights": {
-            "ambient": 3.0,
-            "jazz": 2.5,
-            "lo-fi": 2.0,
-            "classical": 1.5,
+            "ambient": 0.9,
+            "jazz": 0.8,
+            "lo-fi": 0.7,
+            "classical": 0.6,
         },
         "preferred_duration_range": [1800, 7200],
-        "avoid_tags": [],
     },
-    "block_strategies": {
-        "morning-foundation": {
-            "mood": "calm",
-            "energy": "low-to-medium",
+    "energy_profiles": {
+        "chill": {
             "genres": ["ambient", "classical"],
+            "max_duration": 7200,
+            "tempo": "slow",
+            "description": "Relaxing background content for evening wind-down",
         },
-        "creation-stack": {
-            "mood": "focused",
-            "energy": "medium",
+        "focus": {
             "genres": ["lo-fi", "jazz"],
+            "max_duration": 5400,
+            "tempo": "steady",
+            "description": "Non-distracting content for deep work sessions",
+        },
+        "vibes": {
+            "genres": ["jazz", "lo-fi", "ambient"],
+            "max_duration": 3600,
+            "tempo": "any",
+            "description": "Engaging variety content for casual browsing",
         },
     },
-    "discovery_queries": {
-        "morning-foundation": ["relaxing ambient music", "calm morning playlist"],
-        "creation-stack": ["lo-fi focus beats", "jazz for coding"],
+    "creator_affinity": {
+        "Chillhop Music": 1.5,
+        "Cafe Music BGM channel": 1.3,
     },
+    "avoid_patterns": ["asmr", "mukbang", "prank"],
+    "discovery_queries": [
+        "relaxing ambient music 2026",
+        "lo-fi focus beats for coding",
+        "jazz cafe background music",
+        "classical piano study music",
+    ],
 }
 
 
@@ -173,8 +205,8 @@ def main():
     # Valid
     version = profile["version"]
     genres = len(profile["global_preferences"]["genre_weights"])
-    blocks = len(profile["block_strategies"])
-    print(f"VALID — v{version}, {genres} genres, {blocks} blocks")
+    energy = len(profile["energy_profiles"])
+    print(f"VALID — v{version}, {genres} genres, {energy} energy profiles")
     return 0
 
 

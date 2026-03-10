@@ -257,13 +257,12 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-10 | 32 active memories, 345 total_
+_Last updated: 2026-03-10 | 38 active memories, 383 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - PiCast persistent title overlay uses mpv OSD level 3 with `--osd-status-msg=${media-title}` positioned bottom-left (a... [picast, mpv, osd, overlay, ui]
-- PiCast AI Autopilot architecture: AutopilotEngine uses tiered selection loop where (1) TasteProfile rates candidate v... [picast, ai-autopilot, architecture, api-design, selection-algorithm]
-- v1.0.0 block metadata and Discovery Agent architecture: PiPulse exposes `/api/pitim/blocks` endpoint returning JSON a... [picast, pipulse, api-design, block-metadata, architecture, setup-wizard, settings-page, discovery-agent]
+- PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, ai-autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -272,6 +271,7 @@ _Last updated: 2026-03-10 | 32 active memories, 345 total_
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
 - PiCast idle TV wallpaper redesign decision: User requested viewing box contents before trimming; after review, 7 boxe... [picast, wallpaper, tv-ui, design, decision]
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
+- AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
 
 ## Patterns & Conventions
 - PiCast feature flag wiring pattern: New boolean config flags in picast.toml [autoplay] section (e.g., seasonal_rotati... [picast, config, feature-flags, autoplay, pattern]
@@ -280,26 +280,34 @@ _Last updated: 2026-03-10 | 32 active memories, 345 total_
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling]
 - PiCast setup wizard validation pattern: Pushover token validated via POST to Pushover API (send 1-sec timeout test me... [picast, setup-wizard, validation, pattern]
 - URL validation pattern in PiCast: autoplay_pool_add and queue_add endpoints both normalize_url() then validate_url(ur... [picast, url-validation, api-pattern, error-handling]
-- PiCast web UI patterns: (1) Hamburger nav - dice icon and pool emoji (📅) remain fixed in header, all other nav links... [picast, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern]
 - AutopilotEngine initialization and testing patterns: create_app() accepts optional autopilot_config parameter (defaul... [picast, ai-autopilot, initialization-pattern, testing, youtube, video-id]
+- PiCast AI Autopilot discovery integration pattern: AutopilotEngine accepts optional discovery_agent parameter, uses d... [picast, ai-autopilot, discovery, selection-algorithm, queue-management, taste-profile, youtube]
+- AutopilotEngine fleet selection pattern: engine accepts optional fleet parameter (FleetManager instance), select_next... [picast, autopilot, fleet, pattern]
 - PiCast AI Autopilot Mac-side automation patterns: (1) refresh-taste-profile.sh uses exponential backoff retry helper ... [picast, autopilot, mac-side, retry, error-handling, automation, launchd, plist, taste-profile, validation, schema, python, testing, e2e]
+- PiCast fleet mode UI pattern: Mode toggle buttons ('Single' / 'Fleet') on autopilot page switch between modes via POS... [picast, autopilot, ui-pattern, fleet, javascript, api-design]
+- PiCast web UI patterns: (1) Hamburger nav - dice icon and pool emoji (📅) remain fixed in header, all other nav links... [picast, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern, queue-preview]
 
 ## Gotchas & Pitfalls
-- Telegram bots persist indefinitely and are NOT automatically deleted due to owner inactivity — bots can only be remov... [picast, pipulse, telegram, notifications, bot-lifecycle]
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
-- Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Autopilot engine test flakiness from weighted shuffle: test_video_skip_removes_from_queue assumes skipped video will ... [picast, testing, autopilot, queue, randomness, flaky-test]
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
+- picast-z1 (Pi Zero 2 W) fleet receiver: IP 10.0.0.161, hostname picast-z1, user jopi, Debian 13 trixie (aarch64). SSH... [picast-z1, fleet, receiver, hardware, network]
+- Test helper _save_profile() in test_autopilot_engine.py has default generated_at="2026-03-10T06:00:00". When testing ... [picast, testing, gotcha, taste-profile]
 - YouTube bot detection after yt-dlp upgrade to 2026.2.21: PO token plugin yt-dlp-get-pot-rustypipe stays at v0.2.0 (ca... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
+- picast-z1 (Pi Zero 2 W) fleet receiver: IP 10.0.0.161, hostname picast-z1, user jopi, Debian 13 trixie (aarch64). SSH... [picast-z1, fleet, receiver, hardware, network, deployment, apt-get]
 
 ## Current Progress
-- PiCast AI Autopilot S1.3 Phase 1 API integration complete (2026-03-09): 5 endpoints fully wired (/api/autopilot/profi... [picast, ai-autopilot, api-integration, testing, phase-1-complete]
+- PiCast AI Autopilot S5.2 COMPLETE (2026-03-10): Taste Profile v2 migration and picast-receiver created.
+
+Part B (Tast... [picast, autopilot, s5.2, taste-profile-v2, receiver, fleet, progress]
+- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-10): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
 
 ## Context
-- PiCast autoplay roadmap: Sessions 1-2 complete (pool system + web UI); Session 3 (optional) proposes YouTube discover... [picast, autoplay, roadmap, discovery-agent, ai-autopilot, next-action]
-- PiCast v1.0.0 S3 next phase queued: install-pi.sh overhaul with 3-phase non-interactive setup (Phase 1: base dependen... [picast, v1.0.0, s3-planning, install-pi, roadmap, youtube, authentication]
+- PiCast Autopilot design phase: User clarified that taste profile should generate discovery queries based on user's hi... [picast, autopilot, design-decision, discovery, taste-profile]
+- PiCast S5.2 queued: API endpoints for fleet control (/api/autopilot/fleet/status, /api/autopilot/fleet/select, /api/a... [picast, autopilot, s5.2-queued, savepoint, workflow]
+- PiCast AI Autopilot S4.1 COMPLETE (2026-03-10): Profile-driven YouTube discovery and discovery/pool ratio splitting i... [picast, ai-autopilot, phase-4-complete, progress, discovery, twitch]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-management, priorities]
 
 _For deeper context, use memory_search, memory_related, or memory_ask tools._

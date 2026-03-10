@@ -264,22 +264,6 @@ class FleetManager:
 # --- Content Routing ---
 
 
-_MOOD_BLOCK_MAP: dict[str, list[str]] = {
-    "chill": ["evening-transition", "night-restoration", "morning-foundation"],
-    "focus": ["creation-stack", "pro-gears", "sys-gears"],
-    "energy": ["midday-reset", "morning-foundation"],
-}
-
-
-def mood_to_blocks(mood: str) -> list[str]:
-    """Map a device mood to compatible TIM block names.
-
-    Returns a list of block names that match the mood. Falls back to
-    all blocks if the mood is unknown.
-    """
-    return list(_MOOD_BLOCK_MAP.get(mood, []))
-
-
 def select_for_fleet(
     fleet: FleetManager,
     engine,
@@ -289,10 +273,9 @@ def select_for_fleet(
     """Select and push content to all idle fleet devices.
 
     For each idle device:
-    1. Get the device's mood
-    2. Find compatible blocks
-    3. Pick a video using the engine's scoring for that block
-    4. Push to the device
+    1. Get the device's mood (chill/focus/vibes)
+    2. Pick a video using the engine's mood-based scoring
+    3. Push to the device
 
     Returns a list of push results: [{device_id, video, success}]
     """
@@ -304,23 +287,16 @@ def select_for_fleet(
 
     for device_id in idle_devices:
         mood = fleet.get_device_mood(device_id)
-        blocks = mood_to_blocks(mood)
-
-        if not blocks:
+        if not mood:
             logger.info(
-                "No blocks for device %s mood=%s, skipping", device_id, mood
+                "No mood configured for device %s, skipping", device_id
             )
             continue
 
-        # Try each compatible block until we find a video
-        video = None
-        for block in blocks:
-            video = engine.select_next(block)
-            if video:
-                break
+        video = engine.select_next(mood=mood)
 
         if not video:
-            logger.info("No video available for device %s", device_id)
+            logger.info("No video available for device %s (mood=%s)", device_id, mood)
             results.append({
                 "device_id": device_id,
                 "video": None,

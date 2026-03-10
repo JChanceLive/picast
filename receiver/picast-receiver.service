@@ -1,0 +1,21 @@
+[Unit]
+Description=PiCast Receiver — Fleet Display Endpoint
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=jopi
+Group=jopi
+WorkingDirectory=/home/jopi/picast-receiver
+ExecStart=/usr/bin/python3 /home/jopi/picast-receiver/picast_receiver.py --port 5050
+Restart=on-failure
+RestartSec=5
+
+# Wayland environment for mpv
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

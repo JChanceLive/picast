@@ -1,7 +1,6 @@
-"""Tests for FleetManager — multi-device content routing for AI Autopilot."""
+"""Tests for FleetManager — multi-device content routing for AI Autopilot (v2)."""
 
 import json
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,7 +9,6 @@ from picast.config import AutopilotConfig, FleetDeviceConfig
 from picast.server.autopilot_fleet import (
     DeviceState,
     FleetManager,
-    mood_to_blocks,
     select_for_fleet,
 )
 
@@ -106,7 +104,6 @@ class TestDevicePolling:
         fm.poll_devices()
 
         assert not fm.is_device_idle("living-room")
-        # autoplay_enabled=True + playing = NOT manual override
         assert not fm.is_manual_override("living-room")
 
     @patch("picast.server.autopilot_fleet.urllib.request.urlopen")
@@ -159,12 +156,10 @@ class TestDevicePolling:
         config = _make_fleet_config()
         fm = FleetManager(config)
 
-        # First: fail
         mock_urlopen.side_effect = urllib.error.URLError("timeout")
         fm.poll_devices()
         assert fm._devices["living-room"].consecutive_failures == 1
 
-        # Then: succeed
         mock_urlopen.side_effect = None
         mock_urlopen.return_value = _mock_urlopen_response({"idle": True})
         fm.poll_devices()
@@ -194,13 +189,11 @@ class TestDevicePolling:
 class TestContentPush:
     @patch("picast.server.autopilot_fleet.urllib.request.urlopen")
     def test_push_success(self, mock_urlopen):
-        # Make device online first
         mock_urlopen.return_value = _mock_urlopen_response({"idle": True})
         config = _make_fleet_config()
         fm = FleetManager(config)
         fm.poll_devices()
 
-        # Push content
         mock_urlopen.return_value = _mock_urlopen_response({"ok": True})
         result = fm.push_content("living-room", {
             "url": "https://youtube.com/watch?v=test123test",
@@ -226,7 +219,6 @@ class TestContentPush:
     def test_push_offline_device(self):
         config = _make_fleet_config()
         fm = FleetManager(config)
-        # Device never polled = offline
         result = fm.push_content("living-room", {
             "url": "https://youtube.com/watch?v=test123test",
         })
@@ -293,30 +285,7 @@ class TestFleetStatus:
         assert len(idle) == 2
 
 
-# --- Mood Mapping ---
-
-
-class TestMoodMapping:
-    def test_chill_mood(self):
-        blocks = mood_to_blocks("chill")
-        assert "evening-transition" in blocks
-        assert "night-restoration" in blocks
-
-    def test_focus_mood(self):
-        blocks = mood_to_blocks("focus")
-        assert "creation-stack" in blocks
-        assert "pro-gears" in blocks
-
-    def test_energy_mood(self):
-        blocks = mood_to_blocks("energy")
-        assert "midday-reset" in blocks
-
-    def test_unknown_mood(self):
-        blocks = mood_to_blocks("unknown")
-        assert blocks == []
-
-
-# --- Fleet Content Selection ---
+# --- Fleet Content Selection (v2 — mood-based) ---
 
 
 class TestSelectForFleet:
@@ -335,7 +304,6 @@ class TestSelectForFleet:
             "url": "https://youtube.com/watch?v=test123test",
         }
 
-        # Push returns success
         mock_urlopen.return_value = _mock_urlopen_response({"ok": True})
 
         results = select_for_fleet(fm, mock_engine, MagicMock(), config)
@@ -345,7 +313,6 @@ class TestSelectForFleet:
     def test_skips_when_no_idle_devices(self):
         config = _make_fleet_config()
         fm = FleetManager(config)
-        # No poll = all offline = no idle devices
 
         results = select_for_fleet(fm, MagicMock(), MagicMock(), config)
         assert results == []
@@ -359,14 +326,15 @@ class TestSelectForFleet:
         fm.poll_devices()
 
         mock_engine = MagicMock()
-        mock_engine.select_next.return_value = None  # No videos available
+        mock_engine.select_next.return_value = None
 
         results = select_for_fleet(fm, mock_engine, MagicMock(), config)
         assert len(results) == 2
         assert all(not r["success"] for r in results)
 
     @patch("picast.server.autopilot_fleet.urllib.request.urlopen")
-    def test_mood_routes_to_correct_blocks(self, mock_urlopen):
+    def test_mood_passed_directly_to_engine(self, mock_urlopen):
+        """v2: select_for_fleet passes mood directly (not blocks)."""
         mock_urlopen.return_value = _mock_urlopen_response({"idle": True})
 
         config = _make_fleet_config()
@@ -374,10 +342,10 @@ class TestSelectForFleet:
         fm.poll_devices()
 
         mock_engine = MagicMock()
-        called_blocks = []
+        called_moods = []
 
-        def track_select(block):
-            called_blocks.append(block)
+        def track_select(mood=None):
+            called_moods.append(mood)
             return {
                 "video_id": "test123test",
                 "title": "Test",
@@ -389,10 +357,27 @@ class TestSelectForFleet:
         mock_urlopen.return_value = _mock_urlopen_response({"ok": True})
         select_for_fleet(fm, mock_engine, MagicMock(), config)
 
-        # living-room is "chill" -> first block is "evening-transition"
-        # office is "focus" -> first block is "creation-stack"
-        assert "evening-transition" in called_blocks
-        assert "creation-stack" in called_blocks
+        # living-room has mood "chill", office has mood "focus"
+        assert "chill" in called_moods
+        assert "focus" in called_moods
+
+    @patch("picast.server.autopilot_fleet.urllib.request.urlopen")
+    def test_skips_device_with_no_mood(self, mock_urlopen):
+        """Device without mood configured should be skipped."""
+        mock_urlopen.return_value = _mock_urlopen_response({"idle": True})
+
+        config = _make_fleet_config(devices={
+            "no-mood": FleetDeviceConfig(
+                host="10.0.0.13", port=5050, room="garage", mood="",
+            ),
+        })
+        fm = FleetManager(config)
+        fm.poll_devices()
+
+        mock_engine = MagicMock()
+        results = select_for_fleet(fm, mock_engine, MagicMock(), config)
+        assert results == []
+        mock_engine.select_next.assert_not_called()
 
 
 # --- Device Info Helpers ---

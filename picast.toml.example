@@ -97,10 +97,13 @@ mpv_socket = "/tmp/mpv-socket"
 # stale_threshold_hours = 48    # fall back to weighted random if profile older
 
 # Fleet mode: AI controls multiple PiCast devices
-# [autopilot.fleet.devices.bedroom]
-# host = "picast-bedroom.local"
+# Devices can run the full PiCast server or the thin picast-receiver.
+# See receiver/ directory for the minimal fleet display endpoint.
+#
+# [autopilot.fleet.devices.picast-z1]
+# host = "picast-z1.local"
 # port = 5050
-# room = "bedroom"
+# room = "living room"
 # mood = "chill"
 #
 # [autopilot.fleet.devices.office]
