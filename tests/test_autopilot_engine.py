@@ -1,6 +1,7 @@
 """Tests for AutopilotEngine — AI-enhanced video selection and queue management."""
 
 import json
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -10,6 +11,7 @@ from picast.server.autoplay_pool import AutoPlayPool
 from picast.server.autopilot_engine import AutopilotEngine, _weighted_shuffle
 from picast.server.database import Database
 from picast.server.taste_profile import TasteProfile
+from picast.server.youtube_discovery import DiscoveryAgent, DiscoveryResult
 
 
 # --- Helpers ---
@@ -861,3 +863,173 @@ class TestEngineNewMethods:
         assert "stale" in status
         assert "stale_reason" in status
         assert "stale_threshold_hours" in status
+
+
+# --- Discovery Integration Tests ---
+
+
+def _make_profile_with_discovery(block_name="morning"):
+    """Build a profile with discovery queries."""
+    return {
+        "version": 1,
+        "generated_at": "2026-03-10T06:00:00",
+        "global_preferences": {"genre_weights": {"ambient": 0.9}},
+        "block_strategies": {
+            block_name: {"energy": "low", "max_duration": 1800},
+        },
+        "discovery_queries": {
+            block_name: ["chill ambient music"],
+        },
+    }
+
+
+class TestDiscoveryIntegration:
+    """Tests for discovery wired into AutopilotEngine._fill_queue."""
+
+    @pytest.fixture
+    def mock_discovery(self):
+        """Create a mock DiscoveryAgent that returns controlled results."""
+        agent = MagicMock(spec=DiscoveryAgent)
+        agent.discover_from_profile.return_value = [
+            DiscoveryResult("disc_vid_001", "Discovery Track 1", 600,
+                            "https://www.youtube.com/watch?v=disc_vid_001"),
+            DiscoveryResult("disc_vid_002", "Discovery Track 2", 900,
+                            "https://www.youtube.com/watch?v=disc_vid_002"),
+        ]
+        return agent
+
+    @pytest.fixture
+    def discovery_config(self):
+        return AutopilotConfig(
+            enabled=True, queue_depth=4,
+            pool_only=False, discovery_ratio=0.5,
+        )
+
+    @pytest.fixture
+    def discovery_engine(self, pool, profile, discovery_config, db, mock_discovery):
+        return AutopilotEngine(
+            pool=pool, profile=profile, config=discovery_config,
+            db=db, discovery=mock_discovery,
+        )
+
+    def test_discovery_fills_slots_when_enabled(self, discovery_engine, db, pool, mock_discovery):
+        _seed_pool(pool, "morning", count=5)
+        _save_profile(db, _make_profile_with_discovery())
+        discovery_engine._profile.load(db)
+        discovery_engine.start()
+        result = discovery_engine.select_next("morning")
+        assert result is not None
+        # Discovery was called
+        mock_discovery.discover_from_profile.assert_called()
+        # Queue should contain a mix
+        queue = discovery_engine.get_queue_preview()
+        sources = {v.get("source") for v in queue}
+        video_ids = {v["video_id"] for v in queue}
+        # At least one discovery item should be present (or was selected)
+        has_discovery = "disc_vid_001" in video_ids or "disc_vid_002" in video_ids or (
+            result["video_id"] in ("disc_vid_001", "disc_vid_002")
+        )
+        assert has_discovery or "discovery" in sources
+
+    def test_pool_only_disables_discovery(self, pool, profile, db, mock_discovery):
+        config = AutopilotConfig(
+            enabled=True, queue_depth=4,
+            pool_only=True, discovery_ratio=0.5,
+        )
+        engine = AutopilotEngine(
+            pool=pool, profile=profile, config=config,
+            db=db, discovery=mock_discovery,
+        )
+        _seed_pool(pool, "morning", count=5)
+        _save_profile(db, _make_profile_with_discovery())
+        engine._profile.load(db)
+        engine.start()
+        engine.select_next("morning")
+        mock_discovery.discover_from_profile.assert_not_called()
+
+    def test_zero_ratio_disables_discovery(self, pool, profile, db, mock_discovery):
+        config = AutopilotConfig(
+            enabled=True, queue_depth=4,
+            pool_only=False, discovery_ratio=0.0,
+        )
+        engine = AutopilotEngine(
+            pool=pool, profile=profile, config=config,
+            db=db, discovery=mock_discovery,
+        )
+        _seed_pool(pool, "morning", count=5)
+        _save_profile(db, _make_profile_with_discovery())
+        engine._profile.load(db)
+        engine.start()
+        engine.select_next("morning")
+        mock_discovery.discover_from_profile.assert_not_called()
+
+    def test_no_discovery_agent_falls_back_to_pool(self, pool, profile, db):
+        config = AutopilotConfig(
+            enabled=True, queue_depth=4,
+            pool_only=False, discovery_ratio=0.5,
+        )
+        engine = AutopilotEngine(
+            pool=pool, profile=profile, config=config,
+            db=db, discovery=None,
+        )
+        _seed_pool(pool, "morning", count=5)
+        _save_profile(db, _make_profile_with_discovery())
+        engine._profile.load(db)
+        engine.start()
+        result = engine.select_next("morning")
+        assert result is not None  # Falls back to pool
+
+    def test_discovery_failure_falls_back_to_pool(self, pool, profile, db):
+        mock_disc = MagicMock(spec=DiscoveryAgent)
+        mock_disc.discover_from_profile.side_effect = RuntimeError("network error")
+        config = AutopilotConfig(
+            enabled=True, queue_depth=4,
+            pool_only=False, discovery_ratio=0.5,
+        )
+        engine = AutopilotEngine(
+            pool=pool, profile=profile, config=config,
+            db=db, discovery=mock_disc,
+        )
+        _seed_pool(pool, "morning", count=5)
+        _save_profile(db, _make_profile_with_discovery())
+        engine._profile.load(db)
+        engine.start()
+        result = engine.select_next("morning")
+        assert result is not None  # Pool videos still work
+
+
+# --- Queue Skip Endpoint Test ---
+
+
+class TestQueueSkipEndpoint:
+
+    @pytest.fixture
+    def app(self, tmp_path):
+        config = ServerConfig(
+            mpv_socket="/tmp/picast-test-socket",
+            db_file=str(tmp_path / "test.db"),
+            data_dir=str(tmp_path / "data"),
+        )
+        autoplay = AutoplayConfig(enabled=True, pool_mode=True)
+        app = create_app(config, autoplay_config=autoplay)
+        app.player.stop()
+        app.config["TESTING"] = True
+        return app
+
+    @pytest.fixture
+    def client(self, app):
+        return app.test_client()
+
+    def test_skip_requires_video_id(self, client):
+        resp = client.post("/api/autopilot/queue/skip", json={})
+        assert resp.status_code == 400
+
+    def test_skip_accepts_video_id(self, client):
+        resp = client.post(
+            "/api/autopilot/queue/skip",
+            json={"video_id": "test1234567"},
+        )
+        assert resp.status_code == 200
+        data = resp.get_json()
+        assert data["ok"] is True
+        assert data["video_id"] == "test1234567"

@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from picast.config import ServerConfig, ThemeConfig, ytdl_auth_args
 from picast.server.autoplay_pool import AutoPlayPool
+from picast.server.taste_profile import TasteProfile
 
 logger = logging.getLogger(__name__)
 
@@ -163,6 +164,47 @@ class DiscoveryAgent:
                     stats["skipped"] += 1
 
         return stats
+
+    def discover_from_profile(
+        self,
+        profile: TasteProfile,
+        block_name: str,
+        max_queries: int = 3,
+        max_results_per_query: int = 3,
+    ) -> list[DiscoveryResult]:
+        """Run discovery using AI-generated queries from a taste profile.
+
+        Returns filtered results (no duplicates, duration-checked).
+        Does NOT add to pool — caller decides what to do with results.
+        """
+        queries = profile.get_discovery_queries(block_name)
+        if not queries:
+            logger.info("No discovery queries for block: %s", block_name)
+            return []
+
+        strategy = profile.get_block_strategy(block_name)
+        max_duration = strategy.get("max_duration", 0)
+
+        seen_ids: set[str] = set()
+        results: list[DiscoveryResult] = []
+
+        for i, query in enumerate(queries[:max_queries]):
+            if i > 0:
+                time.sleep(self.delay)
+
+            hits = self.search_youtube(query, max_results_per_query)
+            hits = self.filter_by_duration(hits, max_duration=max_duration)
+
+            for hit in hits:
+                if hit.video_id not in seen_ids:
+                    seen_ids.add(hit.video_id)
+                    results.append(hit)
+
+        logger.info(
+            "Profile discovery for %s: %d queries -> %d results",
+            block_name, min(len(queries), max_queries), len(results),
+        )
+        return results
 
     def discover_all(self, themes: dict[str, ThemeConfig]) -> list[dict]:
         """Run discovery for all configured blocks.

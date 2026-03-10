@@ -1,5 +1,6 @@
 """Tests for YouTube Discovery Agent."""
 
+import json
 import subprocess
 import time
 from unittest.mock import MagicMock, patch
@@ -8,6 +9,8 @@ import pytest
 
 from picast.config import AutoplayConfig, ServerConfig, ThemeConfig, _parse_config
 from picast.server.autoplay_pool import AutoPlayPool
+from picast.server.database import Database
+from picast.server.taste_profile import TasteProfile
 from picast.server.youtube_discovery import DiscoveryAgent, DiscoveryResult
 
 
@@ -457,3 +460,146 @@ class TestThemeConfigParsing:
         assert theme.min_duration == 0
         assert theme.max_duration == 0
         assert theme.max_results == 5
+
+
+# --- TestDiscoverFromProfile ---
+
+
+def _make_profile_with_queries(block_name="morning", queries=None, max_duration=0):
+    """Build a taste profile dict with discovery queries."""
+    return {
+        "version": 1,
+        "generated_at": "2026-03-10T06:00:00",
+        "global_preferences": {"genre_weights": {"ambient": 0.9}},
+        "block_strategies": {
+            block_name: {"energy": "low", "max_duration": max_duration},
+        },
+        "discovery_queries": {
+            block_name: queries or ["chill ambient music", "nature documentary"],
+        },
+    }
+
+
+def _save_profile_for_discovery(db, profile_dict):
+    """Save a taste profile to database for testing."""
+    profile_json = json.dumps(profile_dict)
+    db.execute(
+        "INSERT INTO autopilot_profile (id, profile_json, generated_at, version) "
+        "VALUES (1, ?, ?, ?) "
+        "ON CONFLICT(id) DO UPDATE SET "
+        "profile_json = excluded.profile_json, "
+        "generated_at = excluded.generated_at, "
+        "loaded_at = datetime('now'), "
+        "version = excluded.version",
+        (profile_json, profile_dict["generated_at"], profile_dict.get("version", 1)),
+    )
+    db.commit()
+
+
+class TestDiscoverFromProfile:
+
+    @pytest.fixture
+    def profile_db(self, tmp_path):
+        return Database(str(tmp_path / "profile_test.db"))
+
+    @pytest.fixture
+    def taste_profile(self, profile_db):
+        prof = TasteProfile()
+        profile_dict = _make_profile_with_queries()
+        _save_profile_for_discovery(profile_db, profile_dict)
+        prof.load(profile_db)
+        return prof
+
+    @pytest.fixture
+    def discovery_agent(self, profile_db):
+        pool = AutoPlayPool(profile_db)
+        return DiscoveryAgent(pool=pool, delay=0)
+
+    @patch("shutil.which", return_value="/usr/bin/yt-dlp")
+    @patch("subprocess.run")
+    def test_basic_profile_discovery(self, mock_run, mock_which, discovery_agent, taste_profile):
+        mock_run.return_value = _mock_run_ok(
+            _make_ytdlp_output(("disc_vid_001", "Ambient Track", "1200"))
+        )
+        results = discovery_agent.discover_from_profile(taste_profile, "morning")
+        assert len(results) >= 1
+        assert results[0].video_id == "disc_vid_001"
+
+    @patch("shutil.which", return_value="/usr/bin/yt-dlp")
+    @patch("subprocess.run")
+    def test_multiple_queries_called(self, mock_run, mock_which, discovery_agent, taste_profile):
+        mock_run.side_effect = [
+            _mock_run_ok(_make_ytdlp_output(("q1_vid_00001", "Q1", "600"))),
+            _mock_run_ok(_make_ytdlp_output(("q2_vid_00001", "Q2", "600"))),
+        ]
+        results = discovery_agent.discover_from_profile(taste_profile, "morning")
+        assert mock_run.call_count == 2
+        assert len(results) == 2
+
+    def test_no_queries_for_block(self, discovery_agent, taste_profile):
+        results = discovery_agent.discover_from_profile(taste_profile, "nonexistent")
+        assert results == []
+
+    @patch("shutil.which", return_value="/usr/bin/yt-dlp")
+    @patch("subprocess.run")
+    def test_deduplicates_results(self, mock_run, mock_which, discovery_agent, taste_profile):
+        mock_run.side_effect = [
+            _mock_run_ok(_make_ytdlp_output(("same_vid_001", "Same Video", "600"))),
+            _mock_run_ok(_make_ytdlp_output(("same_vid_001", "Same Video", "600"))),
+        ]
+        results = discovery_agent.discover_from_profile(taste_profile, "morning")
+        assert len(results) == 1
+
+    @patch("shutil.which", return_value="/usr/bin/yt-dlp")
+    @patch("subprocess.run")
+    def test_max_queries_limit(self, mock_run, mock_which, profile_db):
+        pool = AutoPlayPool(profile_db)
+        agent = DiscoveryAgent(pool=pool, delay=0)
+        profile_dict = _make_profile_with_queries(
+            queries=["q1", "q2", "q3", "q4", "q5"]
+        )
+        _save_profile_for_discovery(profile_db, profile_dict)
+        prof = TasteProfile()
+        prof.load(profile_db)
+        mock_run.return_value = _mock_run_ok("")
+        agent.discover_from_profile(prof, "morning", max_queries=2)
+        assert mock_run.call_count == 2
+
+    @patch("shutil.which", return_value="/usr/bin/yt-dlp")
+    @patch("subprocess.run")
+    def test_duration_filter_from_strategy(self, mock_run, mock_which, profile_db):
+        pool = AutoPlayPool(profile_db)
+        agent = DiscoveryAgent(pool=pool, delay=0)
+        profile_dict = _make_profile_with_queries(max_duration=300)
+        _save_profile_for_discovery(profile_db, profile_dict)
+        prof = TasteProfile()
+        prof.load(profile_db)
+        mock_run.return_value = _mock_run_ok(
+            _make_ytdlp_output(
+                ("short_vid_01", "Short", "120"),
+                ("long_vid_001", "Long", "600"),
+            )
+        )
+        results = agent.discover_from_profile(prof, "morning")
+        assert len(results) == 1
+        assert results[0].video_id == "short_vid_01"
+
+    @patch("shutil.which", return_value="/usr/bin/yt-dlp")
+    @patch("subprocess.run")
+    @patch("time.sleep")
+    def test_delay_between_queries(self, mock_sleep, mock_run, mock_which, profile_db):
+        pool = AutoPlayPool(profile_db)
+        agent = DiscoveryAgent(pool=pool, delay=2.0)
+        profile_dict = _make_profile_with_queries(queries=["q1", "q2"])
+        _save_profile_for_discovery(profile_db, profile_dict)
+        prof = TasteProfile()
+        prof.load(profile_db)
+        mock_run.return_value = _mock_run_ok("")
+        agent.discover_from_profile(prof, "morning")
+        assert mock_sleep.call_count == 1
+        mock_sleep.assert_called_with(2.0)
+
+    def test_no_profile_loaded(self, discovery_agent):
+        empty_profile = TasteProfile()
+        results = discovery_agent.discover_from_profile(empty_profile, "morning")
+        assert results == []

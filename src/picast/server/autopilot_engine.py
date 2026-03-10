@@ -18,6 +18,7 @@ from datetime import datetime, timezone
 from picast.config import AutopilotConfig
 from picast.server.autoplay_pool import AutoPlayPool
 from picast.server.taste_profile import TasteProfile
+from picast.server.youtube_discovery import DiscoveryAgent
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +37,13 @@ class AutopilotEngine:
         profile: TasteProfile,
         config: AutopilotConfig,
         db,
+        discovery: DiscoveryAgent | None = None,
     ):
         self._pool = pool
         self._profile = profile
         self._config = config
         self._db = db
+        self._discovery = discovery
         self._running = False
         self._current_block: str | None = None
         self._queue: list[dict] = []
@@ -210,23 +213,62 @@ class AutopilotEngine:
     # --- Internal Methods ---
 
     def _fill_queue(self, block_name: str) -> None:
-        """Fill queue to target depth with scored videos."""
+        """Fill queue to target depth with scored pool + discovery videos."""
         needed = self._config.queue_depth - len(self._queue)
         if needed <= 0:
             return
 
-        scored = self._score_pool(block_name)
-
-        # Remove videos already in queue
         queued_ids = {v["video_id"] for v in self._queue}
-        scored = [v for v in scored if v["video_id"] not in queued_ids]
 
-        if not scored:
-            return
+        # Determine discovery vs pool split
+        use_discovery = (
+            self._discovery is not None
+            and not self._config.pool_only
+            and self._config.discovery_ratio > 0
+            and self._profile.is_loaded
+            and not self._profile.is_stale(self._config.stale_threshold_hours)
+        )
 
-        # Weighted shuffle for variety (bias toward higher scores)
-        shuffled = _weighted_shuffle(scored)
-        self._queue.extend(shuffled[:needed])
+        discovery_slots = 0
+        if use_discovery:
+            discovery_slots = max(1, round(needed * self._config.discovery_ratio))
+
+        # Fill discovery slots first (slower, network call)
+        discovery_items: list[dict] = []
+        if discovery_slots > 0 and self._discovery is not None:
+            try:
+                results = self._discovery.discover_from_profile(
+                    self._profile, block_name,
+                )
+                for r in results:
+                    if r.video_id not in queued_ids:
+                        discovery_items.append({
+                            "video_id": r.video_id,
+                            "title": r.title,
+                            "tags": "",
+                            "duration": r.duration,
+                            "score": 1.0,
+                            "url": r.url,
+                            "source": "discovery",
+                        })
+                        queued_ids.add(r.video_id)
+                    if len(discovery_items) >= discovery_slots:
+                        break
+            except Exception:
+                logger.warning("Discovery failed for %s", block_name, exc_info=True)
+
+        # Fill remaining slots from pool
+        pool_needed = needed - len(discovery_items)
+        pool_items: list[dict] = []
+        if pool_needed > 0:
+            scored = self._score_pool(block_name)
+            scored = [v for v in scored if v["video_id"] not in queued_ids]
+            if scored:
+                shuffled = _weighted_shuffle(scored)
+                pool_items = shuffled[:pool_needed]
+
+        # Interleave: discovery items spread across the queue
+        self._queue.extend(discovery_items + pool_items)
 
     def _score_pool(self, block_name: str) -> list[dict]:
         """Score all active pool videos for a block.
