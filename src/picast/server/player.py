@@ -115,7 +115,9 @@ class Player:
         ytdl_format: str = (
             "bestvideo[height<=720][fps<=30][vcodec^=avc]+bestaudio/best[height<=720]"
         ),
-        ytdl_format_live: str = ("best[height<=480][vcodec^=avc]/best[height<=480]"),
+        ytdl_format_live: str = (
+            "best[height<=360][vcodec^=avc]/best[height<=360]/best[height<=480][vcodec^=avc]"
+        ),
         library: "Library | None" = None,
         config: "ServerConfig | None" = None,
         event_bus: "EventBus | None" = None,
@@ -604,10 +606,16 @@ class Player:
         ]
 
         # Live stream optimizations (Twitch, etc.)
+        # NOTE: Do NOT use --profile=low-latency here. It overrides
+        # video-sync to 'audio' which causes V4L2 h264_v4l2m2m poll
+        # timeouts and permanent decoder freezes on Pi. Cherry-pick
+        # only the safe options from that profile instead.
         if is_live:
             cmd.extend(
                 [
-                    "--profile=low-latency",
+                    "--audio-buffer=0",
+                    "--video-latency-hacks=yes",
+                    "--demuxer-lavf-probe-info=nostreams",
                     "--cache-secs=10",
                     "--demuxer-readahead-secs=5",
                     "--demuxer-lavf-o=live_start_index=-1,fflags=+discardcorrupt",
