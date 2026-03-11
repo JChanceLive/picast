@@ -119,6 +119,8 @@ class Player:
         library: "Library | None" = None,
         config: "ServerConfig | None" = None,
         event_bus: "EventBus | None" = None,
+        fallback_url: str = "",
+        fallback_title: str = "Screensaver",
     ):
         self.mpv = mpv
         self.queue = queue
@@ -127,12 +129,15 @@ class Player:
         self.library = library
         self._config = config
         self.event_bus = event_bus
+        self._fallback_url = fallback_url
+        self._fallback_title = fallback_title
         self._thread: threading.Thread | None = None
         self._running = False
         self._mpv_process: subprocess.Popen | None = None
         self._current_item: QueueItem | None = None
         self._skip_requested = False
         self._stop_requested = False
+        self._fallback_active = False
 
         # Sleep timer state (ephemeral, resets on restart)
         self._stop_after_current: bool = False
@@ -281,10 +286,130 @@ class Player:
                     )
                     self._show_osd(f"Queue looped - pass #{self._loop_count}")
                     continue  # Re-check immediately
+                # Play fallback screensaver if configured
+                if self._fallback_url and not self._stop_requested:
+                    self._play_fallback()
+                    continue
                 time.sleep(2)
                 continue
 
             self._play_item(next_item)
+
+    def _play_fallback(self):
+        """Play the fallback screensaver URL in a loop until interrupted.
+
+        The fallback yields immediately when:
+        - A new item appears in the queue (user queued or play_now)
+        - skip is requested (play_now sets this)
+        - stop is requested
+        """
+        logger.info("Starting fallback screensaver: %s", self._fallback_url)
+        self._fallback_active = True
+        self._skip_requested = False
+
+        # Build ytdl-raw-options with auth if configured
+        raw_opts = "js-runtimes=deno,remote-components=ejs:github"
+        if self._config:
+            from picast.config import ytdl_raw_options_auth
+
+            auth_opt = ytdl_raw_options_auth(self._config)
+            if auth_opt:
+                raw_opts += f",{auth_opt}"
+
+        hwdec = self._config.mpv_hwdec if self._config else "auto"
+        fmt = self.ytdl_format_live  # Use live format (lighter) for fallback
+
+        cmd = [
+            "mpv",
+            f"--input-ipc-server={self.mpv.socket_path}",
+            f"--hwdec={hwdec}",
+            f"--ytdl-format={fmt}",
+            f"--ytdl-raw-options={raw_opts}",
+            "--profile=fast",
+            "--cache=yes",
+            "--demuxer-max-bytes=50MiB",
+            "--video-sync=display-desync",
+            "--fullscreen",
+            "--idle=no",
+            "--no-terminal",
+            "--loop-file=inf",
+            # OSD: show fallback title
+            "--osd-level=3",
+            f"--osd-status-msg={self._fallback_title}",
+            "--osd-align-x=left",
+            "--osd-align-y=bottom",
+            "--osd-margin-x=20",
+            "--osd-margin-y=20",
+            "--osd-font-size=28",
+            "--osd-color=#CCFFFFFF",
+            "--osd-border-size=1.5",
+            self._fallback_url,
+        ]
+
+        # Add HDMI audio device if detected
+        if self._audio_device:
+            cmd.insert(-1, f"--audio-device={self._audio_device}")
+
+        try:
+            env = os.environ.copy()
+            if self._wayland_display:
+                env["WAYLAND_DISPLAY"] = self._wayland_display
+                env.setdefault("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+
+            mpv_log = open("/tmp/mpv-debug.log", "w")
+            self._mpv_process = subprocess.Popen(
+                cmd,
+                stdout=mpv_log,
+                stderr=mpv_log,
+                env=env,
+            )
+
+            # Wait for mpv to start
+            connected = False
+            for _ in range(20):
+                if self.mpv.connect():
+                    connected = True
+                    break
+                time.sleep(0.5)
+
+            if connected:
+                # Restore persisted volume
+                try:
+                    saved_vol = self.queue._db.get_setting("volume")
+                    if saved_vol is not None:
+                        self.mpv.set_volume(int(saved_vol))
+                except Exception:
+                    pass
+
+            # Monitor loop: check for interrupts
+            while self._running:
+                if self._mpv_process.poll() is not None:
+                    break  # mpv exited (stream ended, error, etc.)
+                if self._skip_requested or self._stop_requested:
+                    break
+                # Check if a real queue item appeared
+                if self.queue.get_next() is not None:
+                    break
+                time.sleep(1)
+
+            # Kill mpv
+            if self._mpv_process and self._mpv_process.poll() is None:
+                self.mpv.command("quit")
+                try:
+                    self._mpv_process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self._mpv_process.kill()
+
+        except (FileNotFoundError, OSError) as e:
+            logger.error("Fallback playback failed: %s", e)
+        finally:
+            self.mpv.disconnect()
+            self._mpv_process = None
+            self._fallback_active = False
+            # Clear skip flag so it doesn't interfere with normal playback
+            if not self._stop_requested:
+                self._skip_requested = False
+            logger.info("Fallback screensaver stopped")
 
     def _emit(
         self, event_type: str, title: str = "", detail: str = "", queue_item_id: int | None = None
@@ -994,6 +1119,7 @@ class Player:
         """Play a URL immediately, interrupting current playback.
 
         Adds the URL to the front of the queue and skips the current video.
+        Also interrupts fallback screensaver if active.
         """
         # Clear stop state so new playback can start
         self._stop_requested = False
@@ -1003,9 +1129,11 @@ class Player:
         pending = self.queue.get_pending()
         ids = [item.id] + [i.id for i in pending if i.id != item.id]
         self.queue.reorder(ids)
-        # Skip whatever is playing
+        # Skip whatever is playing (including fallback)
         if self._current_item:
             self.skip()
+        elif self._fallback_active:
+            self._skip_requested = True
 
     def play_item_now(self, item_id: int, start_time: float = 0):
         """Play an existing queue item immediately by its ID.
@@ -1072,6 +1200,7 @@ class Player:
         status = self.mpv.get_status()
         status["player_running"] = self._running
         status["stopped"] = self._stop_requested
+        status["fallback_active"] = self._fallback_active
 
         if self._current_item:
             # Override idle if we have an active item - mpv may briefly

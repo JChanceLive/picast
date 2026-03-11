@@ -115,6 +115,8 @@ class ServerConfig:
     osd_enabled: bool = True  # Show OSD text on TV via mpv
     osd_duration_ms: int = 2500  # OSD display duration in ms
     db_backup_interval_hours: int = 6  # SQLite backup interval (0 = disabled)
+    fallback_url: str = ""  # URL to loop when queue is empty (screensaver)
+    fallback_title: str = "Screensaver"  # Display name for fallback OSD
 
     def __post_init__(self):
         if not self.data_dir:
@@ -198,6 +200,8 @@ def _parse_config(data: dict) -> Config:
                 "db_backup_interval_hours",
                 config.server.db_backup_interval_hours,
             ),
+            fallback_url=s.get("fallback_url", config.server.fallback_url),
+            fallback_title=s.get("fallback_title", config.server.fallback_title),
         )
 
     if "telegram" in data:

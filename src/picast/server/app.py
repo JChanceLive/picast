@@ -137,6 +137,8 @@ def create_app(
         library=library,
         config=config,
         event_bus=event_bus,
+        fallback_url=config.fallback_url,
+        fallback_title=config.fallback_title,
     )
 
     # Start the player loop
