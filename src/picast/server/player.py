@@ -613,14 +613,10 @@ class Player:
         if is_live:
             cmd.extend(
                 [
-                    "--audio-buffer=0",
-                    "--video-latency-hacks=yes",
-                    "--demuxer-lavf-probe-info=nostreams",
                     "--cache-secs=10",
                     "--demuxer-readahead-secs=5",
                     "--demuxer-lavf-o=live_start_index=-1,fflags=+discardcorrupt",
                     "--vd-lavc-threads=4",
-                    "--framedrop=decoder+vo",
                     "--audio-stream-silence",
                 ]
             )
