@@ -1,7 +1,7 @@
 # Architecture: PiCast Mobile UI Overhaul
 
 **Date:** 2026-03-12
-**Status:** SESSION 2 COMPLETE + DEPLOYED (v1.1.0a19). Session 3 next: nav bar + status bars + cross-page consistency
+**Status:** COMPLETE (v1.1.0a20). Deployed and verified on device 2026-03-12.
 **Scope:** Full visual redesign of PiCast web UI (player.html, style.css, base.html)
 **Target:** iPhone SE (320px) through iPhone 16 (430px), OLED-optimized dark theme
 
@@ -379,17 +379,17 @@ Overflow (tap "•••" to expand/collapse):
 
 ## Testing Checklist
 
-- [ ] iPhone SE (320px) — all controls visible without scrolling
-- [ ] iPhone 16 (430px) — comfortable spacing, no wasted space
-- [ ] Landscape mode — controls don't break
-- [ ] Now Playing: YouTube video shows title, not URL
-- [ ] Now Playing: Twitch stream shows "LIVE" badge
-- [ ] Now Playing: No title available shows video ID fallback
-- [ ] Controls: Primary 5 buttons always visible
-- [ ] Controls: Overflow expands/collapses smoothly
-- [ ] Queue: Played items visually dimmed
-- [ ] Queue: Failed items show error with red border
-- [ ] Multi-TV status shows as compact chip
-- [ ] Sleep timer countdown visible
-- [ ] Volume slider accessible
-- [ ] All pages (history, settings, catalog, collections) still render correctly
+- [x] iPhone SE (320px) — all controls visible without scrolling
+- [x] iPhone 16 (430px) — comfortable spacing, no wasted space
+- [x] Landscape mode — controls don't break
+- [x] Now Playing: YouTube video shows title, not URL
+- [x] Now Playing: Twitch stream shows "LIVE" badge
+- [x] Now Playing: No title available shows video ID fallback
+- [x] Controls: Primary 5 buttons always visible
+- [x] Controls: Overflow expands/collapses smoothly
+- [x] Queue: Played items visually dimmed
+- [x] Queue: Failed items show error with red border
+- [x] Multi-TV status shows as compact chip
+- [x] Sleep timer countdown visible
+- [x] Volume slider accessible
+- [x] All pages (history, settings, catalog, collections) still render correctly
