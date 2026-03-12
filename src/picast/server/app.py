@@ -625,6 +625,13 @@ def create_app(
         queue.clear_played()
         return jsonify({"ok": True})
 
+    @app.route("/api/queue/reset-played", methods=["POST"])
+    def queue_reset_played():
+        count = queue.loop_reset()
+        if _multi_tv.enabled:
+            _multi_tv.on_queue_changed()
+        return jsonify({"ok": True, "reset": count})
+
     @app.route("/api/queue/clear", methods=["POST"])
     def queue_clear():
         queue.clear_all()

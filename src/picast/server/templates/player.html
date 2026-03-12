@@ -112,6 +112,7 @@
     <input type="text" id="queue-search" class="queue-search" placeholder="Filter queue..." oninput="filterQueue(this.value)">
     <div id="queue-list"></div>
     <div class="queue-actions">
+        <button onclick="resetPlayed()" class="btn btn-sm">Refresh Queue</button>
         <button onclick="clearPlayed()" class="btn btn-sm">Clear Played</button>
         <button onclick="clearAll()" class="btn btn-sm btn-danger">Clear All</button>
     </div>
@@ -501,6 +502,10 @@ function removeItem(id) {
     const btn = event && event.target;
     withLoading(btn, '...', fetch('/api/queue/' + id, {method:'DELETE'})
         .then(() => { showToast('Removed'); poll(); }));
+}
+function resetPlayed() {
+    const btn = event && event.target;
+    withLoading(btn, '...', api('queue/reset-played').then(d => { showToast((d.reset || 0) + ' items reset to pending'); poll(); }));
 }
 function clearPlayed() {
     const btn = event && event.target;
