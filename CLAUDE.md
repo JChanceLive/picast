@@ -257,13 +257,15 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-12 | 40 active memories, 434 total_
+_Last updated: 2026-03-12 | 45 active memories, 446 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - PiCast persistent title overlay uses mpv OSD level 3 with `--osd-status-msg=${media-title}` positioned bottom-left (a... [picast, mpv, osd, overlay, ui]
 - PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet, feedback-loop]
 - Multi-TV distribution feature adds `/api/queue/distribute` endpoint that maps current queue to fleet devices, validat... [picast, fleet, multi-tv, distribution, queue]
+- PiCast mobile UI overhaul architecture addresses iPhone 5 (320px width) constraint: (1) Quick control menu uses horiz... [picast, mobile-ui, responsive-design, ux-overhaul, iphone]
+- PiCast mobile UI redesign Phase 1 (2026-03-12) implements new CSS design system: root variables updated to `--accent:... [picast, mobile-ui, css-design-system, s1-complete]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -274,6 +276,8 @@ _Last updated: 2026-03-12 | 40 active memories, 434 total_
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
 - 30-day trial guard added to refresh-taste-profile.sh: creates ~/.picast/trial-start on first run, stores expiry date ... [picast, autopilot, cost-control, trial-system]
 - Multi-TV queue distribution prioritizes VISUAL simplicity over playback state sync: each TV plays its assigned queue ... [picast, multi-tv, design-philosophy, scope]
+- PiCast mobile UI redesign prioritizes visible-by-default menu items over scrollable carousels: quick control buttons ... [picast, mobile-ui, ux-design, decision]
+- PiCast mobile UI S1 design prioritizes visual hierarchy through color coding (accent cyan, success green, error magen... [picast, mobile-ui, design-decision, visual-hierarchy]
 
 ## Patterns & Conventions
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
@@ -284,7 +288,7 @@ _Last updated: 2026-03-12 | 40 active memories, 434 total_
 - Effectiveness tracking in refresh log captures baseline pool snapshot (total_videos, liked_count, skip_count, complet... [picast, autopilot, metrics, logging, effectiveness]
 - Block-to-mood mapping in refresh-taste-profile.sh uses static bash associative array (morning-foundation→chill, creat... [picast, autopilot, taste-profile, block-mapping]
 - Multi-TV queue distribution validation pattern: before assigning video to device, call extract_video_id(queue_item.ur... [picast, multi-tv, validation, queue, pattern]
-- AutopilotEngine initialization and integration patterns: create_app() accepts optional autopilot_config (from Config.... [picast, autopilot, initialization-pattern, testing, discovery, fleet, integration, mac-side, automation, launchd, validation, retry, error-handling, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern, queue-preview, bash-pattern, setup-wizard, deployment]
+- Queue refresh pattern in PiCast: /api/queue/loop-reset endpoint calls queue.loop_reset() to reset all played/skipped ... [picast, queue, api, ui, multi-tv]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
@@ -295,17 +299,18 @@ _Last updated: 2026-03-12 | 40 active memories, 434 total_
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
 - Test helper _save_profile() in test_autopilot_engine.py has default generated_at="2026-03-10T06:00:00". When testing ... [picast, testing, gotcha, taste-profile]
 - validate-profile.py returns (errors, warnings) tuple with both lists populated independently: errors are hard failure... [picast, autopilot, validation, testing, taste-profile]
-- PiCast fleet manager uses lazy polling for device status — picast-z1 shows `online: false` immediately after service ... [picast, fleet, autopilot, polling]
-- PiCast autopilot and fleet integration gotchas: (1) refresh-taste-profile.sh pool data fetch bug FIXED in commit 1969... [picast, autopilot, fleet, youtube, bot-detection, authentication, yt-dlp, autoplay, race-condition, self-learning, timing, buffering, testing, taste-profile, v2-migration, discovery, polling]
 - Multi-TV distribute() method calls _get_idle_devices() which acquires lock and holds it during iteration; _next_assig... [picast, multi-tv, threading, concurrency]
+- Multi-TV feature requires non-empty pending queue to distribute videos; enabling Multi with empty queue only distribu... [picast, multi-tv, queue, ux]
+- PiCast autopilot and fleet integration gotchas: (1) refresh-taste-profile.sh pool data fetch bug FIXED in commit 1969... [picast, autopilot, fleet, youtube, bot-detection, authentication, yt-dlp, autoplay, race-condition, self-learning, timing, buffering, testing, taste-profile, v2-migration, discovery, polling]
+- iPhone 5 (320px viewport width) presents extreme mobile constraint: 44px minimum touch target + 8px margins per contr... [picast, mobile-ui, responsive-design, ios]
 
 ## Current Progress
-- Multi-TV feature implementation completed: MultiTVManager class with distribute_queue() method, Web UI toggle button ... [picast, multi-tv, feature-complete]
+- PiCast Mobile UI Overhaul S1 tasks completed: ARCH-UI-OVERHAUL.md updated with Task 8/10 status, control structure do... [picast, mobile-ui, s1-in-progress, savepoint]
+- PiCast Multi-TV feature fully deployed: MultiTVManager with distribute_queue() method, Web UI Single/Fleet toggle, Fl... [picast, multi-tv, deployment, feature-complete]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
 
 ## Context
-- mpv Twitch stream playback gotchas with --video-sync=display-desync: (1) Options designed for video-sync=audio mode c... [picast, mpv, twitch, performance, frame-drops, hardware-decode, profile-override, command-line-ordering]
-- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-10): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
+- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress, multi-tv, fleet, validation]
 - Taste profile learning feedback sources: (1) explicit thumbs up/down via queue UI (rating ±1), (2) skip button (skip_... [picast, autopilot, taste-profile, learning-loop, feedback]
 - User's actual PiCast viewing preferences (for taste profile seeding): PRIMARY is Boston and Maine Live webcam (always... [picast, autopilot, taste-profile, user-preferences]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-management, priorities]

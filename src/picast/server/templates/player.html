@@ -34,6 +34,10 @@
             <img id="np-thumb" class="np-thumb" src="" alt="" style="display:none">
             <div class="np-info">
                 <div class="np-title" id="np-title"></div>
+                <div class="np-subtitle" id="np-subtitle"></div>
+                <div class="np-live-badge" id="np-live-badge" style="display:none">
+                    <span class="np-live-dot"></span>LIVE
+                </div>
                 <div class="np-url" id="np-url"></div>
             </div>
         </div>
@@ -58,28 +62,31 @@
 
 <section class="controls" id="controls-section">
     <button class="btn-icon-pin" id="btn-pin" onclick="toggleFloatingControls()" title="Pin controls" aria-label="Pin controls">📌</button>
-    <div class="controls-bar">
+    <div class="controls-primary">
+        <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop" aria-label="Stop"><span class="bi-ico">⏹</span><span class="bi-lbl">Stop</span></button>
         <button onclick="doToggle(this)" class="btn-icon" id="btn-toggle" aria-label="Pause"><span class="bi-ico">⏸</span><span class="bi-lbl">Pause</span></button>
         <button onclick="doSkip(this)" class="btn-icon" id="btn-skip" aria-label="Skip"><span class="bi-ico">⏭</span><span class="bi-lbl">Skip</span></button>
-        <button onclick="doStop(this)" class="btn-icon btn-icon-danger" id="btn-stop" aria-label="Stop"><span class="bi-ico">⏹</span><span class="bi-lbl">Stop</span></button>
+        <button onclick="toggleLoop()" class="btn-icon" id="btn-loop" aria-label="Loop queue"><span class="bi-ico">🔁</span><span class="bi-lbl">Loop</span></button>
+        <button onclick="toggleMultiTV()" class="btn-icon" id="btn-multi-tv" aria-label="Multi-TV" title="Distribute queue across all TVs"><span class="bi-ico">📺</span><span class="bi-lbl">Multi</span></button>
+        <button class="btn-overflow" onclick="toggleOverflow()" aria-label="More controls" title="More controls">&#x2022;&#x2022;&#x2022;</button>
+    </div>
+    <div class="controls-overflow" id="controls-overflow">
         <button onclick="speedDown()" class="btn-icon" aria-label="Slow down"><span class="bi-ico">🐌</span><span class="bi-lbl">Slow</span></button>
         <button onclick="speedUp()" class="btn-icon" aria-label="Speed up"><span class="bi-ico">🐇</span><span class="bi-lbl">Fast</span></button>
         <button onclick="toggleStopAfter(this)" class="btn-icon" id="btn-stop-after" aria-label="Stop after current"><span class="bi-ico">⏱</span><span class="bi-lbl">1More</span></button>
         <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" aria-label="Sleep 30 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
         <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" aria-label="Sleep 60 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
-        <button onclick="toggleLoop()" class="btn-icon" id="btn-loop" aria-label="Loop queue"><span class="bi-ico">🔁</span><span class="bi-lbl">Loop</span></button>
-        <button onclick="toggleMultiTV()" class="btn-icon" id="btn-multi-tv" aria-label="Multi-TV" title="Distribute queue across all TVs"><span class="bi-ico">📺</span><span class="bi-lbl">Multi</span></button>
+        <div class="queue-volume-row">
+            <span class="queue-vol-icon">&#x1F50A;</span>
+            <input type="range" id="queue-volume-slider" class="settings-slider" min="0" max="100" value="0">
+            <span class="queue-vol-label" id="queue-vol-label">--%</span>
+        </div>
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
     </div>
     <div class="multi-tv-status" id="multi-tv-status" style="display:none">
         <span id="multi-tv-info"></span>
-    </div>
-    <div class="queue-volume-row">
-        <span class="queue-vol-icon">&#x1F50A;</span>
-        <input type="range" id="queue-volume-slider" class="settings-slider" min="0" max="100" value="0">
-        <span class="queue-vol-label" id="queue-vol-label">--%</span>
     </div>
 </section>
 
@@ -248,8 +255,27 @@ function updateNowPlaying(s) {
     idle.style.display = 'none';
     active.style.display = '';
 
-    const icon = s.paused ? '|| ' : '>> ';
-    document.getElementById('np-title').textContent = icon + (s.title || s.url || '');
+    document.getElementById('np-title').textContent = s.title || s.url || '';
+
+    // Subtitle: source tag + video ID
+    const tags = {youtube: 'YT', local: 'Local', twitch: 'Twitch', archive: 'Archive'};
+    const srcTag = tags[s.source_type] || '';
+    const vidId = extractVideoId(s.url);
+    const subtitleParts = [srcTag, vidId].filter(Boolean);
+    document.getElementById('np-subtitle').textContent = subtitleParts.join(' \u2022 ');
+
+    // LIVE badge for streams
+    const liveBadge = document.getElementById('np-live-badge');
+    const progressContainer = document.querySelector('.progress-container');
+    const isLive = s.duration === 0 || s.source_type === 'twitch';
+    if (isLive && !s.idle) {
+        liveBadge.style.display = '';
+        if (progressContainer) progressContainer.style.display = 'none';
+    } else {
+        liveBadge.style.display = 'none';
+        if (progressContainer) progressContainer.style.display = '';
+    }
+
     document.getElementById('np-url').textContent = s.url || '';
 
     const thumb = document.getElementById('np-thumb');
@@ -270,8 +296,7 @@ function updateNowPlaying(s) {
     document.getElementById('np-volume').textContent = 'Vol: ' + Math.round(currentVolume);
     document.getElementById('np-speed').textContent = 'Speed: ' + currentSpeed.toFixed(1) + 'x';
 
-    const tags = {youtube: '[YT]', local: '[Local]', twitch: '[Twitch]', archive: '[Archive]'};
-    document.getElementById('np-source').textContent = tags[s.source_type] || '';
+    document.getElementById('np-source').textContent = srcTag ? '[' + srcTag + ']' : '';
 
     // Show/hide autoplay rating buttons and capture context
     const ratingBar = document.getElementById('np-rating');
@@ -574,6 +599,14 @@ function toggleLoop() {
         .then(() => showToast(loopEnabled ? 'Queue loop ON' : 'Queue loop OFF'));
 }
 
+function toggleOverflow() {
+    const overflow = document.getElementById('controls-overflow');
+    const btn = document.querySelector('.btn-overflow');
+    overflow.classList.toggle('expanded');
+    if (btn) btn.classList.toggle('expanded', overflow.classList.contains('expanded'));
+    localStorage.setItem('picast-overflow-expanded', overflow.classList.contains('expanded') ? '1' : '0');
+}
+
 function toggleMultiTV() {
     const enabled = document.getElementById('btn-multi-tv').classList.contains('btn-icon-active');
     api('multi-tv/' + (enabled ? 'disable' : 'enable'))
@@ -667,11 +700,16 @@ function toggleFloatingControls() {
     document.getElementById('btn-pin').classList.toggle('pinned', isFloating);
 }
 
-// Restore float state
+// Restore float state and overflow state
 (function() {
     if (localStorage.getItem('picast-floating-controls') === '1') {
         document.getElementById('controls-section').classList.add('floating');
         document.getElementById('btn-pin').classList.add('pinned');
+    }
+    if (localStorage.getItem('picast-overflow-expanded') === '1') {
+        document.getElementById('controls-overflow').classList.add('expanded');
+        const btn = document.querySelector('.btn-overflow');
+        if (btn) btn.classList.add('expanded');
     }
 })();
 
