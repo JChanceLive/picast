@@ -697,14 +697,14 @@ body {
     border-right: none;
     border-bottom: none;
     min-height: var(--touch-comfortable);
-    transition: opacity 0.2s;
+    transition: opacity 0.3s, background 0.2s;
 }
 
 .qi-thumb {
     width: 48px;
     height: 28px;
     object-fit: cover;
-    border-radius: var(--radius-sm);
+    border-radius: 6px;
     flex-shrink: 0;
 }
 
@@ -713,38 +713,26 @@ body {
     background: var(--card);
 }
 
-.queue-item.played { opacity: 0.45; }
-.queue-item.skipped { opacity: 0.35; }
+.queue-item.played {
+    opacity: 0.4;
+    border-left-color: var(--success);
+}
 
-.queue-item.played { border-left-color: var(--success); }
-.queue-item.skipped { border-left-color: var(--text-tertiary); }
-
-.qi-status { width: 1.2em; color: var(--text-secondary); text-align: center; flex-shrink: 0; font-size: var(--font-xs); }
+.queue-item.skipped {
+    opacity: 0.3;
+    border-left-color: var(--text-tertiary);
+}
 
 .qi-info { flex: 1; min-width: 0; }
-.qi-info-top { display: flex; align-items: center; gap: var(--sp-2); }
-.qi-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-sm); }
-.qi-url { display: none; }
-.qi-source {
-    color: var(--accent);
-    font-size: var(--font-xs);
-    font-weight: 700;
-    flex-shrink: 0;
-}
+.qi-title { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-sm); font-weight: 500; }
 
-.qi-video-id {
-    font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+.qi-meta {
     font-size: var(--font-xs);
-    font-weight: 600;
     color: var(--text-tertiary);
-    flex-shrink: 0;
-}
-
-.qi-watch-count {
-    font-size: var(--font-xs);
-    color: var(--text-secondary);
-    margin-left: var(--sp-1);
-    flex-shrink: 0;
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* Circular action buttons */
@@ -778,6 +766,9 @@ body {
 .qi-remove { opacity: 0.4; color: var(--danger); border-color: rgba(255, 90, 122, 0.2); }
 .qi-remove:hover { opacity: 1; border-color: var(--danger); }
 
+.qi-retry { color: var(--danger); border-color: rgba(255, 90, 122, 0.3); }
+.qi-retry:hover { border-color: var(--danger); }
+
 .queue-empty {
     text-align: center;
     color: var(--text-tertiary);
@@ -789,6 +780,67 @@ body {
     gap: var(--sp-2);
     margin-top: var(--sp-3);
     flex-wrap: wrap;
+}
+
+/* Queue action pills */
+.queue-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--sp-1);
+    min-height: 36px;
+    padding: var(--sp-1) var(--sp-3);
+    border: 1px solid var(--border-hover);
+    border-radius: var(--radius-lg);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: var(--font-xs);
+    font-weight: 600;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition: all 0.15s;
+}
+
+.queue-pill:hover {
+    background: var(--card);
+    color: var(--text);
+    border-color: var(--text-tertiary);
+}
+
+.queue-pill:active {
+    transform: scale(0.95);
+}
+
+.queue-pill-accent {
+    border-color: rgba(94, 173, 255, 0.3);
+    color: var(--accent);
+}
+
+.queue-pill-accent:hover {
+    background: rgba(94, 173, 255, 0.1);
+    border-color: var(--accent);
+}
+
+.queue-pill-danger {
+    border-color: rgba(255, 90, 122, 0.2);
+    color: var(--text-tertiary);
+}
+
+.queue-pill-danger:hover {
+    border-color: rgba(255, 90, 122, 0.4);
+    color: var(--danger);
+}
+
+.queue-pill-danger-primed {
+    background: rgba(255, 90, 122, 0.15);
+    border-color: var(--danger);
+    color: var(--danger);
+    animation: dangerPulse 0.3s;
+}
+
+@keyframes dangerPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.03); }
+    100% { transform: scale(1); }
 }
 
 /* Library */
@@ -1104,15 +1156,23 @@ body {
     .controls-primary { gap: 6px; }
     .btn-icon { width: 42px; height: 42px; }
     .qi-thumb { display: none; }
+    .qi-move-col { display: none; }
+    .queue-pill { padding: var(--sp-1) var(--sp-2); font-size: 10px; }
+    .queue-actions { gap: var(--sp-1); }
+}
+
+/* Responsive - small phones (iPhone 12/13 mini) */
+@media (max-width: 390px) and (min-width: 341px) {
+    .qi-thumb { width: 40px; height: 24px; }
+    .qi-actions { gap: 1px; }
+    .qi-circle { width: 28px; height: 28px; font-size: 0.8rem; }
 }
 
 /* Responsive - mobile narrow */
 @media (max-width: 480px) {
     .container { padding: var(--sp-2); }
     .nav { padding: var(--sp-2) var(--sp-3); }
-    .queue-item { flex-wrap: wrap; }
-    .qi-video-id { display: none; }
-    .qi-actions { margin-top: var(--sp-1); }
+    .qi-meta { font-size: 10px; }
     .pd-item { flex-wrap: wrap; }
     .pdi-actions { width: 100%; justify-content: flex-end; margin-top: var(--sp-1); }
 }
@@ -1123,7 +1183,6 @@ body {
     .queue-item { padding: var(--sp-2) var(--sp-4); }
     .np-thumb { width: 160px; height: 90px; }
     .np-url { display: block; }
-    .qi-url { display: block; }
     .library-list { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-1); }
 }
 
@@ -1142,10 +1201,11 @@ body {
 }
 
 /* Queue actions and move */
-.qi-actions { display: inline-flex; gap: 0.2rem; align-items: center; margin-left: auto; flex-shrink: 0; }
-.qi-move-col { display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }
-.qi-move { width: 28px; height: 28px; font-size: 0.65rem; }
-.qi-move:disabled { opacity: 0.2; cursor: default; pointer-events: none; }
+.qi-actions { display: inline-flex; gap: 2px; align-items: center; margin-left: auto; flex-shrink: 0; }
+.qi-move-col { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+.qi-move { width: 24px; height: 24px; font-size: 0.6rem; opacity: 0.5; }
+.qi-move:hover { opacity: 1; }
+.qi-move:disabled { opacity: 0.15; cursor: default; pointer-events: none; }
 .atc-header { margin-bottom: 1rem; }
 .atc-header h2 { margin: 0.5rem 0; }
 .atc-video { color: var(--muted); font-size: 0.9rem; margin-bottom: 0.5rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

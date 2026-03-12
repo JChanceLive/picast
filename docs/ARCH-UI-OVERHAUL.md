@@ -1,7 +1,7 @@
 # Architecture: PiCast Mobile UI Overhaul
 
 **Date:** 2026-03-12
-**Status:** SESSION 1 IN PROGRESS — CSS design system complete, HTML/JS restructuring next
+**Status:** SESSION 2 COMPLETE + DEPLOYED (v1.1.0a19). Session 3 next: nav bar + status bars + cross-page consistency
 **Scope:** Full visual redesign of PiCast web UI (player.html, style.css, base.html)
 **Target:** iPhone SE (320px) through iPhone 16 (430px), OLED-optimized dark theme
 

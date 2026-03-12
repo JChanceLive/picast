@@ -119,9 +119,9 @@
     <input type="text" id="queue-search" class="queue-search" placeholder="Filter queue..." oninput="filterQueue(this.value)">
     <div id="queue-list"></div>
     <div class="queue-actions">
-        <button onclick="resetPlayed()" class="btn btn-sm">Refresh Queue</button>
-        <button onclick="clearPlayed()" class="btn btn-sm">Clear Played</button>
-        <button onclick="clearAll()" class="btn btn-sm btn-danger">Clear All</button>
+        <button onclick="resetPlayed()" class="queue-pill queue-pill-accent" title="Reset played items to pending">&#x21BB; Refresh</button>
+        <button onclick="clearPlayed()" class="queue-pill" title="Remove played items">&#x2713; Clear Played</button>
+        <button onclick="clearAll()" class="queue-pill queue-pill-danger" id="btn-clear-all" title="Remove all items">&#x2717; Clear All</button>
     </div>
 </section>
 
@@ -336,46 +336,52 @@ function updateQueue(items) {
         const isFinished = ['played','skipped','failed'].includes(item.status);
         const isFailed = item.status === 'failed';
         const isPending = item.status === 'pending';
-        const cls = item.status === 'playing' ? 'queue-item playing' :
-                    item.status === 'failed' ? 'queue-item failed' :
-                    item.status === 'skipped' ? 'queue-item skipped' :
-                    item.status === 'played' ? 'queue-item played' : 'queue-item';
-        const videoId = extractVideoId(item.url);
         const isPlaying = item.status === 'playing';
-        const playBtn = !isPlaying ?
-            `<button onclick="playNow(${item.id})" class="qi-circle qi-play" title="Play now">\u25B6</button>` : '';
-        const replayBtn = isFailed ?
-            `<button onclick="retryFailed(${item.id}).then(poll)" class="qi-circle qi-play" title="Retry" style="color:var(--danger);border-color:rgba(255,42,109,0.4)">\u21BB</button>` :
-            isFinished ?
-            `<button onclick="replayItem(${item.id})" class="qi-circle qi-replay" title="Re-queue">\u21BB</button>` : '';
-        const addUrl = '/add-to-collection?url=' + encodeURIComponent(item.url) + '&title=' + encodeURIComponent(item.title||'') + '&source_type=' + encodeURIComponent(item.source_type||'youtube');
-        const pidx = pendingIds.indexOf(item.id);
-        const isFirst = pidx === 0;
-        const isLast = pidx === pendingIds.length - 1;
-        const moveCol = isPending ? `<span class="qi-move-col">
-            <button onclick="moveItem(${item.id},-1)" class="qi-circle qi-move" title="Move up"${isFirst ? ' disabled' : ''}>\u25B2</button>
-            <button onclick="moveItem(${item.id},1)" class="qi-circle qi-move" title="Move down"${isLast ? ' disabled' : ''}>\u25BC</button>
-        </span>` : '';
+        const cls = 'queue-item' + (item.status !== 'pending' ? ' ' + item.status : '');
+        const videoId = extractVideoId(item.url);
+        const tag = tags[item.source_type] || '';
         const watchCount = item.watch_count || 0;
-        const watchHtml = watchCount > 0 ? `<span class="qi-watch-count" title="${watchCount} plays">${watchCount}x</span>` : '';
-        const vidIdHtml = videoId ? `<span class="qi-video-id">${videoId}</span>` : '';
+
+        // Left action: play, retry, or replay
+        let leftAction = '';
+        if (isFailed) {
+            leftAction = `<button onclick="retryFailed(${item.id}).then(poll)" class="qi-circle qi-retry" title="Retry">\u21BB</button>`;
+        } else if (isFinished) {
+            leftAction = `<button onclick="replayItem(${item.id})" class="qi-circle qi-replay" title="Re-queue">\u21BB</button>`;
+        } else if (!isPlaying) {
+            leftAction = `<button onclick="playNow(${item.id})" class="qi-circle qi-play" title="Play now">\u25B6</button>`;
+        }
+
+        // Move buttons (pending only)
+        const pidx = pendingIds.indexOf(item.id);
+        const moveCol = isPending ? `<span class="qi-move-col">
+            <button onclick="moveItem(${item.id},-1)" class="qi-circle qi-move" title="Move up"${pidx === 0 ? ' disabled' : ''}>\u25B2</button>
+            <button onclick="moveItem(${item.id},1)" class="qi-circle qi-move" title="Move down"${pidx === pendingIds.length - 1 ? ' disabled' : ''}>\u25BC</button>
+        </span>` : '';
+
+        // Metadata line: source + watch count + video ID
+        const metaParts = [tag, watchCount > 0 ? watchCount + 'x' : '', videoId].filter(Boolean);
+        const metaHtml = metaParts.length ? `<div class="qi-meta">${esc(metaParts.join(' \u2022 '))}</div>` : '';
+
+        // Thumbnail
         const thumbUrl = ytThumb(item.url);
         const thumbHtml = thumbUrl ? `<img class="qi-thumb" src="${thumbUrl}" alt="">` : '';
+
+        // Error line for failed items
+        const errorHtml = isFailed && item.last_error
+            ? `<div class="qi-error">${esc(item.last_error)}${item.error_count > 1 ? `<span class="qi-error-count">(${item.error_count}x)</span>` : ''}</div>` : '';
+
+        const addUrl = '/add-to-collection?url=' + encodeURIComponent(item.url) + '&title=' + encodeURIComponent(item.title||'') + '&source_type=' + encodeURIComponent(item.source_type||'youtube');
+
         return `<div class="${cls}">
-            ${playBtn}
-            ${replayBtn}
-            ${moveCol}
-            <span class="qi-status">${statusIcons[item.status] || ''}</span>
+            ${leftAction}
             ${thumbHtml}
             <div class="qi-info">
-                <div class="qi-info-top">
-                    <span class="qi-source">${tags[item.source_type] || ''}</span>
-                    <span class="qi-title">${esc(title)}</span>
-                </div>
-                <div class="qi-url">${esc(item.url || '')}</div>
-                ${isFailed && item.last_error ? `<div class="qi-error">${esc(item.last_error)}${item.error_count > 1 ? `<span class="qi-error-count">(${item.error_count}x)</span>` : ''}</div>` : ''}
+                <span class="qi-title">${esc(title)}</span>
+                ${metaHtml}
+                ${errorHtml}
             </div>
-            ${vidIdHtml}${watchHtml}
+            ${moveCol}
             <span class="qi-actions">
                 <a href="${addUrl}" class="qi-circle qi-add" title="Add to collection">+</a>
                 <button onclick="removeItem(${item.id})" class="qi-circle qi-remove" title="Remove">\u00D7</button>
@@ -536,9 +542,25 @@ function clearPlayed() {
     const btn = event && event.target;
     withLoading(btn, '...', api('queue/clear-played').then(() => { showToast('Cleared played'); poll(); }));
 }
+let clearAllPrimed = false;
+let clearAllTimer = null;
 function clearAll() {
-    const btn = event && event.target;
-    withLoading(btn, '...', api('queue/clear').then(() => { showToast('Queue cleared'); poll(); }));
+    const btn = document.getElementById('btn-clear-all');
+    if (!clearAllPrimed) {
+        clearAllPrimed = true;
+        btn.textContent = 'Tap again to confirm';
+        btn.classList.add('queue-pill-danger-primed');
+        clearAllTimer = setTimeout(() => {
+            clearAllPrimed = false;
+            btn.innerHTML = '\u2717 Clear All';
+            btn.classList.remove('queue-pill-danger-primed');
+        }, 3000);
+        return;
+    }
+    clearAllPrimed = false;
+    if (clearAllTimer) clearTimeout(clearAllTimer);
+    btn.classList.remove('queue-pill-danger-primed');
+    withLoading(btn, '...', api('queue/clear').then(() => { showToast('Queue cleared'); btn.innerHTML = '\u2717 Clear All'; poll(); }));
 }
 
 function doToggle(btn) {
