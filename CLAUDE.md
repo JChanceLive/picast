@@ -257,14 +257,13 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-10 | 42 active memories, 414 total_
+_Last updated: 2026-03-12 | 38 active memories, 431 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - PiCast persistent title overlay uses mpv OSD level 3 with `--osd-status-msg=${media-title}` positioned bottom-left (a... [picast, mpv, osd, overlay, ui]
-- PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, ai-autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet]
-- Feedback summary API endpoint GET /api/autoplay/feedback-summary returns aggregated behavioral signals from play_hist... [picast, autopilot, api, feedback-loop]
-- Feedback summary endpoint aggregates 6 signal types from AutoPlayPool: (1) block completion rates (videos played >80%... [picast, autopilot, feedback-loop, api-design]
+- PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet, feedback-loop]
+- Multi-TV distribution feature adds `/api/queue/distribute` endpoint that maps current queue to fleet devices, validat... [picast, fleet, multi-tv, distribution, queue]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -274,20 +273,18 @@ _Last updated: 2026-03-10 | 42 active memories, 414 total_
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
 - 30-day trial guard added to refresh-taste-profile.sh: creates ~/.picast/trial-start on first run, stores expiry date ... [picast, autopilot, cost-control, trial-system]
+- Multi-TV queue distribution prioritizes VISUAL simplicity over playback state sync: each TV plays its assigned queue ... [picast, multi-tv, design-philosophy, scope]
 
 ## Patterns & Conventions
-- PiCast feature flag wiring pattern: New boolean config flags in picast.toml [autoplay] section (e.g., seasonal_rotati... [picast, config, feature-flags, autoplay, pattern]
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
 - PiCast CLI command aliases via pyproject.toml [project.scripts]: `pycast export` (replaces `picast autoplay export`) ... [picast, cli, entry-points, pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling]
-- PiCast setup wizard validation pattern: Pushover token validated via POST to Pushover API (send 1-sec timeout test me... [picast, setup-wizard, validation, pattern]
 - URL validation pattern in PiCast: autoplay_pool_add and queue_add endpoints both normalize_url() then validate_url(ur... [picast, url-validation, api-pattern, error-handling]
 - PiCast fleet hybrid trigger pattern in app.py autoplay/trigger endpoint: after player.play_now(video_url) succeeds, i... [picast, autopilot, fleet, architecture, concurrency]
-- AutopilotEngine initialization and integration patterns: create_app() accepts optional autopilot_config (from Config.... [picast, autopilot, initialization-pattern, testing, discovery, fleet, integration]
-- Trial renewal pattern in refresh-taste-profile.sh: --renew flag reads current trial-start, calculates expiry (30 days... [picast, autopilot, trial-system, bash-pattern]
-- PiCast AI Autopilot Mac-side automation and web UI patterns: (1) refresh-taste-profile.sh uses exponential backoff re... [picast, autopilot, mac-side, automation, launchd, validation, testing, retry, error-handling, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern, queue-preview, fleet]
-- Block-to-mood mapping in refresh-taste-profile.sh uses static bash associative array (morning-foundation→chill, creat... [picast, autopilot, taste-profile, block-mapping]
 - Effectiveness tracking in refresh log captures baseline pool snapshot (total_videos, liked_count, skip_count, complet... [picast, autopilot, metrics, logging, effectiveness]
+- Block-to-mood mapping in refresh-taste-profile.sh uses static bash associative array (morning-foundation→chill, creat... [picast, autopilot, taste-profile, block-mapping]
+- Multi-TV queue distribution validation pattern: before assigning video to device, call extract_video_id(queue_item.ur... [picast, multi-tv, validation, queue, pattern]
+- AutopilotEngine initialization and integration patterns: create_app() accepts optional autopilot_config (from Config.... [picast, autopilot, initialization-pattern, testing, discovery, fleet, integration, mac-side, automation, launchd, validation, retry, error-handling, web-ui, navigation, mobile, responsive, autoplay, javascript, api-pattern, queue-preview, bash-pattern, setup-wizard, deployment]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
@@ -298,15 +295,14 @@ _Last updated: 2026-03-10 | 42 active memories, 414 total_
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
 - Test helper _save_profile() in test_autopilot_engine.py has default generated_at="2026-03-10T06:00:00". When testing ... [picast, testing, gotcha, taste-profile]
 - validate-profile.py returns (errors, warnings) tuple with both lists populated independently: errors are hard failure... [picast, autopilot, validation, testing, taste-profile]
-- test_youtube_discovery.py _make_profile_with_queries() fixture was broken after v2 migration: used v1 format (block_s... [picast, testing, taste-profile, v2-migration, discovery]
-- YouTube bot detection and autoplay race conditions: (1) After yt-dlp upgrade to 2026.2.21, PO token plugin yt-dlp-get... [picast, youtube, bot-detection, authentication, yt-dlp, plugin, debian, autoplay, race-condition, self-learning, timing, buffering]
-- refresh-taste-profile.sh bug fixes: (1) Pool data bug FIXED in commit 1969152: /api/autoplay endpoint returns pools a... [picast, autopilot, bash, api, jq, bug-fix, cost-cap, ordering]
-- FleetManager wiring bug FIXED in commit 28a8897: AutopilotEngine was created without fleet= parameter even when autop... [picast, autopilot, fleet, app-startup, bug-fix]
+- PiCast fleet manager uses lazy polling for device status — picast-z1 shows `online: false` immediately after service ... [picast, fleet, autopilot, polling]
+- PiCast autopilot and fleet integration gotchas: (1) refresh-taste-profile.sh pool data fetch bug FIXED in commit 1969... [picast, autopilot, fleet, youtube, bot-detection, authentication, yt-dlp, autoplay, race-condition, self-learning, timing, buffering, testing, taste-profile, v2-migration, discovery, polling]
 
 ## Current Progress
-- PiCast AI Autopilot S5.3 COMPLETE (2026-03-10): Sonnet migration ($0.01 vs $0.29 Opus), monthly cost cap ($5 default ... [picast, autopilot, s5.3-complete, sonnet, cost-cap, fleet, receiver, taste-profile-v2, progress, deployment]
+- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
 
 ## Context
+- mpv Twitch stream playback gotchas with --video-sync=display-desync: (1) Options designed for video-sync=audio mode c... [picast, mpv, twitch, performance, frame-drops, hardware-decode, profile-override, command-line-ordering]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-10): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
 - Taste profile learning feedback sources: (1) explicit thumbs up/down via queue UI (rating ±1), (2) skip button (skip_... [picast, autopilot, taste-profile, learning-loop, feedback]
 - User's actual PiCast viewing preferences (for taste profile seeding): PRIMARY is Boston and Maine Live webcam (always... [picast, autopilot, taste-profile, user-preferences]

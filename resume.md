@@ -3,10 +3,10 @@
 Last updated: 2026-02-26
 
 ## State
-v0.23.0 deployed to Pi. 594 tests pass. Full-featured YouTube queue player with autoplay pools, self-learning ratings, movie discovery, collections, Chrome extension, settings page, and persistent title overlay.
+v1.1.0a15 deployed to Pi. 909+ tests. Full-featured YouTube queue player with autoplay pools, self-learning ratings, AI Autopilot, movie discovery, collections, Chrome extension, settings page, fallback screensaver, and persistent title overlay.
 
 ## Architecture
-- **Pi (server):** Flask REST API + mpv player + SQLite (schema v8). Runs as systemd service on port 5050.
+- **Pi (server):** Flask REST API + mpv player + SQLite (schema v11). Runs as systemd service on port 5050.
 - **Mac (client):** Textual TUI connects to Pi's API. Also used for development.
 - **Web UI:** Flask-served at `http://picast.local:5050`. PWA for mobile.
 - **Chrome Extension:** Separate repo (`picast-extension/`). Sends Play/Queue requests to Pi.
@@ -14,10 +14,8 @@ v0.23.0 deployed to Pi. 594 tests pass. Full-featured YouTube queue player with 
 - **Video sync:** `--video-sync=display-desync` (zero frame drops under Wayland).
 
 ## Next Action
-No critical bugs. Current session work:
-- Volume persistence (DB settings table) - DONE this session
-- Wallpaper redesign (trimmed to 7 cards) - DONE this session
-- Deploy as v0.23.1
+- picast-z1 setup (Pi Zero 2 W display receiver)
+- Taste profile v2 schema (freeform, energy profiles)
 
 ## Key Features (v0.23.0)
 - Queue management (add, reorder, replay, search, drag)
@@ -57,6 +55,8 @@ No critical bugs. Current session work:
 - **SD card I/O errors**: Pi SD cards have transient failures. DB retries with exponential backoff (0.5-8s).
 - **SQLite locked DB**: Failed DML leaves implicit transaction open. Use `INSERT OR IGNORE` or always rollback.
 - **display-desync**: Prevents frame drops under Wayland (default `audio` marks frames "late").
+- **low-latency profile BANNED**: `--profile=low-latency` overrides `video-sync` back to `audio`, causing V4L2 h264_v4l2m2m poll timeouts and permanent decoder freezes on some Twitch streams. Cherry-pick individual options instead.
+- **No framedrop with display-desync**: `--framedrop=decoder+vo` and `--video-latency-hacks=yes` cause visible stuttering when paired with display-desync. These are only useful with video-sync=audio.
 - **Kernel rotation**: `video=HDMI-A-1:panel_orientation=upside_down` in cmdline.txt. Requires reboot.
 - **picast-update**: Compares `__about__.__version__` against GitHub. Must bump version for deploys.
 - **Pool mode**: Two autoplay modes: legacy (toml mappings) and pool (SQLite, weighted random). Pool falls back to legacy when empty.
@@ -64,6 +64,7 @@ No critical bugs. Current session work:
 - **iOS Safari PWA**: `confirm()` silently returns false. Use double-tap pattern instead.
 
 ## Session History
+- Mar 11: v1.1.0a15 -- Fixed Twitch stream freezes. Root cause: --profile=low-latency overrode video-sync=display-desync back to audio, causing V4L2 decoder poll timeouts. Also removed framedrop/latency-hacks (cause stuttering with display-desync). Live format tightened to 360p-first.
 - Feb 26: v0.23.1 prep -- Volume persistence (DB settings table, schema v8), wallpaper redesign (7 cards, bigger fonts, icon branding). 594 tests.
 - Feb 25: v0.23.0 -- OSD bottom-left, frame drops fixed (display-desync), settings page, all prior work merged. 591 tests.
 - Feb 24: v0.22.0 -- Settings page (volume, display rotation, player controls, reboot). iOS Safari PWA fix.
