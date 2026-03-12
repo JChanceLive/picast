@@ -720,6 +720,7 @@ function toggleFloatingControls() {
     const isFloating = section.classList.contains('floating');
     localStorage.setItem('picast-floating-controls', isFloating ? '1' : '0');
     document.getElementById('btn-pin').classList.toggle('pinned', isFloating);
+    document.body.classList.toggle('has-floating-controls', isFloating);
 }
 
 // Restore float state and overflow state
@@ -727,6 +728,7 @@ function toggleFloatingControls() {
     if (localStorage.getItem('picast-floating-controls') === '1') {
         document.getElementById('controls-section').classList.add('floating');
         document.getElementById('btn-pin').classList.add('pinned');
+        document.body.classList.add('has-floating-controls');
     }
     if (localStorage.getItem('picast-overflow-expanded') === '1') {
         document.getElementById('controls-overflow').classList.add('expanded');

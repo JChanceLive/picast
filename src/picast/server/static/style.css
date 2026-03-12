@@ -399,6 +399,11 @@ body {
     box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.6);
 }
 
+/* Prevent floating controls from covering page content */
+body.has-floating-controls {
+    padding-bottom: 120px;
+}
+
 /* Primary controls - always visible */
 .controls-primary {
     display: flex;
