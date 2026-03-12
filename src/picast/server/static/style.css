@@ -414,6 +414,15 @@ body {
     text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.4);
 }
 
+.multi-tv-status {
+    text-align: center;
+    padding: 0.3rem 0;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+    text-shadow: var(--glow-sm) rgba(0, 240, 255, 0.4);
+}
+
 /* Idle hero */
 .idle-title {
     font-size: 1rem;

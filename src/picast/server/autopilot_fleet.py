@@ -168,6 +168,61 @@ class FleetManager:
             logger.warning("push_content failed for %s: %s", device_id, e)
             return False
 
+    def play_immediately(self, device_id: str, video: dict) -> bool:
+        """Play a video immediately on a fleet device via POST /api/play.
+
+        Unlike push_content() which queues, this triggers immediate playback.
+
+        Args:
+            device_id: Target device identifier
+            video: Dict with at least 'url' and optionally 'title'
+
+        Returns:
+            True if the device accepted the play command, False otherwise.
+        """
+        with self._lock:
+            state = self._devices.get(device_id)
+            if state is None:
+                logger.warning("play_immediately: unknown device %s", device_id)
+                return False
+
+            if not state.online:
+                logger.info("play_immediately: device %s is offline", device_id)
+                return False
+
+        url = video.get("url", "")
+        title = video.get("title", "")
+        if not url:
+            logger.warning("play_immediately: no url in video dict")
+            return False
+
+        base = self._device_base_url(state.config)
+        payload = json.dumps({"url": url, "title": title}).encode()
+        req = urllib.request.Request(
+            f"{base}/api/play",
+            data=payload,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        try:
+            with urllib.request.urlopen(req, timeout=_DEVICE_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+                ok = data.get("ok", False)
+                if ok:
+                    logger.info(
+                        "Play immediately on %s: %s (%s)", device_id, title, url
+                    )
+                else:
+                    logger.warning(
+                        "Device %s rejected play: %s",
+                        device_id, data.get("error", "unknown"),
+                    )
+                return bool(ok)
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+            logger.warning("play_immediately failed for %s: %s", device_id, e)
+            return False
+
     def get_fleet_status(self) -> list[dict]:
         """Return fleet status for UI display.
 

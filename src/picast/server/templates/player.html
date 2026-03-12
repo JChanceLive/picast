@@ -68,9 +68,13 @@
         <button onclick="setSleepTimer(30)" class="btn-icon" id="btn-sleep-30" aria-label="Sleep 30 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">30m</span></button>
         <button onclick="handleSleep60()" class="btn-icon" id="btn-sleep-60" aria-label="Sleep 60 minutes"><span class="bi-ico">😴</span><span class="bi-lbl">60m</span></button>
         <button onclick="toggleLoop()" class="btn-icon" id="btn-loop" aria-label="Loop queue"><span class="bi-ico">🔁</span><span class="bi-lbl">Loop</span></button>
+        <button onclick="toggleMultiTV()" class="btn-icon" id="btn-multi-tv" aria-label="Multi-TV" title="Distribute queue across all TVs"><span class="bi-ico">📺</span><span class="bi-lbl">Multi</span></button>
     </div>
     <div class="timer-status" id="timer-status" style="display:none">
         <span id="timer-countdown"></span>
+    </div>
+    <div class="multi-tv-status" id="multi-tv-status" style="display:none">
+        <span id="multi-tv-info"></span>
     </div>
     <div class="queue-volume-row">
         <span class="queue-vol-icon">&#x1F50A;</span>
@@ -565,6 +569,12 @@ function toggleLoop() {
         .then(() => showToast(loopEnabled ? 'Queue loop ON' : 'Queue loop OFF'));
 }
 
+function toggleMultiTV() {
+    const enabled = document.getElementById('btn-multi-tv').classList.contains('btn-icon-active');
+    api('multi-tv/' + (enabled ? 'disable' : 'enable'))
+        .then(() => showToast(enabled ? 'Multi-TV OFF' : 'Multi-TV ON'));
+}
+
 function rateAutoplay(rating) {
     const payload = {rating};
     // Pass explicit IDs captured when rating bar appeared
@@ -624,6 +634,22 @@ function updateTimerUI(s) {
         sleep60.querySelector('.bi-ico').textContent = '😴';
         sleep60.querySelector('.bi-lbl').textContent = '60m';
         sleep60.title = 'Sleep 60 min';
+    }
+
+    // Multi-TV state sync
+    const mtv = s.multi_tv || {};
+    const mtvBtn = document.getElementById('btn-multi-tv');
+    const mtvStatus = document.getElementById('multi-tv-status');
+    if (mtv.enabled) {
+        mtvBtn.classList.add('btn-icon-active');
+        mtvStatus.style.display = '';
+        const info = mtv.checking
+            ? 'Checking videos...'
+            : mtv.devices.filter(d => d.queue_item_id).length + '/' + mtv.devices.length + ' TVs active | ' + mtv.queue_remaining + ' remaining';
+        document.getElementById('multi-tv-info').textContent = info;
+    } else {
+        mtvBtn.classList.remove('btn-icon-active');
+        mtvStatus.style.display = 'none';
     }
 }
 

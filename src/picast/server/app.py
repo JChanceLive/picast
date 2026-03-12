@@ -205,6 +205,11 @@ def create_app(
 
     def _handle_item_complete(item, play_duration, was_skipped, was_stopped):
         """Process autoplay completion with context-aware self-learning."""
+        # Multi-TV mode: delegate completion to multi-TV manager
+        if _multi_tv.enabled:
+            _multi_tv.on_video_finished("main")
+            return  # Multi-TV handles queue advancement
+
         # Determine context: endpoint snapshot (skip/stop/play/trigger) or natural end
         ctx = _autoplay_completing["value"]
         if ctx:
@@ -322,6 +327,16 @@ def create_app(
         _autopilot_engine.start()
     app.autopilot_engine = _autopilot_engine
 
+    # Multi-TV queue distribution
+    from picast.server.multi_tv import MultiTVManager
+
+    _multi_tv = MultiTVManager(
+        queue=queue,
+        fleet=_fleet_manager,
+        player=player,
+        sources=sources,
+    )
+
     # --- Web UI Pages ---
 
     @app.route("/")
@@ -429,6 +444,7 @@ def create_app(
         s = player.get_status()
         s["autoplay_enabled"] = _autoplay_enabled
         s["autoplay_current"] = _autoplay_current
+        s["multi_tv"] = _multi_tv.get_status()
         return jsonify(s)
 
     @app.route("/api/play", methods=["POST"])
@@ -560,6 +576,8 @@ def create_app(
         except Exception as e:
             logger.exception("Queue add failed for %s: %s", url, e)
             return jsonify({"error": f"Queue add failed: {e}"}), 500
+        if _multi_tv.enabled:
+            _multi_tv.on_queue_changed()
         return jsonify(item.to_dict()), 201
 
     @app.route("/api/queue/<int:item_id>/play", methods=["POST"])
@@ -1217,6 +1235,35 @@ def create_app(
             "results": results,
             "pushed": sum(1 for r in results if r["success"]),
         })
+
+    # --- Multi-TV Queue Distribution Endpoints ---
+
+    @app.route("/api/multi-tv/enable", methods=["POST"])
+    def multi_tv_enable():
+        """Enable multi-TV mode. Pauses autopilot."""
+        if _autopilot_engine.running:
+            _autopilot_engine.stop()
+        _multi_tv.enable()
+        return jsonify(_multi_tv.get_status())
+
+    @app.route("/api/multi-tv/disable", methods=["POST"])
+    def multi_tv_disable():
+        """Disable multi-TV mode. Resumes autopilot if it was enabled."""
+        _multi_tv.disable()
+        if _autopilot_config.enabled and not _autopilot_engine.running:
+            _autopilot_engine.start()
+        return jsonify({"ok": True})
+
+    @app.route("/api/multi-tv/redistribute", methods=["POST"])
+    def multi_tv_redistribute():
+        """Force redistribution of queue to TVs."""
+        _multi_tv.distribute()
+        return jsonify(_multi_tv.get_status())
+
+    @app.route("/api/multi-tv")
+    def multi_tv_status():
+        """Get multi-TV status."""
+        return jsonify(_multi_tv.get_status())
 
     @app.route("/api/autopilot/mood", methods=["POST"])
     def autopilot_set_mood():

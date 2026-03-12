@@ -257,7 +257,7 @@ The Pi's SD card occasionally has transient `disk I/O error` on SQLite operation
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-12 | 38 active memories, 431 total_
+_Last updated: 2026-03-12 | 40 active memories, 434 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -297,8 +297,10 @@ _Last updated: 2026-03-12 | 38 active memories, 431 total_
 - validate-profile.py returns (errors, warnings) tuple with both lists populated independently: errors are hard failure... [picast, autopilot, validation, testing, taste-profile]
 - PiCast fleet manager uses lazy polling for device status — picast-z1 shows `online: false` immediately after service ... [picast, fleet, autopilot, polling]
 - PiCast autopilot and fleet integration gotchas: (1) refresh-taste-profile.sh pool data fetch bug FIXED in commit 1969... [picast, autopilot, fleet, youtube, bot-detection, authentication, yt-dlp, autoplay, race-condition, self-learning, timing, buffering, testing, taste-profile, v2-migration, discovery, polling]
+- Multi-TV distribute() method calls _get_idle_devices() which acquires lock and holds it during iteration; _next_assig... [picast, multi-tv, threading, concurrency]
 
 ## Current Progress
+- Multi-TV feature implementation completed: MultiTVManager class with distribute_queue() method, Web UI toggle button ... [picast, multi-tv, feature-complete]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
 
 ## Context
