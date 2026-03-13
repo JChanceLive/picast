@@ -57,13 +57,25 @@ class MultiTVManager:
         return self._enabled
 
     def enable(self):
-        """Enable multi-TV mode. Start pre-checking and distributing."""
+        """Enable multi-TV mode. Start pre-checking and distributing.
+
+        If already enabled, performs a full reset: clears assignments
+        and redistributes from the queue to all devices.
+        """
+        already_on = False
         with self._lock:
             if self._enabled:
-                return
-            self._enabled = True
-            self._assignments.clear()
-            self._stop_event.clear()
+                already_on = True
+                # Reset: clear assignments so all devices are treated as idle
+                self._assignments.clear()
+            else:
+                self._enabled = True
+                self._stop_event.clear()
+
+        if already_on:
+            # Already running — just redistribute (watcher is still alive)
+            self.distribute()
+            return
 
         # Pre-check pending items in background, then distribute
         t = threading.Thread(

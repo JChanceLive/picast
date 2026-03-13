@@ -86,7 +86,8 @@
         <span class="status-chip"><span class="status-chip-icon">&#x23F1;</span> <span id="timer-countdown"></span></span>
     </div>
     <div class="multi-tv-status" id="multi-tv-status" style="display:none">
-        <span class="status-chip"><span class="status-chip-icon">&#x1F4FA;</span> <span id="multi-tv-info"></span></span>
+        <span class="status-chip" onclick="document.getElementById('fleet-panel').classList.toggle('fleet-panel-hidden')"><span class="status-chip-icon">&#x1F4FA;</span> <span id="multi-tv-info"></span></span>
+        <button onclick="disableMultiTV()" class="queue-pill" style="margin-left:8px;font-size:0.75rem" title="Turn off Multi-TV">OFF</button>
         <div class="fleet-panel" id="fleet-panel">
             <div id="fleet-devices"></div>
         </div>
@@ -640,8 +641,18 @@ function toggleOverflow() {
 
 function toggleMultiTV() {
     const enabled = document.getElementById('btn-multi-tv').classList.contains('btn-icon-active');
-    api('multi-tv/' + (enabled ? 'disable' : 'enable'))
-        .then(() => showToast(enabled ? 'Multi-TV OFF' : 'Multi-TV ON'));
+    if (enabled) {
+        // Already on: re-enable = reset + redistribute all TVs from queue
+        api('multi-tv/enable')
+            .then(() => showToast('Multi-TV reset'));
+    } else {
+        api('multi-tv/enable')
+            .then(() => showToast('Multi-TV ON'));
+    }
+}
+function disableMultiTV() {
+    api('multi-tv/disable')
+        .then(() => showToast('Multi-TV OFF'));
 }
 
 function rateAutoplay(rating) {
