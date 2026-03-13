@@ -539,7 +539,13 @@ function removeItem(id) {
 }
 function resetPlayed() {
     const btn = event && event.target;
-    withLoading(btn, '...', api('queue/reset-played').then(d => { showToast((d.reset || 0) + ' items reset to pending'); poll(); }));
+    withLoading(btn, '...', api('queue/reset-played').then(d => {
+        const parts = [];
+        if (d.duplicates_removed) parts.push(d.duplicates_removed + ' duplicates removed');
+        if (d.items_reset) parts.push(d.items_reset + ' items reset to pending');
+        showToast(parts.length ? 'Refreshed: ' + parts.join(', ') : 'Queue already fresh');
+        poll();
+    }));
 }
 function clearPlayed() {
     const btn = event && event.target;

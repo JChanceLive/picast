@@ -169,7 +169,10 @@ class FleetManager:
             return False
 
         base = self._device_base_url(state.config)
-        payload = json.dumps({"url": url, "title": title}).encode()
+        push_data: dict = {"url": url, "title": title}
+        if state.config.mute:
+            push_data["mute"] = True
+        payload = json.dumps(push_data).encode()
         req = urllib.request.Request(
             f"{base}/api/queue/add",
             data=payload,

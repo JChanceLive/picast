@@ -273,3 +273,47 @@ class TestErrorTracking:
         assert "failed_at" in d
         assert d["error_count"] == 1
         assert d["last_error"] == "test error"
+
+    def test_refresh_queue_resets_all_statuses(self, queue):
+        """Refresh resets played, skipped, and errored items to pending."""
+        a = queue.add("https://www.youtube.com/watch?v=aaa")
+        b = queue.add("https://www.youtube.com/watch?v=bbb")
+        c = queue.add("https://www.youtube.com/watch?v=ccc")
+        queue.mark_played(a.id)
+        queue.mark_skipped(b.id)
+        queue.mark_failed(c.id)
+        result = queue.refresh_queue()
+        assert result["items_reset"] == 3
+        assert result["duplicates_removed"] == 0
+        pending = queue.get_pending()
+        assert len(pending) == 3
+
+    def test_refresh_queue_deduplicates_by_video_id(self, queue):
+        """Refresh removes duplicate URLs, keeping oldest entry."""
+        queue.add("https://www.youtube.com/watch?v=abcdefghijk")
+        queue.add("https://youtu.be/abcdefghijk")  # same video, different URL
+        queue.add("https://www.youtube.com/watch?v=zzzzzzzzzzz")
+        result = queue.refresh_queue()
+        assert result["duplicates_removed"] == 1
+        items = queue.get_all()
+        assert len(items) == 2
+        urls = [i.url for i in items]
+        assert "https://www.youtube.com/watch?v=abcdefghijk" in urls  # oldest
+        assert "https://www.youtube.com/watch?v=zzzzzzzzzzz" in urls
+
+    def test_refresh_queue_dedup_non_youtube(self, queue):
+        """Non-YouTube URLs are deduped by exact URL match."""
+        queue.add("/mnt/usb/movie.mp4")
+        queue.add("/mnt/usb/movie.mp4")
+        queue.add("/mnt/usb/other.mp4")
+        result = queue.refresh_queue()
+        assert result["duplicates_removed"] == 1
+        assert len(queue.get_all()) == 2
+
+    def test_refresh_queue_already_fresh(self, queue):
+        """Refresh on a queue with no duplicates and all pending returns zeros."""
+        queue.add("https://www.youtube.com/watch?v=a")
+        queue.add("https://www.youtube.com/watch?v=b")
+        result = queue.refresh_queue()
+        assert result["duplicates_removed"] == 0
+        assert result["items_reset"] == 0

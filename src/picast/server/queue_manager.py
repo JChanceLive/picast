@@ -5,10 +5,15 @@ Persists to SQLite for reliable crash recovery.
 """
 
 import logging
+import re
 import time
 from dataclasses import asdict, dataclass, field
 
 from picast.server.database import Database
+
+_YT_VIDEO_ID_RE = re.compile(
+    r"(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([a-zA-Z0-9_-]{11})"
+)
 
 logger = logging.getLogger(__name__)
 
@@ -247,6 +252,46 @@ class QueueManager:
         """Remove all played and skipped items."""
         self._db.execute("DELETE FROM queue WHERE status IN ('played', 'skipped')")
         self._db.commit()
+
+    def refresh_queue(self) -> dict:
+        """Deduplicate queue by video ID and reset all items to pending.
+
+        Deduplication keeps the oldest entry (lowest id) for each unique
+        video ID.  Non-YouTube URLs are deduped by exact URL match.
+        After dedup, all remaining items are set back to 'pending'.
+
+        Returns dict with ``duplicates_removed`` and ``items_reset`` counts.
+        """
+        # --- 1. Deduplicate ---
+        rows = self._db.fetchall("SELECT id, url FROM queue ORDER BY id ASC")
+        seen: dict[str, int] = {}  # key (video_id or url) -> first id
+        dup_ids: list[int] = []
+        for row in rows:
+            m = _YT_VIDEO_ID_RE.search(row["url"])
+            key = m.group(1) if m else row["url"]
+            if key in seen:
+                dup_ids.append(row["id"])
+            else:
+                seen[key] = row["id"]
+
+        if dup_ids:
+            placeholders = ",".join("?" * len(dup_ids))
+            self._db.execute(
+                f"DELETE FROM queue WHERE id IN ({placeholders})", dup_ids
+            )
+            logger.info("Removed %d duplicate queue items", len(dup_ids))
+
+        # --- 2. Reset all to pending ---
+        cursor = self._db.execute(
+            "UPDATE queue SET status = 'pending' WHERE status != 'pending'"
+        )
+        items_reset = cursor.rowcount
+
+        self._db.commit()
+        if items_reset:
+            logger.info("Reset %d queue items to pending", items_reset)
+
+        return {"duplicates_removed": len(dup_ids), "items_reset": items_reset}
 
     def clear_all(self):
         """Remove all items."""
