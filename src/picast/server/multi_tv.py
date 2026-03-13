@@ -66,18 +66,19 @@ class MultiTVManager:
         with self._lock:
             if self._enabled:
                 already_on = True
-                # Reset: clear assignments so all devices are treated as idle
+                # Reset: clear assignments and pre-check cache
                 self._assignments.clear()
+                self._check_cache.clear()
             else:
                 self._enabled = True
                 self._stop_event.clear()
 
         if already_on:
-            # Already running — just redistribute (watcher is still alive)
+            # Already running — redistribute immediately (watcher alive)
             self.distribute()
             return
 
-        # Pre-check pending items in background, then distribute
+        # Start background thread: poll fleet, then distribute
         t = threading.Thread(
             target=self._enable_background,
             daemon=True,
@@ -86,7 +87,13 @@ class MultiTVManager:
         t.start()
 
     def _enable_background(self):
-        """Background work for enable: poll fleet, pre-check, distribute."""
+        """Background work for enable: poll fleet then distribute.
+
+        Pre-check is intentionally skipped — yt-dlp --simulate rejects
+        valid URLs (Twitch, playlist params, auth-gated) causing the
+        entire queue to be blacklisted.  Let the player/receiver handle
+        actual playback errors instead.
+        """
         try:
             # Poll fleet first so we know which devices are online
             if self._fleet:
@@ -94,9 +101,6 @@ class MultiTVManager:
                     self._fleet.poll_devices()
                 except Exception as e:
                     logger.debug("Multi-TV enable poll error: %s", e)
-            pending = self._queue.get_pending()
-            if pending:
-                self.pre_check(pending)
             self.distribute()
         except Exception as e:
             logger.warning("Multi-TV enable background error: %s", e)
