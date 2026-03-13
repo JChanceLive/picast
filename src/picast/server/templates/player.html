@@ -86,7 +86,10 @@
         <span class="status-chip"><span class="status-chip-icon">&#x23F1;</span> <span id="timer-countdown"></span></span>
     </div>
     <div class="multi-tv-status" id="multi-tv-status" style="display:none">
-        <span class="status-chip"><span class="status-chip-icon">&#x1F4FA;</span> <span id="multi-tv-info"></span></span>
+        <span class="status-chip" onclick="toggleFleetPanel()" style="cursor:pointer"><span class="status-chip-icon">&#x1F4FA;</span> <span id="multi-tv-info"></span></span>
+        <div class="fleet-panel" id="fleet-panel" style="display:none">
+            <div id="fleet-devices"></div>
+        </div>
     </div>
 </section>
 
@@ -849,6 +852,69 @@ document.getElementById('queue-volume-slider').addEventListener('input', functio
 });
 
 loadQueueVolume();
+
+// Fleet health panel
+let fleetPanelOpen = false;
+
+function toggleFleetPanel() {
+    fleetPanelOpen = !fleetPanelOpen;
+    document.getElementById('fleet-panel').style.display = fleetPanelOpen ? '' : 'none';
+    if (fleetPanelOpen) pollFleet();
+}
+
+function pollFleet() {
+    if (!fleetPanelOpen) return;
+    fetch('/api/autopilot/fleet')
+        .then(r => r.json())
+        .then(data => {
+            if (!data.configured || !data.devices) {
+                document.getElementById('fleet-devices').innerHTML = '<div class="fleet-panel-empty">No fleet configured</div>';
+                return;
+            }
+            renderFleetDevices(data.devices);
+        })
+        .catch(() => {});
+}
+
+function renderFleetDevices(devices) {
+    const el = document.getElementById('fleet-devices');
+    let html = '';
+    devices.forEach(dev => {
+        let stateClass, stateLabel;
+        if (!dev.online) {
+            stateClass = 'ap-fleet-offline';
+            stateLabel = 'Offline';
+        } else if (dev.manual_override) {
+            stateClass = 'ap-fleet-override';
+            stateLabel = 'Manual';
+        } else if (!dev.idle) {
+            stateClass = 'ap-fleet-playing';
+            stateLabel = 'Playing';
+        } else {
+            stateClass = 'ap-fleet-idle';
+            stateLabel = 'Idle';
+        }
+        const title = dev.playing_title ? esc(dev.playing_title) : '';
+        html +=
+            '<div class="ap-fleet-device">' +
+            '<div class="ap-fleet-indicator ' + stateClass + '"></div>' +
+            '<div class="ap-fleet-info">' +
+            '<span class="ap-fleet-name">' + esc(dev.device_id) + '</span>' +
+            '<span class="ap-fleet-meta">' +
+            esc(dev.room || '') +
+            (dev.room && dev.mood ? ' &middot; ' : '') +
+            esc(dev.mood || '') +
+            '</span>' +
+            (title ? '<span class="ap-fleet-title">' + title + '</span>' : '') +
+            '</div>' +
+            '<span class="ap-fleet-state ' + stateClass + '">' + stateLabel + '</span>' +
+            '</div>';
+    });
+    el.innerHTML = html;
+}
+
+// Poll fleet every 5s when panel is open
+setInterval(pollFleet, 5000);
 
 connectSSE();
 setInterval(poll, 1000);

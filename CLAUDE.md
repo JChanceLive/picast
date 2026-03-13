@@ -119,23 +119,24 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-12 | 41 active memories, 466 total_
+_Last updated: 2026-03-13 | 48 active memories, 484 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
-- PiCast mobile UI redesign Phase 1 (2026-03-12) implements new CSS design system: root variables updated to `--accent:... [picast, mobile-ui, css-design-system, s1-complete]
-- PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet, feedback-loop, multi-tv]
+- PiCast fleet mute architecture: FleetDeviceConfig.mute (default True) controls whether play_immediately sends mute:tr... [picast, fleet, mute, architecture, receiver]
+- StarScreen fleet API endpoints (v0.13.0+): GET /api/health (type:starscreen), GET /api/status (adds idle + autoplay_e... [starscreen, fleet, api, architecture, picast-integration]
+- PiCast mobile UI redesign Phase 1 (2026-03-12) implements new CSS design system: root variables updated to `--accent:... [picast, autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet, feedback-loop, multi-tv, mobile-ui, css-design-system]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
 - Discovery Agent implemented as separate class in new `src/picast/server/sources/discovery.py` (not integrated into Yo... [picast, autoplay, discovery, design, separation-of-concerns]
-- Pushover chosen as ntfy replacement: provides proper APNS infrastructure for reliable iOS background push, one-time $... [pushover, ntfy, notifications, ios-push, decision, trade-offs]
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
+- Multi-TV queue distribution prioritizes VISUAL simplicity over playback state sync: each TV plays its assigned queue ... [picast, multi-tv, design-philosophy, scope]
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
 - 30-day trial guard added to refresh-taste-profile.sh: creates ~/.picast/trial-start on first run, stores expiry date ... [picast, autopilot, cost-control, trial-system]
-- Multi-TV queue distribution prioritizes VISUAL simplicity over playback state sync: each TV plays its assigned queue ... [picast, multi-tv, design-philosophy, scope]
 - PiCast mobile UI redesign prioritizes visible-by-default menu items over scrollable carousels: quick control buttons ... [picast, mobile-ui, ux-design, responsive-design, visual-hierarchy, decision]
+- StarScreen integration into PiCast multi-TV: StarScreen Pi 3 B+ added as 3rd fleet device alongside picast (main) and... [starscreen, fleet, integration, architecture, pushover, notifications]
 
 ## Patterns & Conventions
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
@@ -146,30 +147,36 @@ _Last updated: 2026-03-12 | 41 active memories, 466 total_
 - Block-to-mood mapping in refresh-taste-profile.sh uses static bash associative array (morning-foundation→chill, creat... [picast, autopilot, taste-profile, block-mapping]
 - Queue refresh pattern in PiCast: /api/queue/loop-reset endpoint calls queue.loop_reset() to reset all played/skipped ... [picast, queue, api, ui, multi-tv]
 - PiCast JS state persistence pattern for two-tier controls: localStorage keys for floating position state (now-playing... [picast, javascript, state-persistence, ui-pattern, mobile]
-- Multi-TV and fleet coordination patterns in PiCast: (1) Fleet hybrid trigger in app.py autoplay/trigger endpoint call... [picast, multi-tv, fleet, validation, pattern, concurrency]
 - iOS Safari PWA double-tap confirm pattern: instead of confirm() dialogs (which silently return false in PWA mode), us... [picast, ios-safari, pwa, ui-pattern, mobile]
-- PiCast CSS design system color migration pattern: all hardcoded `rgba(0,240,255,X)` neon-cyan replaced with `var(--ac... [picast, css-design-system, color-migration, pattern, oled, refactor]
+- PiCast receiver (picast-z1) deployment pattern: Source is at /home/jopi/picast-receiver/picast_receiver.py on z1. Edi... [picast, receiver, deployment, picast-z1, pattern]
+- Fleet device integration and coordination patterns in PiCast: (1) To add a new Pi as fleet device, implement 4 HTTP e... [picast, fleet, integration-pattern, multi-tv, protocol, validation, pattern, concurrency]
+- Fleet health dashboard polling pattern in player.html uses adaptive refresh: (1) immediately fetch /api/autopilot/fle... [picast, fleet, ui, javascript, polling]
+- Multi-TV watcher adaptive polling in multi_tv.py reduces CPU cost via interval tuning: _watch_interval defaults to 5s... [picast, multi-tv, polling, performance, architecture]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
+- Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
-- Autopilot engine test flakiness from weighted shuffle: test_video_skip_removes_from_queue assumes skipped video will ... [picast, testing, autopilot, queue, randomness, flaky-test]
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
 - Test helper _save_profile() in test_autopilot_engine.py has default generated_at="2026-03-10T06:00:00". When testing ... [picast, testing, gotcha, taste-profile]
 - validate-profile.py returns (errors, warnings) tuple with both lists populated independently: errors are hard failure... [picast, autopilot, validation, testing, taste-profile]
-- Multi-TV feature requires non-empty pending queue to distribute videos; enabling Multi with empty queue only distribu... [picast, multi-tv, queue, ux]
 - iPhone 5 (320px viewport width) presents extreme mobile constraint: 44px minimum touch target + 8px margins per contr... [picast, mobile-ui, responsive-design, ios]
 - PiCast autopilot engine test failures in TestScoring class (test_genre_match_boosts_score and others) are pre-existin... [picast, testing, autopilot-engine, test-isolation]
+- StarScreen Flask port is 5072 (confirmed in app.py line 672), NOT 5001. The savepoint SESSION-SAVEPOINT-2026-03-12-pi... [starscreen, port, gotcha, fleet]
 - Multi-TV distribute() method calls _get_idle_devices() which acquires lock and holds it during iteration; _next_assig... [picast, multi-tv, threading, concurrency]
+- Multi-TV fleet poll timing: _enable_background must poll fleet devices BEFORE distributing, otherwise fleet devices h... [picast, multi-tv, fleet, gotcha, polling, queue]
+- Autopilot engine test flakiness from weighted shuffle: test_video_skip_removes_from_queue assumes skipped video will ... [picast, testing, autopilot-engine, queue, randomness, flaky-test]
+- Fleet health dashboard must use esc() function for HTML escaping of device titles in JavaScript template literals; es... [picast, fleet, javascript, security, ui]
 
 ## Current Progress
-- PiCast Mobile UI Overhaul COMPLETE (2026-03-12): Deployment verified across all pages — nav bar (44px touch targets, ... [picast, mobile-ui, deployment, s1-s3-complete, visual-verification]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress, multi-tv, fleet]
+- PiCast Mobile UI Overhaul S1-S3 COMPLETE (2026-03-12): v1.1.0a20 deployed with comprehensive CSS design system (--acc... [picast, mobile-ui, s1-deployment-complete, s2-complete, s3-complete, deployment, progress]
+- PiCast Multi-TV S4-S5 StarScreen Integration COMPLETE (2026-03-12 to 2026-03-13): v1.1.0a24 deployed with 4 bugfixes ... [picast, multi-tv, starscreen, fleet, s4-complete, s5-complete, deployment, integration, progress]
 
 ## Context
-- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress, multi-tv, fleet, validation]
 - Taste profile learning feedback sources: (1) explicit thumbs up/down via queue UI (rating ±1), (2) skip button (skip_... [picast, autopilot, taste-profile, learning-loop, feedback]
+- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress, multi-tv, fleet, validation]
 - User's actual PiCast viewing preferences (for taste profile seeding): PRIMARY is Boston and Maine Live webcam (always... [picast, autopilot, taste-profile, user-preferences]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-management, priorities]
 

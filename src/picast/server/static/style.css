@@ -596,6 +596,21 @@ body.has-floating-controls {
     color: var(--neon-purple);
 }
 
+.fleet-panel {
+    margin-top: var(--sp-2);
+    background: var(--card-bg);
+    border-radius: var(--radius);
+    padding: var(--sp-2);
+    text-align: left;
+}
+
+.fleet-panel-empty {
+    color: var(--muted);
+    font-size: 0.8rem;
+    text-align: center;
+    padding: var(--sp-2);
+}
+
 /* Idle hero */
 .idle-title {
     font-size: var(--font-md);

@@ -21,8 +21,9 @@ _CHECK_CACHE_TTL = 300  # 5 minutes
 # Pre-check subprocess timeout (seconds)
 _CHECK_TIMEOUT = 8
 
-# Watcher thread poll interval (seconds)
-_WATCH_INTERVAL = 10
+# Watcher thread poll intervals (seconds)
+_WATCH_INTERVAL_PLAYING = 3   # Fast poll when devices are playing
+_WATCH_INTERVAL_IDLE = 8      # Slow poll when all devices idle
 
 
 class MultiTVManager:
@@ -95,7 +96,7 @@ class MultiTVManager:
 
         # Wait for watcher to stop
         if self._watcher and self._watcher.is_alive():
-            self._watcher.join(timeout=_WATCH_INTERVAL + 2)
+            self._watcher.join(timeout=_WATCH_INTERVAL_IDLE + 2)
             self._watcher = None
 
     def distribute(self):
@@ -291,9 +292,21 @@ class MultiTVManager:
         self._watcher.start()
 
     def _watch_loop(self):
-        """Poll fleet devices to detect video completion."""
+        """Poll fleet devices to detect video completion.
+
+        Uses adaptive polling: fast (3s) when any device is playing,
+        slow (8s) when all are idle.
+        """
         while not self._stop_event.is_set():
-            self._stop_event.wait(_WATCH_INTERVAL)
+            # Adaptive interval: fast when playing, slow when idle
+            with self._lock:
+                has_assignments = bool(self._assignments)
+            interval = (
+                _WATCH_INTERVAL_PLAYING if has_assignments
+                else _WATCH_INTERVAL_IDLE
+            )
+
+            self._stop_event.wait(interval)
             if self._stop_event.is_set():
                 break
 
