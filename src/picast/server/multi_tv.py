@@ -75,16 +75,20 @@ class MultiTVManager:
 
     def _enable_background(self):
         """Background work for enable: poll fleet, pre-check, distribute."""
-        # Poll fleet first so we know which devices are online
-        if self._fleet:
-            try:
-                self._fleet.poll_devices()
-            except Exception as e:
-                logger.debug("Multi-TV enable poll error: %s", e)
-        pending = self._queue.get_pending()
-        if pending:
-            self.pre_check(pending)
-        self.distribute()
+        try:
+            # Poll fleet first so we know which devices are online
+            if self._fleet:
+                try:
+                    self._fleet.poll_devices()
+                except Exception as e:
+                    logger.debug("Multi-TV enable poll error: %s", e)
+            pending = self._queue.get_pending()
+            if pending:
+                self.pre_check(pending)
+            self.distribute()
+        except Exception as e:
+            logger.warning("Multi-TV enable background error: %s", e)
+        # Always start watcher regardless of prior errors
         self._start_watcher()
 
     def disable(self):

@@ -84,6 +84,20 @@ class FleetManager:
                 self._poll_one(state)
             return dict(self._devices)
 
+    def poll_if_stale(self, max_age: float = 10) -> None:
+        """Poll devices only if the most recent poll is older than max_age seconds."""
+        with self._lock:
+            now = datetime.now(timezone.utc)
+            newest = None
+            for state in self._devices.values():
+                if state.last_poll is not None:
+                    if newest is None or state.last_poll > newest:
+                        newest = state.last_poll
+            if newest is not None and (now - newest).total_seconds() < max_age:
+                return  # Data is fresh enough
+            for state in self._devices.values():
+                self._poll_one(state)
+
     def poll_device(self, device_id: str) -> DeviceState | None:
         """Poll a single device. Returns its state or None if unknown."""
         with self._lock:

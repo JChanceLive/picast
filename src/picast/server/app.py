@@ -1225,6 +1225,13 @@ def create_app(
     @app.route("/api/autopilot/fleet")
     def autopilot_fleet_status():
         """Get fleet device status for UI display, including main picast."""
+        # Poll fleet devices if stale (>10s since last poll)
+        if _fleet_manager is not None:
+            try:
+                _fleet_manager.poll_if_stale(max_age=10)
+            except Exception:
+                pass
+
         # Build main picast device entry from current player status
         s = player.get_status()
         main_device = {
