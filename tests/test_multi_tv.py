@@ -1,6 +1,7 @@
 """Tests for MultiTVManager — queue distribution across multiple TVs."""
 
 import subprocess
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -186,11 +187,15 @@ class TestOnVideoFinished:
 
 class TestOnQueueChanged:
     def test_on_queue_changed_fills_idle(self):
-        """New item added goes to idle TV."""
+        """New item added goes to idle TV (runs in background thread)."""
         item = _make_queue_item(5)
         mgr = _make_manager(pending=[item])
         mgr._enabled = True
         mgr.on_queue_changed()
+        # on_queue_changed spawns a thread — wait for it to finish
+        for t in threading.enumerate():
+            if t.name == "multi-tv-queue-changed":
+                t.join(timeout=2)
         assert mgr._assignments.get("main") == 5
 
     def test_on_queue_changed_disabled(self):

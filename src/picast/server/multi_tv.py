@@ -125,18 +125,27 @@ class MultiTVManager:
             return
 
         idle_devices = self._get_idle_devices()
+        logger.info("Multi-TV distribute: idle devices = %s", idle_devices)
         if not idle_devices:
             return
 
         pending = self._queue.get_pending()
+        logger.info(
+            "Multi-TV distribute: %d pending items", len(pending) if pending else 0,
+        )
         if not pending:
             return
 
         for device_id in idle_devices:
             item = self._next_assignable(pending)
             if item is None:
+                logger.info("Multi-TV distribute: no more assignable items")
                 break  # No more playable items
 
+            logger.info(
+                "Multi-TV distribute: assigning item %d (%s) -> %s",
+                item.id, item.title or item.url, device_id,
+            )
             with self._lock:
                 self._assignments[device_id] = item.id
 
@@ -162,9 +171,24 @@ class MultiTVManager:
             self.distribute()
 
     def on_queue_changed(self):
-        """Handle new items added to queue. Fill idle TVs."""
+        """Handle new items added to queue. Fill idle TVs.
+
+        Runs distribute() in a background thread so the caller (HTTP endpoint)
+        is not blocked by fleet device HTTP calls.
+        """
         if self._enabled:
+            threading.Thread(
+                target=self._safe_distribute,
+                daemon=True,
+                name="multi-tv-queue-changed",
+            ).start()
+
+    def _safe_distribute(self):
+        """Distribute with exception handling for background thread use."""
+        try:
             self.distribute()
+        except Exception as e:
+            logger.warning("Multi-TV on_queue_changed distribute error: %s", e)
 
     def pre_check(self, items):
         """Pre-check URLs with yt-dlp --simulate. Sequential, cached."""
@@ -232,12 +256,21 @@ class MultiTVManager:
             idle = []
             for dev_id in all_devices:
                 if dev_id in assigned:
+                    logger.debug("Multi-TV idle check: %s already assigned", dev_id)
                     continue
                 # For fleet devices, check if available (allows interrupting autoplay)
                 if dev_id != "main" and self._fleet:
-                    if not self._fleet.is_available_for_queue(dev_id):
+                    available = self._fleet.is_available_for_queue(dev_id)
+                    if not available:
+                        logger.info(
+                            "Multi-TV idle check: %s NOT available for queue", dev_id,
+                        )
                         continue
                 idle.append(dev_id)
+            logger.debug(
+                "Multi-TV idle check: all=%s, assigned=%s, idle=%s",
+                all_devices, assigned, idle,
+            )
             return idle
 
     def _next_assignable(self, pending) -> object | None:
@@ -272,11 +305,18 @@ class MultiTVManager:
                 return False
         else:
             if self._fleet is None:
+                logger.warning("Multi-TV push: no fleet manager for %s", device_id)
                 return False
-            return self._fleet.play_immediately(
+            logger.info(
+                "Multi-TV push: sending play_immediately to %s (%s)",
+                device_id, item.url,
+            )
+            ok = self._fleet.play_immediately(
                 device_id,
                 {"url": item.url, "title": item.title},
             )
+            logger.info("Multi-TV push: %s result=%s", device_id, ok)
+            return ok
 
     def _check_url(self, url: str) -> bool:
         """Check if a URL is playable using yt-dlp --simulate."""
