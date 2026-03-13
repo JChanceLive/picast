@@ -210,7 +210,10 @@ class FleetManager:
             return False
 
         base = self._device_base_url(state.config)
-        payload = json.dumps({"url": url, "title": title}).encode()
+        play_data = {"url": url, "title": title}
+        if state.config.mute:
+            play_data["mute"] = True
+        payload = json.dumps(play_data).encode()
         req = urllib.request.Request(
             f"{base}/api/play",
             data=payload,

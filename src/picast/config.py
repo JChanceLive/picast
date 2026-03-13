@@ -73,6 +73,7 @@ class FleetDeviceConfig:
     port: int = 5050
     room: str = ""
     mood: str = ""
+    mute: bool = True  # Mute by default; unmute via POST /api/volume on device
 
 
 @dataclass
@@ -264,6 +265,7 @@ def _parse_config(data: dict) -> Config:
                 port=dev_conf.get("port", 5050),
                 room=dev_conf.get("room", ""),
                 mood=dev_conf.get("mood", ""),
+                mute=dev_conf.get("mute", True),
             )
         config.autopilot = AutopilotConfig(
             enabled=ap.get("enabled", config.autopilot.enabled),
