@@ -86,8 +86,8 @@
         <span class="status-chip"><span class="status-chip-icon">&#x23F1;</span> <span id="timer-countdown"></span></span>
     </div>
     <div class="multi-tv-status" id="multi-tv-status" style="display:none">
-        <span class="status-chip" onclick="toggleFleetPanel()" style="cursor:pointer"><span class="status-chip-icon">&#x1F4FA;</span> <span id="multi-tv-info"></span></span>
-        <div class="fleet-panel" id="fleet-panel" style="display:none">
+        <span class="status-chip"><span class="status-chip-icon">&#x1F4FA;</span> <span id="multi-tv-info"></span></span>
+        <div class="fleet-panel" id="fleet-panel">
             <div id="fleet-devices"></div>
         </div>
     </div>
@@ -710,9 +710,11 @@ function updateTimerUI(s) {
             ? 'Checking videos...'
             : mtv.devices.filter(d => d.queue_item_id).length + '/' + mtv.devices.length + ' TVs | ' + mtv.queue_remaining + ' in queue';
         document.getElementById('multi-tv-info').textContent = info;
+        startFleetPolling();
     } else {
         mtvBtn.classList.remove('btn-icon-active');
         mtvStatus.style.display = 'none';
+        fleetPolling = false;
     }
 }
 
@@ -853,17 +855,17 @@ document.getElementById('queue-volume-slider').addEventListener('input', functio
 
 loadQueueVolume();
 
-// Fleet health panel
-let fleetPanelOpen = false;
+// Fleet health panel (visible by default when multi-TV is on)
+let fleetPolling = false;
 
-function toggleFleetPanel() {
-    fleetPanelOpen = !fleetPanelOpen;
-    document.getElementById('fleet-panel').style.display = fleetPanelOpen ? '' : 'none';
-    if (fleetPanelOpen) pollFleet();
+function startFleetPolling() {
+    if (fleetPolling) return;
+    fleetPolling = true;
+    pollFleet();
 }
 
 function pollFleet() {
-    if (!fleetPanelOpen) return;
+    if (!fleetPolling) return;
     fetch('/api/autopilot/fleet')
         .then(r => r.json())
         .then(data => {

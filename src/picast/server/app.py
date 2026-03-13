@@ -165,6 +165,7 @@ def create_app(
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Allow-Private-Network"] = "true"
         return response
 
     # Store on app for access in routes
@@ -1223,11 +1224,22 @@ def create_app(
 
     @app.route("/api/autopilot/fleet")
     def autopilot_fleet_status():
-        """Get fleet device status for UI display."""
+        """Get fleet device status for UI display, including main picast."""
+        # Build main picast device entry from current player status
+        s = player.get_status()
+        main_device = {
+            "device_id": "picast",
+            "room": "main",
+            "mood": "",
+            "online": True,
+            "idle": s.get("idle", True),
+            "manual_override": False,
+            "playing_title": s.get("title", ""),
+            "playing_url": s.get("url", ""),
+        }
         fleet_data = _autopilot_engine.get_fleet_status()
-        if fleet_data is None:
-            return jsonify({"devices": [], "configured": False})
-        return jsonify({"devices": fleet_data, "configured": True})
+        all_devices = [main_device] + (fleet_data or [])
+        return jsonify({"devices": all_devices, "configured": True})
 
     @app.route("/api/autopilot/fleet/push", methods=["POST"])
     def autopilot_fleet_push():
