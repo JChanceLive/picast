@@ -42,12 +42,16 @@ def _make_manager(fleet=None, pending=None):
     return mgr
 
 
-def _make_fleet(device_ids=None, idle_ids=None):
+def _make_fleet(device_ids=None, idle_ids=None, available_ids=None):
     """Create a mock FleetManager with given devices."""
     fleet = MagicMock()
     fleet.device_ids = device_ids or []
     idle_ids = set(device_ids or []) if idle_ids is None else idle_ids
+    # available_ids defaults to same as idle_ids for backwards compat
+    if available_ids is None:
+        available_ids = idle_ids
     fleet.is_device_idle.side_effect = lambda d: d in idle_ids
+    fleet.is_available_for_queue.side_effect = lambda d: d in available_ids
     fleet.play_immediately.return_value = True
     fleet.poll_devices.return_value = {}
     return fleet
@@ -278,10 +282,11 @@ class TestPreCheck:
 
 
 class TestFleetOffline:
-    def test_skip_offline_fleet_device(self):
-        """Offline fleet devices are skipped during distribution."""
+    def test_skip_unavailable_fleet_device(self):
+        """Unavailable fleet devices (offline/manual override) are skipped."""
         items = [_make_queue_item(1), _make_queue_item(2)]
-        fleet = _make_fleet(device_ids=["z1"], idle_ids=set())  # z1 not idle
+        # z1 not idle AND not available (offline or manual override)
+        fleet = _make_fleet(device_ids=["z1"], idle_ids=set(), available_ids=set())
         mgr = _make_manager(fleet=fleet, pending=items)
         mgr._enabled = True
         mgr.distribute()
@@ -289,6 +294,19 @@ class TestFleetOffline:
         # Only main should get assigned
         assert mgr._assignments.get("main") == 1
         assert "z1" not in mgr._assignments
+
+    def test_autoplay_device_gets_queue_item(self):
+        """Fleet device playing autoplay content is available for queue items."""
+        items = [_make_queue_item(1), _make_queue_item(2)]
+        # z1 not idle (playing autoplay) but available for queue
+        fleet = _make_fleet(device_ids=["z1"], idle_ids=set(), available_ids={"z1"})
+        mgr = _make_manager(fleet=fleet, pending=items)
+        mgr._enabled = True
+        mgr.distribute()
+
+        assert mgr._assignments.get("main") == 1
+        assert mgr._assignments.get("z1") == 2
+        fleet.play_immediately.assert_called_once()
 
 
 # --- Get Status ---

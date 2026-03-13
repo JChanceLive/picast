@@ -206,9 +206,9 @@ class MultiTVManager:
             for dev_id in all_devices:
                 if dev_id in assigned:
                     continue
-                # For fleet devices, check if online
+                # For fleet devices, check if available (allows interrupting autoplay)
                 if dev_id != "main" and self._fleet:
-                    if not self._fleet.is_device_idle(dev_id):
+                    if not self._fleet.is_available_for_queue(dev_id):
                         continue
                 idle.append(dev_id)
             return idle

@@ -101,6 +101,19 @@ class FleetManager:
                 return False
             return state.online and state.idle and not state.manual_override
 
+    def is_available_for_queue(self, device_id: str) -> bool:
+        """Check if a device can receive queue content.
+
+        Available if online and not manually overridden. Unlike is_device_idle,
+        this returns True even if the device is playing autoplay content —
+        user-curated queue items take priority over autoplay.
+        """
+        with self._lock:
+            state = self._devices.get(device_id)
+            if state is None:
+                return False
+            return state.online and not state.manual_override
+
     def is_manual_override(self, device_id: str) -> bool:
         """Check if a device has user-initiated content playing.
 
