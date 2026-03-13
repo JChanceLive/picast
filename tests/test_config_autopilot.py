@@ -106,6 +106,50 @@ class TestAutopilotConfigParsing:
         assert living.room == ""  # default
         assert living.mood == ""  # default
 
+    def test_fleet_device_mute_default(self):
+        """Fleet devices default to mute=True."""
+        config = FleetDeviceConfig(host="test.local")
+        assert config.mute is True
+
+    def test_fleet_device_mute_false(self):
+        """StarScreen-style device with mute=false."""
+        data = {
+            "autopilot": {
+                "fleet": {
+                    "devices": {
+                        "starscreen": {
+                            "host": "starscreen.local",
+                            "port": 5072,
+                            "room": "office",
+                            "mood": "chill",
+                            "mute": False,
+                        }
+                    }
+                }
+            }
+        }
+        config = _parse_config(data)
+        ss = config.autopilot.fleet_devices["starscreen"]
+        assert ss.host == "starscreen.local"
+        assert ss.port == 5072
+        assert ss.mute is False
+
+    def test_fleet_device_mute_true_explicit(self):
+        data = {
+            "autopilot": {
+                "fleet": {
+                    "devices": {
+                        "receiver": {
+                            "host": "picast-z1.local",
+                            "mute": True,
+                        }
+                    }
+                }
+            }
+        }
+        config = _parse_config(data)
+        assert config.autopilot.fleet_devices["receiver"].mute is True
+
     def test_no_fleet_section(self):
         data = {"autopilot": {"enabled": True}}
         config = _parse_config(data)

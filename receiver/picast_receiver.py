@@ -19,7 +19,7 @@ import time
 
 from flask import Flask, jsonify, request
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 logger = logging.getLogger("picast-receiver")
 
@@ -51,7 +51,7 @@ def _is_idle() -> bool:
     return False
 
 
-def _play_url(url: str, title: str = "") -> bool:
+def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
     """Play a URL via mpv. Stops any current playback first."""
     global _player_proc, _current_video
 
@@ -66,6 +66,9 @@ def _play_url(url: str, title: str = "") -> bool:
         f"--input-ipc-server={_mpv_socket}",
         "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]",
     ]
+
+    if mute:
+        cmd.append("--volume=0")
 
     if title:
         cmd.extend([
@@ -148,11 +151,12 @@ def api_play():
     data = request.get_json(silent=True) or {}
     url = data.get("url", "").strip()
     title = data.get("title", "").strip()
+    mute = data.get("mute", False)
 
     if not url:
         return jsonify({"ok": False, "error": "url required"}), 400
 
-    success = _play_url(url, title)
+    success = _play_url(url, title, mute=mute)
     if success:
         return jsonify({"ok": True, "url": url, "title": title})
     return jsonify({"ok": False, "error": "playback failed"}), 500
@@ -177,6 +181,28 @@ def api_queue_add():
     if success:
         return jsonify({"ok": True, "url": url, "title": title})
     return jsonify({"ok": False, "error": "playback failed"}), 500
+
+
+@app.route("/api/volume", methods=["POST"])
+def api_volume():
+    """Set mpv volume at runtime via IPC socket."""
+    data = request.get_json(silent=True) or {}
+    level = max(0, min(100, data.get("level", 100)))
+
+    if _is_idle():
+        return jsonify({"ok": False, "error": "not playing"})
+
+    cmd_json = json.dumps({"command": ["set_property", "volume", level]})
+    try:
+        import socket as sock
+        s = sock.socket(sock.AF_UNIX, sock.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect(_mpv_socket)
+        s.sendall((cmd_json + "\n").encode())
+        s.close()
+        return jsonify({"ok": True, "level": level})
+    except (OSError, ConnectionRefusedError) as e:
+        return jsonify({"ok": False, "error": str(e)})
 
 
 @app.route("/api/stop", methods=["POST"])
