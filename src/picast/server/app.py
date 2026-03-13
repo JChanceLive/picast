@@ -179,8 +179,9 @@ def create_app(
     app.device_registry = device_registry
 
     # Autoplay state (ephemeral, like loop_enabled)
+    # Always starts disabled — user toggles on when wanted
     _autoplay_config = autoplay_config or AutoplayConfig()
-    _autoplay_enabled = _autoplay_config.enabled
+    _autoplay_enabled = False
     _autoplay_pool = AutoPlayPool(
         db,
         avoid_recent=_autoplay_config.avoid_recent,
