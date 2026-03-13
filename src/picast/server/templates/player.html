@@ -705,7 +705,7 @@ function updateTimerUI(s) {
         mtvStatus.style.display = '';
         const info = mtv.checking
             ? 'Checking videos...'
-            : mtv.devices.filter(d => d.queue_item_id).length + '/' + mtv.devices.length + ' TVs active | ' + mtv.queue_remaining + ' remaining';
+            : mtv.devices.filter(d => d.queue_item_id).length + '/' + mtv.devices.length + ' TVs | ' + mtv.queue_remaining + ' in queue';
         document.getElementById('multi-tv-info').textContent = info;
     } else {
         mtvBtn.classList.remove('btn-icon-active');
