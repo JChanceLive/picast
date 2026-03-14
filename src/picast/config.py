@@ -36,7 +36,7 @@ class PipulseConfig:
     """PiPulse integration for block metadata."""
 
     enabled: bool = False
-    host: str = "10.0.0.103"
+    host: str = "10.0.0.110"
     port: int = 5055
 
 
