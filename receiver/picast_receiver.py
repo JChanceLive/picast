@@ -19,7 +19,7 @@ import time
 
 from flask import Flask, jsonify, request
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 logger = logging.getLogger("picast-receiver")
 
@@ -119,6 +119,26 @@ def _stop_playback():
             _current_video = {}
 
 
+def _mpv_command(command: list) -> dict | None:
+    """Send a command to mpv via IPC socket and return the response.
+
+    Returns the parsed JSON response dict on success, or None on failure.
+    Response format: {"data": <value>, "error": "success"}
+    """
+    import socket as sock
+    try:
+        s = sock.socket(sock.AF_UNIX, sock.SOCK_STREAM)
+        s.settimeout(2)
+        s.connect(_mpv_socket)
+        payload = json.dumps({"command": command}) + "\n"
+        s.sendall(payload.encode())
+        resp = s.recv(4096)
+        s.close()
+        return json.loads(resp)
+    except (OSError, ConnectionRefusedError, json.JSONDecodeError):
+        return None
+
+
 # --- API Routes ---
 
 
@@ -135,14 +155,33 @@ def api_health():
 
 @app.route("/api/status", methods=["GET"])
 def api_status():
-    """Device status for fleet manager."""
+    """Device status for fleet manager.
+
+    When playing, queries mpv IPC for position, duration, paused state,
+    and volume level. These fields enable the remote control UI to show
+    progress bars and pause/resume button state.
+    """
     idle = _is_idle()
-    return jsonify({
+    result = {
         "idle": idle,
         "title": _current_video.get("title", "") if not idle else "",
         "url": _current_video.get("url", "") if not idle else "",
         "autoplay_enabled": _autoplay_enabled,
-    })
+    }
+    if not idle:
+        pos = _mpv_command(["get_property", "time-pos"])
+        dur = _mpv_command(["get_property", "duration"])
+        paused = _mpv_command(["get_property", "pause"])
+        vol = _mpv_command(["get_property", "volume"])
+        if pos:
+            result["position"] = pos.get("data", 0)
+        if dur:
+            result["duration"] = dur.get("data", 0)
+        if paused:
+            result["paused"] = paused.get("data", False)
+        if vol:
+            result["volume"] = vol.get("data", 100)
+    return jsonify(result)
 
 
 @app.route("/api/play", methods=["POST"])
@@ -160,6 +199,26 @@ def api_play():
     if success:
         return jsonify({"ok": True, "url": url, "title": title})
     return jsonify({"ok": False, "error": "playback failed"}), 500
+
+
+@app.route("/api/pause", methods=["POST"])
+def api_pause():
+    """Pause mpv playback via IPC socket."""
+    if _is_idle():
+        return jsonify({"ok": False, "error": "not playing"})
+
+    result = _mpv_command(["set_property", "pause", True])
+    return jsonify({"ok": result is not None})
+
+
+@app.route("/api/resume", methods=["POST"])
+def api_resume():
+    """Resume mpv playback via IPC socket."""
+    if _is_idle():
+        return jsonify({"ok": False, "error": "not playing"})
+
+    result = _mpv_command(["set_property", "pause", False])
+    return jsonify({"ok": result is not None})
 
 
 @app.route("/api/queue/add", methods=["POST"])
@@ -192,17 +251,10 @@ def api_volume():
     if _is_idle():
         return jsonify({"ok": False, "error": "not playing"})
 
-    cmd_json = json.dumps({"command": ["set_property", "volume", level]})
-    try:
-        import socket as sock
-        s = sock.socket(sock.AF_UNIX, sock.SOCK_STREAM)
-        s.settimeout(2)
-        s.connect(_mpv_socket)
-        s.sendall((cmd_json + "\n").encode())
-        s.close()
+    result = _mpv_command(["set_property", "volume", level])
+    if result is not None:
         return jsonify({"ok": True, "level": level})
-    except (OSError, ConnectionRefusedError) as e:
-        return jsonify({"ok": False, "error": str(e)})
+    return jsonify({"ok": False, "error": "mpv IPC failed"})
 
 
 @app.route("/api/stop", methods=["POST"])

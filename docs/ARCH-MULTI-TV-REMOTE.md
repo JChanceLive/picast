@@ -124,7 +124,8 @@ Not all devices support the same controls. The API must handle this gracefully:
 | Device | Skip | Pause/Resume | Volume | Progress |
 |--------|------|-------------|--------|----------|
 | **main** (PiCast) | queue skip + play next | mpv.pause()/resume() | mpv.set_volume() | mpv position/duration |
-| **picast-z1** (receiver) | POST /api/stop + POST /api/play (next) | Not supported (no mpv IPC) | POST /api/volume | Not available (no mpv socket query) |
+| **picast-z1** (receiver v0.3.0) | POST /api/stop + POST /api/play (next) | POST /api/pause + /api/resume (mpv IPC) | POST /api/volume | mpv time-pos/duration via IPC |
+| **picam-display** (v2.4.0) | POST /api/stop + POST /api/play (next) | POST /api/pause + /api/resume (GStreamer state) | POST /api/volume | GStreamer query_position/duration |
 | **starscreen** | POST /api/stop + POST /api/play (next) | Depends on StarScreen API | POST /api/volume | Depends on StarScreen API |
 
 **Capability detection:** The server probes each device's `/api/status` response to determine available controls. Missing fields = control disabled in UI.
