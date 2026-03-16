@@ -426,3 +426,132 @@ class TestEmptyQueue:
         mgr._enabled = True
         status = mgr.get_status()
         assert status["queue_remaining"] == 0
+
+
+# --- Skip Device ---
+
+
+class TestSkipDevice:
+    def test_skip_main_device(self):
+        """Skip on main clears assignment, moves item to end, calls player.skip()."""
+        items = [_make_queue_item(1), _make_queue_item(2)]
+        mgr = _make_manager(pending=items)
+        mgr._enabled = True
+        mgr._assignments = {"main": 1}
+
+        # After skip, distribute returns item 2 for main
+        mgr._queue.get_pending.return_value = [_make_queue_item(2)]
+        result = mgr.skip_device("main")
+
+        assert result["ok"] is True
+        assert result["skipped_item_id"] == 1
+        mgr._queue.move_to_end.assert_called_once_with(1)
+        mgr._player.skip.assert_called_once()
+
+    def test_skip_fleet_device(self):
+        """Skip on fleet device clears assignment, moves item to end."""
+        items = [_make_queue_item(1), _make_queue_item(2), _make_queue_item(3)]
+        fleet = _make_fleet(device_ids=["z1"], idle_ids=set(), available_ids={"z1"})
+        mgr = _make_manager(fleet=fleet, pending=items)
+        mgr._enabled = True
+        mgr._assignments = {"main": 1, "z1": 2}
+
+        # After skip, distribute assigns item 3 to z1
+        mgr._queue.get_pending.return_value = [_make_queue_item(3)]
+        result = mgr.skip_device("z1")
+
+        assert result["ok"] is True
+        assert result["skipped_item_id"] == 2
+        mgr._queue.move_to_end.assert_called_once_with(2)
+        # player.skip should NOT be called for fleet device
+        mgr._player.skip.assert_not_called()
+
+    def test_skip_unassigned_device(self):
+        """Skip on unassigned device returns error."""
+        mgr = _make_manager()
+        mgr._enabled = True
+        result = mgr.skip_device("main")
+        assert result["ok"] is False
+        assert "error" in result
+
+    def test_skip_returns_new_item_id(self):
+        """Skip returns new_item_id when redistribute assigns a new item."""
+        items = [_make_queue_item(1), _make_queue_item(2)]
+        mgr = _make_manager(pending=items)
+        mgr._enabled = True
+        mgr._assignments = {"main": 1}
+
+        # After skip + distribute, main gets item 2
+        mgr._queue.get_pending.return_value = [_make_queue_item(2)]
+        result = mgr.skip_device("main")
+
+        assert result["ok"] is True
+        assert result.get("new_item_id") == 2
+
+
+# --- Pause / Resume / Volume ---
+
+
+class TestPauseResumeVolume:
+    def test_pause_main(self):
+        """Pause on main calls mpv.pause()."""
+        mgr = _make_manager()
+        mgr._player.mpv.pause.return_value = True
+        assert mgr.pause_device("main") is True
+        mgr._player.mpv.pause.assert_called_once()
+
+    def test_resume_main(self):
+        """Resume on main calls mpv.resume()."""
+        mgr = _make_manager()
+        mgr._player.mpv.resume.return_value = True
+        assert mgr.resume_device("main") is True
+        mgr._player.mpv.resume.assert_called_once()
+
+    def test_volume_main(self):
+        """Volume on main calls mpv.set_volume()."""
+        mgr = _make_manager()
+        mgr._player.mpv.set_volume.return_value = True
+        assert mgr.set_device_volume("main", 75) is True
+        mgr._player.mpv.set_volume.assert_called_once_with(75)
+
+    def test_pause_fleet_no_fleet(self):
+        """Pause on fleet device with no fleet manager returns False."""
+        mgr = _make_manager(fleet=None)
+        assert mgr.pause_device("z1") is False
+
+    def test_resume_fleet_no_fleet(self):
+        """Resume on fleet device with no fleet manager returns False."""
+        mgr = _make_manager(fleet=None)
+        assert mgr.resume_device("z1") is False
+
+    def test_volume_fleet_no_fleet(self):
+        """Volume on fleet device with no fleet manager returns False."""
+        mgr = _make_manager(fleet=None)
+        assert mgr.set_device_volume("z1", 50) is False
+
+
+# --- Get Device Status ---
+
+
+class TestGetDeviceStatus:
+    def test_status_main_device(self):
+        """Status for main returns player status with queue_item_id."""
+        mgr = _make_manager()
+        mgr._player.get_status.return_value = {
+            "idle": False,
+            "title": "Test Video",
+            "volume": 80,
+            "paused": False,
+        }
+        mgr._assignments = {"main": 42}
+
+        status = mgr.get_device_status("main")
+        assert status["title"] == "Test Video"
+        assert status["queue_item_id"] == 42
+        mgr._player.get_status.assert_called_once()
+
+    def test_status_fleet_no_fleet(self):
+        """Status for fleet device with no fleet manager returns error."""
+        mgr = _make_manager(fleet=None)
+        status = mgr.get_device_status("z1")
+        assert "error" in status

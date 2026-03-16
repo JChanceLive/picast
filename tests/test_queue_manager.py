@@ -171,6 +171,36 @@ class TestQueueManager:
         assert queue.replay(999) is False
 
 
+class TestMoveToEnd:
+    """Tests for move_to_end() used by multi-TV skip."""
+
+    def test_move_to_end_sets_position_and_pending(self, queue):
+        """Item is moved to end with max position + 1."""
+        item1 = queue.add("https://www.youtube.com/watch?v=a")
+        item2 = queue.add("https://www.youtube.com/watch?v=b")
+        item3 = queue.add("https://www.youtube.com/watch?v=c")
+        # Mark item1 as playing then move it to end
+        queue.mark_playing(item1.id)
+        assert queue.move_to_end(item1.id) is True
+        pending = queue.get_pending()
+        # item1 should now be LAST
+        assert pending[0].id == item2.id
+        assert pending[1].id == item3.id
+        assert pending[2].id == item1.id
+
+    def test_move_to_end_nonexistent_item(self, queue):
+        """Returns False for missing item."""
+        assert queue.move_to_end(999) is False
+
+    def test_move_to_end_resets_played_status(self, queue):
+        """Played item becomes pending when moved to end."""
+        item = queue.add("https://www.youtube.com/watch?v=a")
+        queue.mark_played(item.id)
+        assert queue.move_to_end(item.id) is True
+        fetched = queue.get_by_id(item.id)
+        assert fetched.status == "pending"
+
+
 class TestErrorTracking:
     """Tests for error tracking methods."""
 

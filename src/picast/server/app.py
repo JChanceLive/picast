@@ -1244,6 +1244,8 @@ def create_app(
             "manual_override": False,
             "playing_title": s.get("title", ""),
             "playing_url": s.get("url", ""),
+            "position": s.get("position", 0),
+            "duration": s.get("duration", 0),
         }
         fleet_data = _autopilot_engine.get_fleet_status()
         all_devices = [main_device] + (fleet_data or [])
@@ -1291,6 +1293,44 @@ def create_app(
     def multi_tv_status():
         """Get multi-TV status."""
         return jsonify(_multi_tv.get_status())
+
+    # --- Per-Device Remote Control ---
+
+    @app.route("/api/multi-tv/device/<device_id>/status")
+    def multi_tv_device_status(device_id):
+        """Get detailed status for a single device."""
+        return jsonify(_multi_tv.get_device_status(device_id))
+
+    @app.route("/api/multi-tv/device/<device_id>/skip", methods=["POST"])
+    def multi_tv_device_skip(device_id):
+        """Skip the current video on a device."""
+        result = _multi_tv.skip_device(device_id)
+        if not result.get("ok"):
+            return jsonify(result), 400
+        return jsonify(result)
+
+    @app.route("/api/multi-tv/device/<device_id>/pause", methods=["POST"])
+    def multi_tv_device_pause(device_id):
+        """Pause playback on a device."""
+        ok = _multi_tv.pause_device(device_id)
+        return jsonify({"ok": ok})
+
+    @app.route("/api/multi-tv/device/<device_id>/resume", methods=["POST"])
+    def multi_tv_device_resume(device_id):
+        """Resume playback on a device."""
+        ok = _multi_tv.resume_device(device_id)
+        return jsonify({"ok": ok})
+
+    @app.route("/api/multi-tv/device/<device_id>/volume", methods=["POST"])
+    def multi_tv_device_volume(device_id):
+        """Set volume on a device (0-100)."""
+        data = request.get_json(silent=True) or {}
+        level = data.get("level")
+        if level is None:
+            return jsonify({"error": "level required"}), 400
+        level = max(0, min(100, int(level)))
+        ok = _multi_tv.set_device_volume(device_id, level)
+        return jsonify({"ok": ok})
 
     @app.route("/api/autopilot/mood", methods=["POST"])
     def autopilot_set_mood():

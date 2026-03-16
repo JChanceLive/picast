@@ -8,10 +8,13 @@ This is a "work-stealing" pattern over a shared queue with optional
 URL pre-checking via yt-dlp --simulate.
 """
 
+import json
 import logging
 import subprocess
 import threading
 import time
+import urllib.error
+import urllib.request
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +27,9 @@ _CHECK_TIMEOUT = 8
 # Watcher thread poll intervals (seconds)
 _WATCH_INTERVAL_PLAYING = 3   # Fast poll when devices are playing
 _WATCH_INTERVAL_IDLE = 8      # Slow poll when all devices idle
+
+# Fleet proxy HTTP timeout (seconds)
+_FLEET_PROXY_TIMEOUT = 5
 
 
 class MultiTVManager:
@@ -237,6 +243,165 @@ class MultiTVManager:
                 "skipped_urls": skipped,
                 "checking": self._checking,
             }
+
+    # --- Per-Device Remote Control ---
+
+    def skip_device(self, device_id: str) -> dict:
+        """Skip the current video on a device.
+
+        Clears the assignment, moves the skipped item to the end of the
+        pending queue, and triggers redistribution so the device gets
+        the next item.
+
+        Returns dict with 'ok', 'skipped_item_id', and optionally
+        'new_item_id' on success, or 'error' on failure.
+        """
+        with self._lock:
+            item_id = self._assignments.get(device_id)
+            if item_id is None:
+                return {"ok": False, "error": f"No assignment for {device_id}"}
+            del self._assignments[device_id]
+
+        # Move skipped item to end of pending queue
+        self._queue.move_to_end(item_id)
+
+        # For main device, interrupt the current playback
+        if device_id == "main":
+            try:
+                self._player.skip()
+            except Exception as e:
+                logger.warning("skip_device: player.skip() failed: %s", e)
+
+        # Redistribute to fill this device with the next item
+        if self._enabled:
+            self.distribute()
+
+        with self._lock:
+            new_item_id = self._assignments.get(device_id)
+
+        result = {"ok": True, "skipped_item_id": item_id}
+        if new_item_id is not None:
+            result["new_item_id"] = new_item_id
+        return result
+
+    def pause_device(self, device_id: str) -> bool:
+        """Pause playback on a device."""
+        if device_id == "main":
+            return self._player.mpv.pause()
+        return self._fleet_proxy(device_id, "pause")
+
+    def resume_device(self, device_id: str) -> bool:
+        """Resume playback on a device."""
+        if device_id == "main":
+            return self._player.mpv.resume()
+        return self._fleet_proxy(device_id, "resume")
+
+    def set_device_volume(self, device_id: str, level: int) -> bool:
+        """Set volume on a device (0-100)."""
+        if device_id == "main":
+            return self._player.mpv.set_volume(level)
+        return self._fleet_proxy_json(device_id, "volume", {"level": level})
+
+    def get_device_status(self, device_id: str) -> dict:
+        """Get detailed status for a single device."""
+        if device_id == "main":
+            status = self._player.get_status()
+            with self._lock:
+                status["queue_item_id"] = self._assignments.get("main")
+            return status
+
+        # Fleet device: proxy GET to device's /api/status
+        if self._fleet is None:
+            return {"error": f"No fleet manager for {device_id}"}
+        return self._fleet_proxy_get(device_id, "status")
+
+    def _fleet_proxy(self, device_id: str, action: str) -> bool:
+        """POST to a fleet device's /api/{action} endpoint.
+
+        Returns True on success, False on failure.
+        """
+        if self._fleet is None:
+            logger.warning("fleet_proxy: no fleet manager for %s", device_id)
+            return False
+
+        with self._fleet._lock:
+            state = self._fleet._devices.get(device_id)
+        if state is None or not state.online:
+            logger.warning("fleet_proxy: device %s unavailable", device_id)
+            return False
+
+        base = self._fleet._device_base_url(state.config)
+        req = urllib.request.Request(
+            f"{base}/api/{action}",
+            data=b"",
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=_FLEET_PROXY_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+                return bool(data.get("ok", False))
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+            logger.warning("fleet_proxy %s/%s failed: %s", device_id, action, e)
+            return False
+
+    def _fleet_proxy_json(self, device_id: str, action: str, payload: dict) -> bool:
+        """POST with JSON body to a fleet device's /api/{action} endpoint.
+
+        Returns True on success, False on failure.
+        """
+        if self._fleet is None:
+            logger.warning("fleet_proxy_json: no fleet manager for %s", device_id)
+            return False
+
+        with self._fleet._lock:
+            state = self._fleet._devices.get(device_id)
+        if state is None or not state.online:
+            logger.warning("fleet_proxy_json: device %s unavailable", device_id)
+            return False
+
+        base = self._fleet._device_base_url(state.config)
+        body = json.dumps(payload).encode()
+        req = urllib.request.Request(
+            f"{base}/api/{action}",
+            data=body,
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=_FLEET_PROXY_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+                return bool(data.get("ok", False))
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+            logger.warning("fleet_proxy_json %s/%s failed: %s", device_id, action, e)
+            return False
+
+    def _fleet_proxy_get(self, device_id: str, action: str) -> dict:
+        """GET from a fleet device's /api/{action} endpoint.
+
+        Returns the JSON response dict, or an error dict on failure.
+        """
+        if self._fleet is None:
+            return {"error": f"No fleet manager for {device_id}"}
+
+        with self._fleet._lock:
+            state = self._fleet._devices.get(device_id)
+        if state is None or not state.online:
+            return {"error": f"Device {device_id} unavailable"}
+
+        base = self._fleet._device_base_url(state.config)
+        req = urllib.request.Request(f"{base}/api/{action}")
+        try:
+            with urllib.request.urlopen(req, timeout=_FLEET_PROXY_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+                # Enrich with room/mood from fleet config
+                data["room"] = state.config.room
+                data["mood"] = state.config.mood
+                with self._lock:
+                    data["queue_item_id"] = self._assignments.get(device_id)
+                return data
+        except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
+            logger.warning("fleet_proxy_get %s/%s failed: %s", device_id, action, e)
+            return {"error": str(e)}
 
     # --- Internal ---
 

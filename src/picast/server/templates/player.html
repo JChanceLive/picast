@@ -195,6 +195,41 @@
         </div>
     </div>
 </div>
+<div class="discover-overlay" id="device-remote-overlay" onclick="if(event.target===this)closeDeviceRemote()">
+    <div class="discover-modal device-remote-modal">
+        <div class="discover-header">
+            <h3 id="remote-device-name">Device</h3>
+            <button class="discover-close" onclick="closeDeviceRemote()">&times;</button>
+        </div>
+        <div class="remote-body">
+            <div class="remote-now-playing">
+                <div class="remote-title" id="remote-title">Loading...</div>
+                <div class="remote-progress-wrap">
+                    <div class="remote-progress-bar" id="remote-progress-bar"></div>
+                </div>
+                <div class="remote-time">
+                    <span id="remote-position">0:00</span>
+                    <span id="remote-duration">0:00</span>
+                </div>
+            </div>
+            <div class="remote-controls">
+                <button class="btn-icon remote-btn" id="remote-skip" onclick="remoteSkip()">
+                    <span class="bi-ico">&#x23ED;</span><span class="bi-lbl">Skip</span>
+                </button>
+                <button class="btn-icon remote-btn" id="remote-pause" onclick="remotePause()">
+                    <span class="bi-ico">&#x23F8;</span><span class="bi-lbl">Pause</span>
+                </button>
+            </div>
+            <div class="remote-volume">
+                <span class="remote-vol-icon">&#x1F50A;</span>
+                <input type="range" min="0" max="100" value="80" id="remote-volume-slider" class="settings-slider"
+                       oninput="remoteVolume(this.value)">
+                <span id="remote-vol-pct" class="remote-vol-pct">80%</span>
+            </div>
+            <div class="remote-status" id="remote-status"></div>
+        </div>
+    </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -914,8 +949,15 @@ function renderFleetDevices(devices) {
             stateLabel = 'Idle';
         }
         const title = dev.playing_title ? esc(dev.playing_title) : '';
+        const pos = dev.position || 0;
+        const dur = dev.duration || 0;
+        const pct = dur > 0 ? (pos / dur * 100).toFixed(1) : 0;
+        const progressHtml = dur > 0
+            ? '<div class="ap-fleet-progress"><div class="ap-fleet-progress-bar" style="width:' + pct + '%"></div></div>' +
+              '<span class="ap-fleet-time">' + fmt(pos) + ' / ' + fmt(dur) + '</span>'
+            : '';
         html +=
-            '<div class="ap-fleet-device">' +
+            '<div class="ap-fleet-device ap-fleet-clickable" onclick="openDeviceRemote(\'' + esc(dev.device_id) + '\')">' +
             '<div class="ap-fleet-indicator ' + stateClass + '"></div>' +
             '<div class="ap-fleet-info">' +
             '<span class="ap-fleet-name">' + esc(dev.device_id) + '</span>' +
@@ -925,6 +967,7 @@ function renderFleetDevices(devices) {
             esc(dev.mood || '') +
             '</span>' +
             (title ? '<span class="ap-fleet-title">' + title + '</span>' : '') +
+            progressHtml +
             '</div>' +
             '<span class="ap-fleet-state ' + stateClass + '">' + stateLabel + '</span>' +
             '</div>';
@@ -932,8 +975,8 @@ function renderFleetDevices(devices) {
     el.innerHTML = html;
 }
 
-// Poll fleet every 5s when panel is open
-setInterval(pollFleet, 5000);
+// Poll fleet every 5s when panel is open (slower when remote modal open — modal has its own fast poll)
+setInterval(function() { if (!remoteDeviceId) pollFleet(); }, 5000);
 
 connectSSE();
 setInterval(poll, 1000);
@@ -1002,6 +1045,143 @@ function rollMovies() {
         document.getElementById('discover-form').style.display = '';
         document.getElementById('discover-loading').style.display = 'none';
     });
+}
+// ---- Device Remote Control ----
+let remoteDeviceId = null;  // API device id (e.g. "main", "picast-z1")
+let remoteDisplayName = null;
+let remotePollingInterval = null;
+let remoteVolDebounce = null;
+
+// Map fleet display IDs to multi-TV API device IDs
+function fleetToApiId(deviceId) { return deviceId === 'picast' ? 'main' : deviceId; }
+
+function openDeviceRemote(deviceId) {
+    remoteDisplayName = deviceId;
+    remoteDeviceId = fleetToApiId(deviceId);
+    document.getElementById('remote-device-name').textContent = deviceId;
+    document.getElementById('remote-title').textContent = 'Loading...';
+    document.getElementById('remote-progress-bar').style.width = '0%';
+    document.getElementById('remote-position').textContent = '0:00';
+    document.getElementById('remote-duration').textContent = '0:00';
+    document.getElementById('remote-status').textContent = '';
+    document.getElementById('device-remote-overlay').classList.add('visible');
+    pollDeviceStatus();
+    remotePollingInterval = setInterval(pollDeviceStatus, 2000);
+}
+
+function closeDeviceRemote() {
+    document.getElementById('device-remote-overlay').classList.remove('visible');
+    if (remotePollingInterval) { clearInterval(remotePollingInterval); remotePollingInterval = null; }
+    remoteDeviceId = null;
+    // Resume fleet polling after modal closes
+    pollFleet();
+}
+
+function pollDeviceStatus() {
+    if (!remoteDeviceId) return;
+    fetch('/api/multi-tv/device/' + encodeURIComponent(remoteDeviceId) + '/status')
+        .then(r => r.json())
+        .then(updateRemoteUI)
+        .catch(() => {
+            document.getElementById('remote-status').textContent = 'Connection lost';
+        });
+}
+
+function updateRemoteUI(data) {
+    if (data.error) {
+        document.getElementById('remote-title').textContent = 'Error';
+        document.getElementById('remote-status').textContent = data.error;
+        return;
+    }
+
+    document.getElementById('remote-title').textContent = data.title || 'Nothing playing';
+
+    // Progress bar
+    const dur = data.duration || 0;
+    const pos = data.position || 0;
+    if (dur > 0) {
+        const pct = (pos / dur * 100).toFixed(1);
+        document.getElementById('remote-progress-bar').style.width = pct + '%';
+    } else {
+        document.getElementById('remote-progress-bar').style.width = '0%';
+    }
+    document.getElementById('remote-position').textContent = fmt(pos);
+    document.getElementById('remote-duration').textContent = fmt(dur);
+
+    // Volume slider (only update if user isn't dragging)
+    const slider = document.getElementById('remote-volume-slider');
+    if (document.activeElement !== slider && data.volume != null) {
+        slider.value = data.volume;
+        document.getElementById('remote-vol-pct').textContent = data.volume + '%';
+    }
+
+    // Toggle pause/resume button label
+    const pauseBtn = document.getElementById('remote-pause');
+    if (data.paused) {
+        pauseBtn.querySelector('.bi-ico').innerHTML = '&#x25B6;';
+        pauseBtn.querySelector('.bi-lbl').textContent = 'Resume';
+    } else {
+        pauseBtn.querySelector('.bi-ico').innerHTML = '&#x23F8;';
+        pauseBtn.querySelector('.bi-lbl').textContent = 'Pause';
+    }
+
+    // Disable controls if device offline or idle
+    const btns = document.querySelectorAll('.remote-btn, #remote-volume-slider');
+    const canControl = data.online !== false;
+    btns.forEach(function(b) { b.disabled = !canControl; });
+
+    // Status text
+    const statusEl = document.getElementById('remote-status');
+    if (!data.online) {
+        statusEl.textContent = 'Device offline';
+    } else if (data.idle) {
+        statusEl.textContent = 'Idle — no video playing';
+    } else {
+        statusEl.textContent = '';
+    }
+}
+
+function remoteSkip() {
+    if (!remoteDeviceId) return;
+    const btn = document.getElementById('remote-skip');
+    btn.disabled = true;
+    btn.querySelector('.bi-lbl').textContent = '...';
+    api('multi-tv/device/' + encodeURIComponent(remoteDeviceId) + '/skip')
+        .then(function(r) {
+            if (r.ok) showToast('Skipped on ' + remoteDisplayName);
+            else showToast(r.error || 'Skip failed');
+            setTimeout(pollDeviceStatus, 500);
+            poll(); // refresh main queue too
+        })
+        .catch(function() { showToast('Skip failed'); })
+        .finally(function() {
+            btn.disabled = false;
+            btn.querySelector('.bi-lbl').textContent = 'Skip';
+        });
+}
+
+function remotePause() {
+    if (!remoteDeviceId) return;
+    const pauseBtn = document.getElementById('remote-pause');
+    const isPaused = pauseBtn.querySelector('.bi-lbl').textContent === 'Resume';
+    const action = isPaused ? 'resume' : 'pause';
+    pauseBtn.disabled = true;
+    api('multi-tv/device/' + encodeURIComponent(remoteDeviceId) + '/' + action)
+        .then(function(r) {
+            if (!r.ok && r.error) showToast(r.error);
+            setTimeout(pollDeviceStatus, 300);
+        })
+        .catch(function() { showToast(action + ' failed'); })
+        .finally(function() { pauseBtn.disabled = false; });
+}
+
+function remoteVolume(level) {
+    document.getElementById('remote-vol-pct').textContent = level + '%';
+    clearTimeout(remoteVolDebounce);
+    remoteVolDebounce = setTimeout(function() {
+        if (!remoteDeviceId) return;
+        api('multi-tv/device/' + encodeURIComponent(remoteDeviceId) + '/volume', {level: parseInt(level)});
+    }, 200);
 }
 </script>
 {% endblock %}

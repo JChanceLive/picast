@@ -170,6 +170,25 @@ class QueueManager:
         self.reorder(ids)
         return True
 
+    def move_to_end(self, item_id: int) -> bool:
+        """Move a queue item to the end of the pending queue.
+
+        Resets status to 'pending' and sets position to max + 1.
+        Used by multi-TV skip: skipped video goes to the back
+        so it may play later on another TV.
+        """
+        row = self._db.fetchone("SELECT * FROM queue WHERE id = ?", (item_id,))
+        if not row:
+            return False
+        max_pos_row = self._db.fetchone("SELECT MAX(position) AS max_pos FROM queue")
+        max_pos = (max_pos_row["max_pos"] or 0) + 1 if max_pos_row else 1
+        cursor = self._db.execute(
+            "UPDATE queue SET status = 'pending', played_at = NULL, position = ? WHERE id = ?",
+            (max_pos, item_id),
+        )
+        self._db.commit()
+        return cursor.rowcount > 0
+
     def replay(self, item_id: int) -> bool:
         """Re-queue a played/skipped item at the end of the pending queue."""
         # Get the max position so we can place the replayed item at the end

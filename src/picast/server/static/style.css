@@ -2478,3 +2478,98 @@ body.has-floating-controls {
 .ap-fleet-state.ap-fleet-playing { color: var(--accent); }
 .ap-fleet-state.ap-fleet-override { color: var(--neon-magenta); }
 .ap-fleet-state.ap-fleet-offline { color: var(--muted); }
+
+/* Clickable fleet cards */
+.ap-fleet-clickable { cursor: pointer; transition: background 0.15s; border-radius: var(--radius-sm); padding: 0.5rem 0.4rem; margin: 0 -0.4rem; }
+.ap-fleet-clickable:hover { background: var(--card); }
+.ap-fleet-clickable:active { transform: scale(0.98); }
+
+/* Progress bar on fleet cards */
+.ap-fleet-progress { height: 2px; background: rgba(255, 255, 255, 0.06); border-radius: 1px; margin-top: 4px; }
+.ap-fleet-progress-bar { height: 100%; background: var(--accent); border-radius: 1px; transition: width 2s linear; }
+.ap-fleet-time { font-size: 0.65rem; color: var(--text-tertiary); font-family: 'SF Mono', 'Menlo', monospace; }
+
+/* Device Remote Control Modal */
+.device-remote-modal { max-width: 340px; }
+
+.remote-body { padding: 0; }
+
+.remote-now-playing { margin-bottom: var(--sp-4); }
+
+.remote-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin-bottom: var(--sp-2);
+    word-break: break-word;
+    line-height: 1.3;
+    color: var(--text);
+}
+
+.remote-progress-wrap {
+    height: 4px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 2px;
+    margin: var(--sp-2) 0;
+    overflow: hidden;
+}
+
+.remote-progress-bar {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 2s linear;
+    width: 0%;
+}
+
+.remote-time {
+    font-size: var(--font-xs);
+    color: var(--text-secondary);
+    display: flex;
+    justify-content: space-between;
+    font-family: 'SF Mono', 'Menlo', monospace;
+}
+
+.remote-controls {
+    display: flex;
+    gap: var(--sp-3);
+    justify-content: center;
+    margin: var(--sp-4) 0;
+}
+
+.remote-btn { min-width: 80px; }
+.remote-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+
+.remote-volume {
+    display: flex;
+    align-items: center;
+    gap: var(--sp-2);
+    padding: var(--sp-2) 0;
+}
+
+.remote-vol-icon { font-size: 0.9rem; flex-shrink: 0; }
+
+.remote-volume .settings-slider { flex: 1; }
+
+.remote-vol-pct {
+    font-size: var(--font-xs);
+    font-weight: 600;
+    color: var(--accent);
+    width: 32px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.remote-status {
+    font-size: var(--font-xs);
+    color: var(--text-tertiary);
+    text-align: center;
+    min-height: 1.2em;
+    margin-top: var(--sp-2);
+}
+
+/* Remote modal responsive - very small (320px) */
+@media (max-width: 340px) {
+    .device-remote-modal { max-width: 100%; margin: 0 var(--sp-2); }
+    .remote-controls { gap: var(--sp-2); }
+    .remote-btn { min-width: 70px; }
+}
