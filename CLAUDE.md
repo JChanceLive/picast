@@ -119,12 +119,14 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-13 | 47 active memories, 491 total_
+_Last updated: 2026-03-16 | 58 active memories, 546 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet, feedback-loop, multi-tv, mute]
 - PiCast mobile UI redesign Phase 1 (2026-03-12) implements new CSS design system: root variables updated to `--accent:... [picast, mobile-ui, css-design-system, starscreen, fleet, api, architecture]
+- PiCast Multi-TV Remote Control architecture (ARCH-MULTI-TV-REMOTE.md) defines 4-tier device control: (1) Local device... [picast, multi-tv, remote-control, architecture, s1-backend, fleet, api-design]
+- PiCast Multi-TV Remote Control S2 (Web UI) adds 3 new components: (1) renderFleetDevices() enhanced to show device ca... [picast, multi-tv, remote-control, web-ui, s2-implementation]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -135,7 +137,11 @@ _Last updated: 2026-03-13 | 47 active memories, 491 total_
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
 - 30-day trial guard added to refresh-taste-profile.sh: creates ~/.picast/trial-start on first run, stores expiry date ... [picast, autopilot, cost-control, trial-system]
-- StarScreen integration into PiCast multi-TV: User wants to add starscreen Pi as a third device alongside picast-zero ... [picast, starscreen, multi-tv, fleet, integration, architecture, mobile-ui, ux-design, responsive-design, visual-hierarchy, decision]
+- Autoplay pool defaults to disabled on boot regardless of TOML config `[autoplay] enabled = true`. User toggles it on ... [picast, autoplay, boot-default, decision]
+- Per-device skip tracking via QueueItem.skip_user_device dict ({device_id: timestamp}) chosen over per-device queue co... [picast, multi-tv, database-design, queue-architecture]
+- PiPulse migration from Pi 4B (10.0.0.110) to PiHub (10.0.0.110) uses Mac relay pattern for config transfers containin... [pipulse, pihub, fleet-infrastructure, networking, deployment, migration, security]
+- StarScreen integration into PiCast multi-TV fleet: StarScreen uses GStreamer pipeline (not mpv), requires different A... [picast, starscreen, multi-tv, fleet, integration, manual-override]
+- Multi-TV Remote S3 roadmap prioritizes pause/resume + position/duration tracking over mute/volume UI: picast-z1 recei... [picast, multi-tv, s3-planning, receiver-upgrade]
 
 ## Patterns & Conventions
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
@@ -148,33 +154,39 @@ _Last updated: 2026-03-13 | 47 active memories, 491 total_
 - PiCast JS state persistence pattern for two-tier controls: localStorage keys for floating position state (now-playing... [picast, javascript, state-persistence, ui-pattern, mobile]
 - iOS Safari PWA double-tap confirm pattern: instead of confirm() dialogs (which silently return false in PWA mode), us... [picast, ios-safari, pwa, ui-pattern, mobile]
 - PiCast receiver (picast-z1) deployment pattern: Source is at /home/jopi/picast-receiver/picast_receiver.py on z1. Edi... [picast, receiver, deployment, picast-z1, pattern]
-- Fleet dashboard fresh data pattern in PiCast: /api/autopilot/fleet endpoint calls fleet_manager.poll_if_stale(max_age... [picast, fleet, polling, pattern, resilience]
-- Fleet device integration and coordination patterns in PiCast: (1) Device requirements - 4 HTTP endpoints: GET /api/st... [picast, fleet, integration-pattern, multi-tv, protocol, validation]
-- Multi-TV watcher adaptive polling and health dashboard patterns in PiCast: (1) Watcher intervals - _WATCH_INTERVAL_PL... [picast, multi-tv, fleet, polling, pattern, performance, dashboard, ui-pattern, web-ui]
+- Multi-TV on_queue_changed() runs distribute() in a background thread (name="multi-tv-queue-changed") so HTTP endpoint... [picast, multi-tv, async, threading, testing]
+- Blind sed used for TOML config updates containing tokens: `ssh jopi@pihub 'sed -i "s/OLD_IP/NEW_IP/g" ~/.config/pipul... [pipulse, configuration, deployment, security]
+- Fleet dashboard and device integration patterns in PiCast: (1) Device requirements - 4 HTTP endpoints: GET /api/statu... [picast, fleet, integration-pattern, multi-tv, protocol, validation, polling, dashboard, ui-pattern, remote-control]
+- Fleet endpoint /api/autopilot/fleet enhanced to include position/duration fields from main device status (copied from... [picast, multi-tv, fleet, api-design, ui-optimization]
+- PiCast multi-TV remote control UI uses fleetToApiId() JS mapping function to convert fleet device_id='picast' (displa... [picast, multi-tv, remote-control, api-design, s2-ui]
+- PiCast remote control modal uses renderDeviceModal() to display now-playing title, elapsed/duration progress bar (upd... [picast, multi-tv, remote-control, ui-pattern, modal, polling]
+- PiCast Pi deployment via rsync pattern when GitHub SSH keys unavailable: rsync -av --exclude '.venv' --exclude '__pyc... [picast, deployment, rsync, pip, systemd]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
 - Autopilot engine test flakiness from weighted shuffle: test_video_skip_removes_from_queue assumes skipped video will ... [picast, testing, autopilot, queue, randomness, flaky-test]
-- Wrapper script must trap SIGINT before running claude to ensure summary card displays even if user Ctrl+C during sess... [aoe, wrapper, signal-handling, ux]
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
 - Test helper _save_profile() in test_autopilot_engine.py has default generated_at="2026-03-10T06:00:00". When testing ... [picast, testing, gotcha, taste-profile]
 - validate-profile.py returns (errors, warnings) tuple with both lists populated independently: errors are hard failure... [picast, autopilot, validation, testing, taste-profile]
 - iPhone 5 (320px viewport width) presents extreme mobile constraint: 44px minimum touch target + 8px margins per contr... [picast, mobile-ui, responsive-design, ios]
-- PiCast autopilot engine test failures in TestScoring class (test_genre_match_boosts_score and others) are pre-existin... [picast, testing, autopilot-engine, test-isolation]
 - StarScreen Flask port is 5072 (confirmed in app.py line 672), NOT 5001. The savepoint SESSION-SAVEPOINT-2026-03-12-pi... [starscreen, port, gotcha, fleet]
-- Multi-TV distribute() uses _get_idle_devices() which acquires a lock during iteration; _next_assignable() also acquir... [picast, multi-tv, threading, concurrency, fleet, gotcha, polling]
-- Multi-TV feature requires non-empty pending queue to distribute videos; enabling Multi with empty queue only distribu... [picast, multi-tv, queue, ux, watcher, crash, fix, fleet]
-- Chrome extension 'Failed to fetch' on queue/add caused by Chrome Private Network Access (PNA) blocking service worker... [picast, chrome-extension, pna, cors, networking, fix]
+- sqlite3 CLI tool not installed on Pi 4B; WAL checkpoint for zero-data-loss DB migration requires using Python venv `s... [pipulse, database, migration, sqlite, gotcha]
+- Multi-TV feature requires non-empty pending queue to distribute videos; enabling Multi with empty queue only distribu... [picast, multi-tv, fleet, starscreen, queue, threading, concurrency, chrome-extension, pna, cors, autoplay, manual-override]
+- Fleet endpoint returns device_id='picast' for main device, but multi-TV remote API endpoints expect device_id='main';... [picast, multi-tv, fleet, api-design, device-naming]
+- PiCast __about__.py version change requires pip reinstall with --break-system-packages on Debian Bookworm after rsync... [picast, deployment, python-import-caching, pip, gotcha]
 
 ## Current Progress
+- PiCast Multi-TV Remote Control S2 web UI implementation COMPLETE (2026-03-16): renderFleetDevices() enhanced with dev... [picast, multi-tv, remote-control, s2-complete, web-ui, deployment]
+- PiCast Multi-TV Remote Control S2 web UI implementation COMPLETE (2026-03-16): renderFleetDevices() enhanced with dev... [picast, multi-tv, remote-control, s2-complete, web-ui, deployment]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
-- PiCast Multi-TV feature S4-S7 COMPLETE (2026-03-12 to 2026-03-13): S4 - MultiTVManager with distribute_queue(), web U... [picast, multi-tv, s4-complete, s5-complete, s6-complete, s7-complete, fleet, starscreen, deployment, chrome-extension, progress]
+- PiCast Multi-TV feature S4-S9 COMPLETE (2026-03-12 to 2026-03-13): S4 - MultiTVManager with distribute_queue(), web U... [picast, multi-tv, s4-complete, s5-complete, s6-complete, s7-complete, s9-complete, fleet, starscreen, deployment, chrome-extension, progress]
 - PiCast Mobile UI Overhaul S1-S3 COMPLETE (2026-03-12): S1 (v1.1.0a18) - CSS design system (--accent: #00D9FF, --succe... [picast, mobile-ui, s1-complete, s2-complete, s3-complete, deployment, css-design-system, responsive-design, progress]
+- PiCast Multi-TV Remote Control S1 implementation COMPLETE (2026-03-16): Backend API finalized with skip logic (QueueI... [picast, multi-tv, remote-control, s1-complete, backend, api, testing]
 
 ## Context
-- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress, multi-tv, fleet, validation]
+- PiPulse migration from Pi 4B (10.0.0.110) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, pihub, migration, deployment, fleet-infrastructure, picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, multi-tv, fleet, starscreen]
 - Taste profile learning feedback sources: (1) explicit thumbs up/down via queue UI (rating ±1), (2) skip button (skip_... [picast, autopilot, taste-profile, learning-loop, feedback]
 - User's actual PiCast viewing preferences (for taste profile seeding): PRIMARY is Boston and Maine Live webcam (always... [picast, autopilot, taste-profile, user-preferences]
 - User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-management, priorities]
