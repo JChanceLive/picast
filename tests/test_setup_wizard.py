@@ -187,7 +187,7 @@ class TestPipulseConnection:
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
 
-        ok, msg = check_pipulse_connection("10.0.0.103", 5055)
+        ok, msg = check_pipulse_connection("10.0.0.110", 5055)
         assert ok is True
         assert "1.3.0" in msg
 
@@ -196,7 +196,7 @@ class TestPipulseConnection:
         import urllib.error
         mock_urlopen.side_effect = urllib.error.URLError("Connection refused")
 
-        ok, msg = check_pipulse_connection("10.0.0.103", 5055)
+        ok, msg = check_pipulse_connection("10.0.0.110", 5055)
         assert ok is False
 
 
@@ -214,7 +214,7 @@ class TestFetchPipulseBlocks:
         mock_resp.__exit__ = MagicMock(return_value=False)
         mock_urlopen.return_value = mock_resp
 
-        ok, data = fetch_pipulse_blocks("10.0.0.103", 5055)
+        ok, data = fetch_pipulse_blocks("10.0.0.110", 5055)
         assert ok is True
         assert "morning" in data
 
@@ -223,7 +223,7 @@ class TestFetchPipulseBlocks:
         import urllib.error
         mock_urlopen.side_effect = urllib.error.URLError("timeout")
 
-        ok, msg = fetch_pipulse_blocks("10.0.0.103", 5055)
+        ok, msg = fetch_pipulse_blocks("10.0.0.110", 5055)
         assert ok is False
         assert isinstance(msg, str)
 

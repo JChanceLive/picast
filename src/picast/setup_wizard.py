@@ -338,7 +338,7 @@ def run_wizard(config_path: str | None = None):
 
     existing_pp = config.get("pipulse", {})
     if existing_pp.get("enabled"):
-        host = existing_pp.get("host", "10.0.0.103")
+        host = existing_pp.get("host", "10.0.0.110")
         port = existing_pp.get("port", 5055)
         print(f"  Currently configured: {host}:{port}")
         if not _prompt_yn("Reconfigure PiPulse?", default=False):
@@ -453,7 +453,7 @@ def _setup_youtube(config: dict) -> bool:
 
 def _setup_pipulse(config: dict) -> bool:
     """Interactive PiPulse setup. Returns True if config was updated."""
-    default_host = config.get("pipulse", {}).get("host", "10.0.0.103")
+    default_host = config.get("pipulse", {}).get("host", "10.0.0.110")
     default_port = str(config.get("pipulse", {}).get("port", 5055))
 
     host = _prompt("PiPulse Host", default=default_host)

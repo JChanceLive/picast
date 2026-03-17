@@ -39,7 +39,7 @@ def configured_app(tmp_path):
         data_dir=str(tmp_path),
         ytdl_cookies_from_browser="chromium",
     )
-    pipulse = PipulseConfig(enabled=True, host="10.0.0.103", port=5055)
+    pipulse = PipulseConfig(enabled=True, host="10.0.0.110", port=5055)
     autoplay = AutoplayConfig(enabled=True, pool_mode=True)
     app = create_app(config, autoplay_config=autoplay, pipulse_config=pipulse)
     app.player.stop()
@@ -211,7 +211,7 @@ class TestPipulseSettings:
         resp = fresh_client.get("/api/settings/pipulse")
         data = resp.get_json()
         assert data["enabled"] is False
-        assert data["host"] == "10.0.0.103"
+        assert data["host"] == "10.0.0.110"
         assert data["port"] == 5055
 
     def test_update_settings(self, fresh_client):

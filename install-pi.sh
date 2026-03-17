@@ -218,7 +218,7 @@ ytdl_format = "$YTDL_FMT"
 #
 # [pipulse]
 # enabled = true
-# host = "10.0.0.103"
+# host = "10.0.0.110"
 # port = 5055
 
 # --- AutoPlay (optional) ---

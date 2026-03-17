@@ -100,7 +100,7 @@ class TestPipulseConfig:
     def test_defaults(self):
         config = PipulseConfig()
         assert config.enabled is False
-        assert config.host == "10.0.0.103"
+        assert config.host == "10.0.0.110"
         assert config.port == 5055
 
     def test_parse_pipulse_section(self):
@@ -114,11 +114,11 @@ class TestPipulseConfig:
         data = {"pipulse": {"enabled": True}}
         config = _parse_config(data)
         assert config.pipulse.enabled is True
-        assert config.pipulse.host == "10.0.0.103"  # default
+        assert config.pipulse.host == "10.0.0.110"  # default
         assert config.pipulse.port == 5055  # default
 
     def test_missing_pipulse_section_uses_defaults(self):
         data = {"server": {"port": 5050}}
         config = _parse_config(data)
         assert config.pipulse.enabled is False
-        assert config.pipulse.host == "10.0.0.103"
+        assert config.pipulse.host == "10.0.0.110"

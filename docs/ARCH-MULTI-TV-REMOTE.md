@@ -1,6 +1,6 @@
 # PiCast Multi-TV Per-Device Remote Control
 
-**Status:** Architecture Draft
+**Status:** S1-S3 COMPLETE + VERIFIED (v1.1.0a36). Manual tests passing on z1.
 **Date:** 2026-03-16
 **Author:** Claude (Opus 4.6)
 **Feature:** Click any TV in Multi-TV panel to open a full remote control modal

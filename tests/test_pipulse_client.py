@@ -21,7 +21,7 @@ class TestFetchBlockMetadata:
         mock_resp.read.return_value = json.dumps(mock_data).encode()
 
         with patch("picast.server.pipulse_client.urllib.request.urlopen", return_value=mock_resp):
-            result = fetch_block_metadata("10.0.0.103", 5055)
+            result = fetch_block_metadata("10.0.0.110", 5055)
 
         assert result is not None
         assert "morning-foundation" in result
@@ -33,7 +33,7 @@ class TestFetchBlockMetadata:
             "picast.server.pipulse_client.urllib.request.urlopen",
             side_effect=TimeoutError("timed out"),
         ):
-            result = fetch_block_metadata("10.0.0.103", 5055)
+            result = fetch_block_metadata("10.0.0.110", 5055)
 
         assert result is None
 
@@ -43,7 +43,7 @@ class TestFetchBlockMetadata:
             "picast.server.pipulse_client.urllib.request.urlopen",
             side_effect=ConnectionRefusedError("refused"),
         ):
-            result = fetch_block_metadata("10.0.0.103", 5055)
+            result = fetch_block_metadata("10.0.0.110", 5055)
 
         assert result is None
 
@@ -53,7 +53,7 @@ class TestFetchBlockMetadata:
         mock_resp.read.return_value = b"not json"
 
         with patch("picast.server.pipulse_client.urllib.request.urlopen", return_value=mock_resp):
-            result = fetch_block_metadata("10.0.0.103", 5055)
+            result = fetch_block_metadata("10.0.0.110", 5055)
 
         assert result is None
 
@@ -63,6 +63,6 @@ class TestFetchBlockMetadata:
         mock_resp.read.return_value = json.dumps({"other": "data"}).encode()
 
         with patch("picast.server.pipulse_client.urllib.request.urlopen", return_value=mock_resp):
-            result = fetch_block_metadata("10.0.0.103", 5055)
+            result = fetch_block_metadata("10.0.0.110", 5055)
 
         assert result == {}
