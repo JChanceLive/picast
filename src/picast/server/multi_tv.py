@@ -629,6 +629,11 @@ class MultiTVManager:
         if device_id == "main":
             try:
                 self._player.play_now(item.url, item.title)
+                # Mark confirmed immediately — play_now is synchronous
+                with self._lock:
+                    info = self._assignments.get("main")
+                    if info and info.item_id == item.id:
+                        info.confirmed_playing = True
                 logger.info(
                     "Multi-TV: main playing item %d (%s)",
                     item.id, item.title or item.url,

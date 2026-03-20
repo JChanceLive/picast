@@ -191,7 +191,7 @@ class TestDistribute:
         info = mgr._assignments.get("main")
         assert isinstance(info, AssignmentInfo)
         assert info.item_id == 1
-        assert info.confirmed_playing is False
+        assert info.confirmed_playing is True  # main confirms immediately (play_now is sync)
         assert info.assigned_at > 0
 
 
