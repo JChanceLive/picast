@@ -209,7 +209,7 @@ def create_app(
         """Process autoplay completion with context-aware self-learning."""
         # Multi-TV mode: delegate completion to multi-TV manager
         if _multi_tv.enabled:
-            _multi_tv.on_video_finished("main")
+            _multi_tv.on_video_finished("main", item_id=item.id if item else None)
             return  # Multi-TV handles queue advancement
 
         # Determine context: endpoint snapshot (skip/stop/play/trigger) or natural end

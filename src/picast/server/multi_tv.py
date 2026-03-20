@@ -15,6 +15,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,22 @@ _WATCH_INTERVAL_IDLE = 8      # Slow poll when all devices idle
 
 # Fleet proxy HTTP timeout (seconds)
 _FLEET_PROXY_TIMEOUT = 5
+
+# Grace period: how long to wait for a device to start playing after assignment
+# Exceeds Pi Zero 2W ~7s startup (yt-dlp resolve + pipeline init)
+_GRACE_PERIOD_SECONDS = 15
+
+# After this many consecutive failed starts, skip the device in distribute()
+_MAX_CONSECUTIVE_FAILURES = 3
+
+
+@dataclass
+class AssignmentInfo:
+    """Tracks a queue item assigned to a device with startup timing."""
+
+    item_id: int
+    assigned_at: float          # time.monotonic()
+    confirmed_playing: bool = False
 
 
 class MultiTVManager:
@@ -51,7 +68,8 @@ class MultiTVManager:
         self._player = player         # local Player
         self._sources = sources       # SourceRegistry (for URL validation)
         self._enabled = False
-        self._assignments = {}        # device_id -> queue_item_id
+        self._assignments = {}        # device_id -> AssignmentInfo
+        self._device_failures = {}    # device_id -> consecutive failed starts
         self._check_cache = {}        # url -> (ok: bool, checked_at: float)
         self._checking = False        # True during pre-check
         self._lock = threading.Lock()
@@ -75,8 +93,10 @@ class MultiTVManager:
                 # Reset: clear assignments and pre-check cache
                 self._assignments.clear()
                 self._check_cache.clear()
+                self._device_failures.clear()
             else:
                 self._enabled = True
+                self._device_failures.clear()
                 self._stop_event.clear()
 
         if already_on:
@@ -118,6 +138,7 @@ class MultiTVManager:
         with self._lock:
             self._enabled = False
             self._assignments.clear()
+            self._device_failures.clear()
             self._stop_event.set()
 
         # Wait for watcher to stop
@@ -143,6 +164,14 @@ class MultiTVManager:
             return
 
         for device_id in idle_devices:
+            # Skip grayed-out devices (too many consecutive failed starts)
+            if self._device_failures.get(device_id, 0) >= _MAX_CONSECUTIVE_FAILURES:
+                logger.info(
+                    "Multi-TV distribute: skipping grayed-out device %s (%d failures)",
+                    device_id, self._device_failures[device_id],
+                )
+                continue
+
             item = self._next_assignable(pending)
             if item is None:
                 logger.info("Multi-TV distribute: no more assignable items")
@@ -153,7 +182,10 @@ class MultiTVManager:
                 item.id, item.title or item.url, device_id,
             )
             with self._lock:
-                self._assignments[device_id] = item.id
+                self._assignments[device_id] = AssignmentInfo(
+                    item_id=item.id,
+                    assigned_at=time.monotonic(),
+                )
 
             ok = self._push_to_device(device_id, item)
             if not ok:
@@ -164,13 +196,36 @@ class MultiTVManager:
                     item.id, device_id,
                 )
 
-    def on_video_finished(self, device_id: str):
-        """Handle video completion on a device. Advance the queue."""
-        with self._lock:
-            item_id = self._assignments.pop(device_id, None)
+    def on_video_finished(self, device_id: str, item_id: int | None = None):
+        """Handle video completion on a device. Advance the queue.
 
-        if item_id is not None:
-            self._queue.mark_played(item_id)
+        Args:
+            device_id: Which device finished playing.
+            item_id: Optional guard — if provided and doesn't match the
+                current assignment, the finish is stale and ignored.
+                Prevents the race where main's old callback pops a
+                new assignment.
+        """
+        with self._lock:
+            info = self._assignments.get(device_id)
+            if info is None:
+                assigned_item_id = None
+            elif item_id is not None and info.item_id != item_id:
+                # Stale finish: old video's callback firing after new assignment
+                logger.info(
+                    "Multi-TV: ignoring stale finish for %s (got item %d, "
+                    "current assignment is %d)",
+                    device_id, item_id, info.item_id,
+                )
+                return
+            else:
+                assigned_item_id = info.item_id
+                del self._assignments[device_id]
+                # Successful completion clears failure counter
+                self._device_failures.pop(device_id, None)
+
+        if assigned_item_id is not None:
+            self._queue.mark_played(assigned_item_id)
 
         if self._enabled:
             # Distribute next item to this device
@@ -219,14 +274,16 @@ class MultiTVManager:
         with self._lock:
             devices = []
             for device_id in self._get_all_devices():
-                item_id = self._assignments.get(device_id)
+                info = self._assignments.get(device_id)
                 devices.append({
                     "device_id": device_id,
-                    "queue_item_id": item_id,
+                    "queue_item_id": info.item_id if info else None,
                 })
 
             pending = self._queue.get_pending()
-            assigned_ids = set(self._assignments.values())
+            assigned_ids = {
+                info.item_id for info in self._assignments.values()
+            }
             remaining = sum(
                 1 for item in pending if item.id not in assigned_ids
             )
@@ -236,12 +293,18 @@ class MultiTVManager:
                 if not ok
             )
 
+            grayed_out = [
+                dev_id for dev_id, n in self._device_failures.items()
+                if n >= _MAX_CONSECUTIVE_FAILURES
+            ]
+
             return {
                 "enabled": self._enabled,
                 "devices": devices,
                 "queue_remaining": remaining,
                 "skipped_urls": skipped,
                 "checking": self._checking,
+                "grayed_out_devices": grayed_out,
             }
 
     # --- Per-Device Remote Control ---
@@ -257,9 +320,10 @@ class MultiTVManager:
         'new_item_id' on success, or 'error' on failure.
         """
         with self._lock:
-            item_id = self._assignments.get(device_id)
-            if item_id is None:
+            info = self._assignments.get(device_id)
+            if info is None:
                 return {"ok": False, "error": f"No assignment for {device_id}"}
+            item_id = info.item_id
             del self._assignments[device_id]
 
         # Move skipped item to end of pending queue
@@ -277,11 +341,11 @@ class MultiTVManager:
             self.distribute()
 
         with self._lock:
-            new_item_id = self._assignments.get(device_id)
+            new_info = self._assignments.get(device_id)
 
         result = {"ok": True, "skipped_item_id": item_id}
-        if new_item_id is not None:
-            result["new_item_id"] = new_item_id
+        if new_info is not None:
+            result["new_item_id"] = new_info.item_id
         return result
 
     def pause_device(self, device_id: str) -> bool:
@@ -307,7 +371,8 @@ class MultiTVManager:
         if device_id == "main":
             status = self._player.get_status()
             with self._lock:
-                status["queue_item_id"] = self._assignments.get("main")
+                info = self._assignments.get("main")
+                status["queue_item_id"] = info.item_id if info else None
             return status
 
         # Fleet device: proxy GET to device's /api/status
@@ -397,7 +462,8 @@ class MultiTVManager:
                 data["room"] = state.config.room
                 data["mood"] = state.config.mood
                 with self._lock:
-                    data["queue_item_id"] = self._assignments.get(device_id)
+                    info = self._assignments.get(device_id)
+                    data["queue_item_id"] = info.item_id if info else None
                 return data
         except (urllib.error.URLError, OSError, json.JSONDecodeError) as e:
             logger.warning("fleet_proxy_get %s/%s failed: %s", device_id, action, e)
@@ -441,7 +507,7 @@ class MultiTVManager:
     def _next_assignable(self, pending) -> object | None:
         """Get the next pending item that passes pre-check and isn't assigned."""
         with self._lock:
-            assigned_ids = set(self._assignments.values())
+            assigned_ids = {info.item_id for info in self._assignments.values()}
 
         for item in pending:
             if item.id in assigned_ids:
@@ -545,18 +611,69 @@ class MultiTVManager:
                 logger.debug("Multi-TV watcher poll error: %s", e)
                 continue
 
-            with self._lock:
-                fleet_assignments = {
-                    dev_id: item_id
-                    for dev_id, item_id in self._assignments.items()
-                    if dev_id != "main"
-                }
+            self._process_fleet_assignments()
 
-            for dev_id, item_id in fleet_assignments.items():
-                if self._fleet.is_device_idle(dev_id):
-                    # Device was assigned but is now idle = video finished
+    def _process_fleet_assignments(self):
+        """Check fleet device assignments and handle completion/failure.
+
+        For each fleet device with an assignment, 4 branches:
+        1. confirmed_playing + idle -> video finished legitimately
+        2. Not idle -> device is playing, set confirmed_playing = True
+        3. Idle + grace remaining -> still starting up, skip
+        4. Idle + grace expired + never confirmed -> failed to start
+        """
+        with self._lock:
+            fleet_assignments = {
+                dev_id: info
+                for dev_id, info in self._assignments.items()
+                if dev_id != "main"
+            }
+
+        for dev_id, info in fleet_assignments.items():
+            is_idle = self._fleet.is_device_idle(dev_id)
+
+            if info.confirmed_playing and is_idle:
+                # Branch 1: Was confirmed playing, now idle = finished
+                logger.info(
+                    "Multi-TV watcher: %s finished item %d",
+                    dev_id, info.item_id,
+                )
+                self.on_video_finished(dev_id)
+
+            elif not is_idle:
+                # Branch 2: Device is playing — confirm it
+                if not info.confirmed_playing:
                     logger.info(
-                        "Multi-TV watcher: %s finished item %d",
-                        dev_id, item_id,
+                        "Multi-TV watcher: %s confirmed playing item %d",
+                        dev_id, info.item_id,
                     )
-                    self.on_video_finished(dev_id)
+                    info.confirmed_playing = True
+
+            else:
+                # Idle and never confirmed playing
+                elapsed = time.monotonic() - info.assigned_at
+                if elapsed < _GRACE_PERIOD_SECONDS:
+                    # Branch 3: Still within grace period
+                    logger.debug(
+                        "Multi-TV watcher: %s grace period (%.1fs / %ds) for item %d",
+                        dev_id, elapsed, _GRACE_PERIOD_SECONDS, info.item_id,
+                    )
+                else:
+                    # Branch 4: Grace expired, never started -> failed
+                    logger.warning(
+                        "Multi-TV watcher: %s failed to start item %d "
+                        "(grace expired after %.1fs)",
+                        dev_id, info.item_id, elapsed,
+                    )
+                    with self._lock:
+                        self._assignments.pop(dev_id, None)
+                        self._device_failures[dev_id] = (
+                            self._device_failures.get(dev_id, 0) + 1
+                        )
+
+                    # Return item to pending so it's not lost
+                    self._queue.mark_pending(info.item_id)
+
+                    # Try to assign something else
+                    if self._enabled:
+                        self.distribute()

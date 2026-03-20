@@ -103,7 +103,7 @@ class DeviceConfig:
 class ServerConfig:
     """Configuration for the Pi server."""
 
-    host: str = "0.0.0.0"
+    host: str = "::"
     port: int = 5050
     mpv_socket: str = "/tmp/mpv-socket"
     db_file: str = ""

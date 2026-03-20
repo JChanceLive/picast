@@ -292,7 +292,7 @@ def run_wizard(config_path: str | None = None):
 
     # Ensure server section exists with defaults
     if "server" not in config:
-        config["server"] = {"host": "0.0.0.0", "port": 5050}
+        config["server"] = {"host": "::", "port": 5050}
 
     changes_made = False
 
