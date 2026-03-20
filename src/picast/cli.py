@@ -73,6 +73,7 @@ def run_server():
         autoplay_config=config.autoplay,
         pipulse_config=config.pipulse,
         autopilot_config=config.autopilot,
+        multi_tv_config=config.multi_tv,
     )
 
     # Regenerate desktop wallpaper in background (keeps version badge current)

@@ -59,6 +59,7 @@ def create_app(
     autoplay_config: AutoplayConfig | None = None,
     pipulse_config: PipulseConfig | None = None,
     autopilot_config: AutopilotConfig | None = None,
+    multi_tv_config=None,
 ) -> Flask:
     """Create and configure the Flask application.
 
@@ -68,6 +69,7 @@ def create_app(
         autoplay_config: Autoplay schedule configuration.
         pipulse_config: PiPulse integration configuration.
         autopilot_config: AI Autopilot configuration.
+        multi_tv_config: Multi-TV queue distribution configuration.
     """
     if config is None:
         config = ServerConfig()
@@ -332,11 +334,22 @@ def create_app(
     # Multi-TV queue distribution
     from picast.server.multi_tv import MultiTVManager
 
+    def _multi_tv_notify(text: str):
+        """Deferred notification lookup — notification_manager is attached after create_app()."""
+        notif = getattr(app, "notification_manager", None)
+        if notif:
+            try:
+                notif._send(text)
+            except Exception:
+                pass
+
     _multi_tv = MultiTVManager(
         queue=queue,
         fleet=_fleet_manager,
         player=player,
         sources=sources,
+        config=multi_tv_config,
+        notify_fn=_multi_tv_notify,
     )
 
     # --- Web UI Pages ---
@@ -1293,6 +1306,11 @@ def create_app(
     def multi_tv_status():
         """Get multi-TV status."""
         return jsonify(_multi_tv.get_status())
+
+    @app.route("/api/multi-tv/metrics")
+    def multi_tv_metrics():
+        """Get multi-TV operational metrics for monitoring."""
+        return jsonify(_multi_tv.get_metrics())
 
     # --- Per-Device Remote Control ---
 

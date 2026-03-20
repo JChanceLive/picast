@@ -74,6 +74,23 @@ class FleetDeviceConfig:
     room: str = ""
     mood: str = ""
     mute: bool = True  # Mute by default; unmute via POST /api/volume on device
+    grace_period: int = 0  # Per-device grace override (0 = use global)
+
+
+@dataclass
+class MultiTVConfig:
+    """Configuration for multi-TV queue distribution."""
+
+    grace_period: int = 15
+    max_consecutive_failures: int = 3
+    check_cache_ttl: int = 300
+    check_timeout: int = 8
+    watch_interval_playing: int = 3
+    watch_interval_idle: int = 8
+    fleet_proxy_timeout: int = 5
+    failure_backoff: int = 30
+    check_cache_max_size: int = 500
+    grayout_cooldown: int = 300  # Seconds before probing grayed-out device
 
 
 @dataclass
@@ -136,6 +153,7 @@ class Config:
     pipulse: PipulseConfig = field(default_factory=PipulseConfig)
     autoplay: AutoplayConfig = field(default_factory=AutoplayConfig)
     autopilot: AutopilotConfig = field(default_factory=AutopilotConfig)
+    multi_tv: MultiTVConfig = field(default_factory=MultiTVConfig)
     devices: list[DeviceConfig] = field(default_factory=list)
 
     def get_default_device(self) -> DeviceConfig:
@@ -266,6 +284,7 @@ def _parse_config(data: dict) -> Config:
                 room=dev_conf.get("room", ""),
                 mood=dev_conf.get("mood", ""),
                 mute=dev_conf.get("mute", True),
+                grace_period=dev_conf.get("grace_period", 0),
             )
         config.autopilot = AutopilotConfig(
             enabled=ap.get("enabled", config.autopilot.enabled),
@@ -280,6 +299,34 @@ def _parse_config(data: dict) -> Config:
                 config.autopilot.stale_threshold_hours,
             ),
             fleet_devices=fleet_devices,
+        )
+
+    if "multi_tv" in data:
+        mt = data["multi_tv"]
+        config.multi_tv = MultiTVConfig(
+            grace_period=mt.get("grace_period", config.multi_tv.grace_period),
+            max_consecutive_failures=mt.get(
+                "max_consecutive_failures",
+                config.multi_tv.max_consecutive_failures,
+            ),
+            check_cache_ttl=mt.get("check_cache_ttl", config.multi_tv.check_cache_ttl),
+            check_timeout=mt.get("check_timeout", config.multi_tv.check_timeout),
+            watch_interval_playing=mt.get(
+                "watch_interval_playing", config.multi_tv.watch_interval_playing,
+            ),
+            watch_interval_idle=mt.get(
+                "watch_interval_idle", config.multi_tv.watch_interval_idle,
+            ),
+            fleet_proxy_timeout=mt.get(
+                "fleet_proxy_timeout", config.multi_tv.fleet_proxy_timeout,
+            ),
+            failure_backoff=mt.get("failure_backoff", config.multi_tv.failure_backoff),
+            check_cache_max_size=mt.get(
+                "check_cache_max_size", config.multi_tv.check_cache_max_size,
+            ),
+            grayout_cooldown=mt.get(
+                "grayout_cooldown", config.multi_tv.grayout_cooldown,
+            ),
         )
 
     if "devices" in data:

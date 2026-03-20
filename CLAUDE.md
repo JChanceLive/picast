@@ -119,7 +119,7 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-19 | 52 active memories, 558 total_
+_Last updated: 2026-03-20 | 47 active memories, 611 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -130,31 +130,30 @@ _Last updated: 2026-03-19 | 52 active memories, 558 total_
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
 - Discovery Agent implemented as separate class in new `src/picast/server/sources/discovery.py` (not integrated into Yo... [picast, autoplay, discovery, design, separation-of-concerns]
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
-- Pushover chosen as ntfy replacement: provides proper APNS infrastructure for reliable iOS background push, one-time $... [pushover, ntfy, notifications, ios-push, decision, trade-offs]
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
 - 30-day trial guard added to refresh-taste-profile.sh: creates ~/.picast/trial-start on first run, stores expiry date ... [picast, autopilot, cost-control, trial-system]
 - Autoplay pool defaults to disabled on boot regardless of TOML config `[autoplay] enabled = true`. User toggles it on ... [picast, autoplay, boot-default, decision]
 - Per-device skip tracking via QueueItem.skip_user_device dict ({device_id: timestamp}) chosen over per-device queue co... [picast, multi-tv, database-design, queue-architecture]
-- PiCast server host binding changed from '0.0.0.0' (IPv4 only) to '::' (IPv6 dual-stack) to match mDNS advertisement b... [picast, ipv6, config, server-binding, networking, mdns, bug-fix]
-- Multi-TV queue distribution prioritizes VISUAL simplicity over playback state sync: each TV plays its assigned queue ... [picast, multi-tv, design-philosophy, scope, remote-control, s3-planning, receiver-upgrade]
-- PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) uses Mac relay pattern for config transfers containin... [pipulse, pihub, fleet-infrastructure, networking, deployment, migration, security, picast, starscreen, multi-tv, fleet, integration, manual-override]
+- PiCast Multi-TV architecture and fleet integration decisions: (1) Queue distribution prioritizes visual simplicity ov... [picast, multi-tv, fleet, architecture, starscreen, pushover, notifications, ipv6, grayout-recovery, pipulse, pihub, migration]
 
 ## Patterns & Conventions
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
 - PiCast CLI command aliases via pyproject.toml [project.scripts]: `pycast export` (replaces `picast autoplay export`) ... [picast, cli, entry-points, pattern]
-- PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling]
 - URL validation pattern in PiCast: autoplay_pool_add and queue_add endpoints both normalize_url() then validate_url(ur... [picast, url-validation, api-pattern, error-handling]
 - Effectiveness tracking in refresh log captures baseline pool snapshot (total_videos, liked_count, skip_count, complet... [picast, autopilot, metrics, logging, effectiveness]
 - Block-to-mood mapping in refresh-taste-profile.sh uses static bash associative array (morning-foundation→chill, creat... [picast, autopilot, taste-profile, block-mapping]
-- Queue refresh pattern in PiCast: /api/queue/loop-reset endpoint calls queue.loop_reset() to reset all played/skipped ... [picast, queue, api, ui, multi-tv]
-- PiCast JS state persistence pattern for two-tier controls: localStorage keys for floating position state (now-playing... [picast, javascript, state-persistence, ui-pattern, mobile]
 - iOS Safari PWA double-tap confirm pattern: instead of confirm() dialogs (which silently return false in PWA mode), us... [picast, ios-safari, pwa, ui-pattern, mobile]
 - PiCast receiver (picast-z1) deployment pattern: Source is at /home/jopi/picast-receiver/picast_receiver.py on z1. Edi... [picast, receiver, deployment, picast-z1, pattern]
 - Multi-TV on_queue_changed() runs distribute() in a background thread (name="multi-tv-queue-changed") so HTTP endpoint... [picast, multi-tv, async, threading, testing]
 - Blind sed used for TOML config updates containing tokens: `ssh jopi@pihub 'sed -i "s/OLD_IP/NEW_IP/g" ~/.config/pipul... [pipulse, configuration, deployment, security]
-- PiCast Pi deployment via rsync pattern when GitHub SSH keys unavailable: rsync -av --exclude '.venv' --exclude '__pyc... [picast, deployment, rsync, pip, systemd]
-- Fleet dashboard and device integration patterns in PiCast: (1) Device requirements - 4 HTTP endpoints: GET /api/statu... [picast, fleet, integration-pattern, multi-tv, protocol, validation, polling, dashboard, ui-pattern, remote-control, api-design]
+- Project notes session save pattern: Update PROJECT-PICAST.md status/next-action/last-touch + history row, update brai... [session-save, workflow, documentation]
+- PiCast improvement plan multi-session orchestration uses context-aware stage checkpoints: Session 1 reads codebase → ... [picast, improvement-system, multi-session-planning, orchestration]
+- PiCast Multi-TV notification integration uses MultiTVConfig dataclass with optional notify_fn: Optional[Callable[[str... [picast, multi-tv, config, notifications, architecture, pattern]
+- PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling, pattern]
+- PiCast Multi-TV failure recovery pattern: _device_failures dict stores (count, timestamp) tuples where count incremen... [picast, multi-tv, failure-tracking, grayout-recovery, pattern]
+- PiCast Pi deployment pattern when GitHub SSH keys unavailable: rsync -av --exclude '.venv' --exclude '__pycache__' --... [picast, deployment, rsync, pip, systemd, pattern]
+- PiCast queue refresh and loop operations: /api/queue/loop-reset endpoint calls queue.loop_reset() to reset all played... [picast, queue, api, ui, multi-tv, pattern]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
@@ -162,28 +161,23 @@ _Last updated: 2026-03-19 | 52 active memories, 558 total_
 - Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
-- Test helper _save_profile() in test_autopilot_engine.py has default generated_at="2026-03-10T06:00:00". When testing ... [picast, testing, gotcha, taste-profile]
-- validate-profile.py returns (errors, warnings) tuple with both lists populated independently: errors are hard failure... [picast, autopilot, validation, testing, taste-profile]
 - iPhone 5 (320px viewport width) presents extreme mobile constraint: 44px minimum touch target + 8px margins per contr... [picast, mobile-ui, responsive-design, ios]
 - StarScreen Flask port is 5072 (confirmed in app.py line 672), NOT 5001. The savepoint SESSION-SAVEPOINT-2026-03-12-pi... [starscreen, port, gotcha, fleet]
 - sqlite3 CLI tool not installed on Pi 4B; WAL checkpoint for zero-data-loss DB migration requires using Python venv `s... [pipulse, database, migration, sqlite, gotcha]
-- Fleet endpoint returns device_id='picast' for main device, but multi-TV remote API endpoints expect device_id='main';... [picast, multi-tv, fleet, api-design, device-naming]
-- PiCast __about__.py version change requires pip reinstall with --break-system-packages on Debian Bookworm after rsync... [picast, deployment, python-import-caching, pip, gotcha]
-- IPv4-only Flask server binding (0.0.0.0) was a latent bug present since initial commit; mDNS advertised both IPv4 A a... [picast, ipv6, networking, mdns, safari, latent-bug]
-- Multi-TV feature requires non-empty pending queue to distribute videos; enabling Multi with empty queue only distribu... [picast, multi-tv, fleet, starscreen, queue, threading, concurrency, chrome-extension, pna, cors, autoplay, manual-override]
+- Watcher on_video_finished(dev_id) doesn't validate item_id before calling queue.on_video_finished() — safe today beca... [picast, multi-tv, watcher, race-condition, callback-safety]
+- MagicMock comparisons in pytest fail with 'not supported between instances' error (e.g., `mock_grace_period > 0` rais... [picast, testing, mocking, pytest]
+- PiCast deployment gotchas on Pi: (1) __about__.py version changes require pip reinstall with --break-system-packages ... [picast, deployment, python-import-caching, pip, gotcha, ipv6, networking, mdns, safari, latent-bug]
+- validate-profile.py returns (errors, warnings) tuple with both lists populated independently: errors are hard failure... [picast, autopilot, validation, testing, taste-profile, gotcha]
 
 ## Current Progress
-- PiCast Multi-TV Remote Control S2 web UI implementation COMPLETE (2026-03-16): renderFleetDevices() enhanced with dev... [picast, multi-tv, remote-control, s2-complete, web-ui, deployment]
+- PiCast Multi-TV feature S4-S9 COMPLETE (2026-03-12 to 2026-03-13): S4 - MultiTVManager with distribute_queue(), web U... [picast, multi-tv, s4-complete, s5-complete, s6-complete, s7-complete, s9-complete, remote-control, s1-complete, s2-complete, fleet, starscreen, deployment, chrome-extension, progress, improvements, notifications, grayout-recovery, v1.1.0a40]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
-- PiCast Multi-TV feature S4-S9 COMPLETE (2026-03-12 to 2026-03-13): S4 - MultiTVManager with distribute_queue(), web U... [picast, multi-tv, s4-complete, s5-complete, s6-complete, s7-complete, s9-complete, fleet, starscreen, deployment, chrome-extension, progress]
 - PiCast Mobile UI Overhaul S1-S3 COMPLETE (2026-03-12): S1 (v1.1.0a18) - CSS design system (--accent: #00D9FF, --succe... [picast, mobile-ui, s1-complete, s2-complete, s3-complete, deployment, css-design-system, responsive-design, progress]
-- PiCast Multi-TV Remote Control S1 implementation COMPLETE (2026-03-16): Backend API finalized with skip logic (QueueI... [picast, multi-tv, remote-control, s1-complete, backend, api, testing]
 
 ## Context
 - PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, pihub, migration, deployment, fleet-infrastructure, picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, multi-tv, fleet, starscreen]
 - Taste profile learning feedback sources: (1) explicit thumbs up/down via queue UI (rating ±1), (2) skip button (skip_... [picast, autopilot, taste-profile, learning-loop, feedback]
 - User's actual PiCast viewing preferences (for taste profile seeding): PRIMARY is Boston and Maine Live webcam (always... [picast, autopilot, taste-profile, user-preferences]
-- User preference for /done workflow: maximize automation (auto-save handles metrics/memory capture) while using explic... [workflow, preferences, session-management, priorities]
 
 _For deeper context, use memory_search, memory_related, or memory_ask tools._
 <!-- MEMORY:END -->

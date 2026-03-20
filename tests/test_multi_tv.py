@@ -7,10 +7,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from picast.config import MultiTVConfig
 from picast.server.multi_tv import (
     AssignmentInfo,
     MultiTVManager,
     _CHECK_CACHE_TTL,
+    _FAILURE_BACKOFF_SECONDS,
     _GRACE_PERIOD_SECONDS,
     _MAX_CONSECUTIVE_FAILURES,
 )
@@ -29,7 +31,7 @@ def _make_queue_item(id, url="https://www.youtube.com/watch?v=abc123def45", titl
     return item
 
 
-def _make_manager(fleet=None, pending=None):
+def _make_manager(fleet=None, pending=None, config=None):
     """Create a MultiTVManager with mocked dependencies."""
     queue = MagicMock()
     player = MagicMock()
@@ -45,6 +47,7 @@ def _make_manager(fleet=None, pending=None):
         fleet=fleet,
         player=player,
         sources=sources,
+        config=config,
     )
     return mgr
 
@@ -100,7 +103,7 @@ class TestEnableDisable:
     def test_disable_clears_device_failures(self):
         mgr = _make_manager()
         mgr._enabled = True
-        mgr._device_failures = {"z1": 3}
+        mgr._device_failures = {"z1": (3, time.monotonic())}
         mgr.disable()
         assert mgr._device_failures == {}
 
@@ -224,7 +227,7 @@ class TestOnVideoFinished:
         """Successful finish clears device failure counter."""
         mgr = _make_manager()
         mgr._enabled = True
-        mgr._device_failures["z1"] = 2
+        mgr._device_failures["z1"] = (2, time.monotonic())
         _set_assignment(mgr, "z1", 5)
 
         mgr.on_video_finished("z1")
@@ -699,7 +702,7 @@ class TestDeviceGrayOut:
         fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
         mgr = _make_manager(fleet=fleet, pending=items)
         mgr._enabled = True
-        mgr._device_failures["z1"] = _MAX_CONSECUTIVE_FAILURES
+        mgr._device_failures["z1"] = (_MAX_CONSECUTIVE_FAILURES, time.monotonic())
 
         mgr.distribute()
 
@@ -711,7 +714,7 @@ class TestDeviceGrayOut:
         """Successful video finish clears failure counter."""
         mgr = _make_manager()
         mgr._enabled = True
-        mgr._device_failures["z1"] = 2
+        mgr._device_failures["z1"] = (2, time.monotonic())
         _set_assignment(mgr, "z1", 5)
 
         mgr.on_video_finished("z1")
@@ -722,7 +725,10 @@ class TestDeviceGrayOut:
         """Re-enable clears all failure counters."""
         mgr = _make_manager()
         mgr._enabled = True
-        mgr._device_failures = {"z1": 3, "z2": 2}
+        mgr._device_failures = {
+            "z1": (3, time.monotonic()),
+            "z2": (2, time.monotonic()),
+        }
 
         # Reset via enable (already on path)
         mgr._assignments.clear()
@@ -735,7 +741,10 @@ class TestDeviceGrayOut:
         """get_status() includes grayed_out_devices list."""
         mgr = _make_manager()
         mgr._enabled = True
-        mgr._device_failures = {"z1": _MAX_CONSECUTIVE_FAILURES, "z2": 1}
+        mgr._device_failures = {
+            "z1": (_MAX_CONSECUTIVE_FAILURES, time.monotonic()),
+            "z2": (1, time.monotonic()),
+        }
 
         status = mgr.get_status()
         assert "grayed_out_devices" in status
@@ -746,7 +755,7 @@ class TestDeviceGrayOut:
         """Disable clears failure counters."""
         mgr = _make_manager()
         mgr._enabled = True
-        mgr._device_failures = {"z1": 3}
+        mgr._device_failures = {"z1": (3, time.monotonic())}
         mgr.disable()
         assert mgr._device_failures == {}
 
@@ -762,7 +771,7 @@ class TestDeviceGrayOut:
 
         mgr._process_fleet_assignments()
 
-        assert mgr._device_failures["z1"] == 1
+        assert mgr._device_failures["z1"][0] == 1
 
 
 # --- Latent Main Bug ---
@@ -837,3 +846,814 @@ class TestWatcherIntegration:
 
         mgr._queue.mark_played.assert_called_once_with(10)
         assert "z1" not in mgr._assignments
+
+
+# --- Watcher Item ID Guard (S1) ---
+
+
+class TestWatcherItemIdGuard:
+    def test_watcher_finish_passes_item_id(self):
+        """Watcher Branch 1 passes item_id to on_video_finished."""
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=10,
+            assigned_at=time.monotonic() - 60,
+            confirmed_playing=True,
+        )
+
+        mgr._process_fleet_assignments()
+
+        # Verify item was marked played (item_id matched)
+        mgr._queue.mark_played.assert_called_once_with(10)
+        assert "z1" not in mgr._assignments
+
+    def test_watcher_stale_finish_with_item_id_ignored(self):
+        """Watcher finish with stale item_id is ignored when assignment changed."""
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+
+        # Assign item 10, confirm playing
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=10,
+            assigned_at=time.monotonic() - 60,
+            confirmed_playing=True,
+        )
+
+        # Simulate watcher processing: it snapshots assignments,
+        # then between snapshot and on_video_finished call,
+        # a new assignment replaces the old one.
+        # on_video_finished(z1, item_id=10) should be rejected because
+        # assignment is now item 20.
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=20,
+            assigned_at=time.monotonic(),
+        )
+
+        # Call on_video_finished as the watcher would (with old item_id)
+        mgr.on_video_finished("z1", item_id=10)
+
+        # New assignment preserved, old item NOT marked played
+        assert _assigned_item(mgr, "z1") == 20
+        mgr._queue.mark_played.assert_not_called()
+
+
+# --- Watcher Exception Handling (S1) ---
+
+
+class TestWatcherExceptionHandling:
+    def test_watcher_exception_does_not_skip_remaining_devices(self):
+        """Exception in one device doesn't prevent processing others."""
+        fleet = _make_fleet(device_ids=["z1", "z2"], idle_ids={"z1", "z2"})
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+
+        # z1 will throw, z2 has a completed video
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=10,
+            assigned_at=time.monotonic() - 60,
+            confirmed_playing=True,
+        )
+        mgr._assignments["z2"] = AssignmentInfo(
+            item_id=20,
+            assigned_at=time.monotonic() - 60,
+            confirmed_playing=True,
+        )
+
+        # Make is_device_idle raise for z1 but return True for z2
+        def flaky_idle(dev_id):
+            if dev_id == "z1":
+                raise ConnectionError("z1 unreachable")
+            return True
+
+        fleet.is_device_idle.side_effect = flaky_idle
+
+        mgr._process_fleet_assignments()
+
+        # z2 should still be processed (finished)
+        mgr._queue.mark_played.assert_called_once_with(20)
+        assert "z2" not in mgr._assignments
+        # z1 assignment still present (error didn't clear it)
+        assert _assigned_item(mgr, "z1") == 10
+
+    def test_watcher_exception_logs_warning(self):
+        """Exception during device processing is logged as warning."""
+        fleet = _make_fleet(device_ids=["z1"], idle_ids=set())
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+        _set_assignment(mgr, "z1", 10)
+
+        fleet.is_device_idle.side_effect = RuntimeError("network down")
+
+        with patch("picast.server.multi_tv.logger") as mock_logger:
+            mgr._process_fleet_assignments()
+            mock_logger.warning.assert_called_once()
+            args = mock_logger.warning.call_args[0]
+            assert "z1" in args[1]
+
+    def test_multiple_devices_one_errors_other_processed(self):
+        """With 3 devices, error on middle one still processes first and last."""
+        fleet = _make_fleet(device_ids=["z1", "z2", "z3"])
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+
+        for dev_id, item_id in [("z1", 10), ("z2", 20), ("z3", 30)]:
+            mgr._assignments[dev_id] = AssignmentInfo(
+                item_id=item_id,
+                assigned_at=time.monotonic() - 60,
+                confirmed_playing=True,
+            )
+
+        def ordered_idle(dev_id):
+            if dev_id == "z2":
+                raise OSError("z2 flake")
+            return True
+
+        fleet.is_device_idle.side_effect = ordered_idle
+
+        mgr._process_fleet_assignments()
+
+        # z1 and z3 should be finished, z2 should still be assigned
+        assert "z1" not in mgr._assignments
+        assert _assigned_item(mgr, "z2") == 20
+        assert "z3" not in mgr._assignments
+        assert mgr._queue.mark_played.call_count == 2
+
+
+# --- Failure Backoff (S1) ---
+
+
+class TestFailureBackoff:
+    def test_failure_backoff_skips_recently_failed(self):
+        """Device with recent failure is skipped during backoff period."""
+        items = [_make_queue_item(1), _make_queue_item(2)]
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        mgr = _make_manager(fleet=fleet, pending=items)
+        mgr._enabled = True
+
+        # 1 failure, very recent
+        mgr._device_failures["z1"] = (1, time.monotonic())
+
+        mgr.distribute()
+
+        # Main gets item 1, z1 is cooling off
+        assert _assigned_item(mgr, "main") == 1
+        assert "z1" not in mgr._assignments
+
+    def test_failure_backoff_allows_after_cooldown(self):
+        """Device is eligible again after backoff period expires."""
+        items = [_make_queue_item(1), _make_queue_item(2)]
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        mgr = _make_manager(fleet=fleet, pending=items)
+        mgr._enabled = True
+
+        # 1 failure, long ago (past backoff)
+        mgr._device_failures["z1"] = (
+            1, time.monotonic() - _FAILURE_BACKOFF_SECONDS - 1,
+        )
+
+        mgr.distribute()
+
+        assert _assigned_item(mgr, "main") == 1
+        assert _assigned_item(mgr, "z1") == 2
+
+    def test_failure_backoff_cleared_on_success(self):
+        """Successful video finish clears backoff state."""
+        mgr = _make_manager()
+        mgr._enabled = True
+        mgr._device_failures["z1"] = (1, time.monotonic())
+        _set_assignment(mgr, "z1", 5)
+
+        mgr.on_video_finished("z1")
+
+        assert mgr._device_failures.get("z1") is None
+
+    def test_failure_backoff_cleared_on_disable(self):
+        """Disable clears all backoff state."""
+        mgr = _make_manager()
+        mgr._enabled = True
+        mgr._device_failures = {
+            "z1": (2, time.monotonic()),
+            "z2": (1, time.monotonic()),
+        }
+        mgr.disable()
+        assert mgr._device_failures == {}
+
+    def test_failure_backoff_cleared_on_enable(self):
+        """Re-enable clears all backoff state."""
+        mgr = _make_manager()
+        mgr._enabled = True
+        mgr._device_failures = {"z1": (2, time.monotonic())}
+        # Simulate re-enable path (already enabled)
+        with mgr._lock:
+            mgr._assignments.clear()
+            mgr._check_cache.clear()
+            mgr._device_failures.clear()
+        assert mgr._device_failures == {}
+
+    def test_backoff_combined_with_grayout(self):
+        """Grayout takes precedence over backoff (both skip the device)."""
+        items = [_make_queue_item(1), _make_queue_item(2)]
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        mgr = _make_manager(fleet=fleet, pending=items)
+        mgr._enabled = True
+
+        # At grayout threshold AND recent failure
+        mgr._device_failures["z1"] = (
+            _MAX_CONSECUTIVE_FAILURES, time.monotonic(),
+        )
+
+        mgr.distribute()
+
+        assert _assigned_item(mgr, "main") == 1
+        assert "z1" not in mgr._assignments
+
+    def test_grace_failure_increments_with_timestamp(self):
+        """Grace expired failure stores (count, timestamp) tuple."""
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=10,
+            assigned_at=time.monotonic() - _GRACE_PERIOD_SECONDS - 1,
+        )
+
+        before = time.monotonic()
+        mgr._process_fleet_assignments()
+        after = time.monotonic()
+
+        count, last_failure_at = mgr._device_failures["z1"]
+        assert count == 1
+        assert before <= last_failure_at <= after
+
+
+# --- MultiTVConfig (S2) ---
+
+
+class TestMultiTVConfig:
+    def test_config_defaults_match_original_constants(self):
+        """Default config values match the original module-level constants."""
+        cfg = MultiTVConfig()
+        assert cfg.grace_period == _GRACE_PERIOD_SECONDS
+        assert cfg.max_consecutive_failures == _MAX_CONSECUTIVE_FAILURES
+        assert cfg.check_cache_ttl == _CHECK_CACHE_TTL
+        assert cfg.failure_backoff == _FAILURE_BACKOFF_SECONDS
+
+    def test_config_from_toml_section(self):
+        """Config can be loaded from TOML dict."""
+        from picast.config import _parse_config
+
+        data = {"multi_tv": {"grace_period": 20, "failure_backoff": 60}}
+        config = _parse_config(data)
+        assert config.multi_tv.grace_period == 20
+        assert config.multi_tv.failure_backoff == 60
+        # Unset values use defaults
+        assert config.multi_tv.max_consecutive_failures == 3
+        assert config.multi_tv.check_cache_ttl == 300
+
+    def test_manager_without_config_uses_defaults(self):
+        """Manager created without config uses default MultiTVConfig."""
+        mgr = _make_manager()
+        assert mgr._config.grace_period == _GRACE_PERIOD_SECONDS
+        assert mgr._config.max_consecutive_failures == _MAX_CONSECUTIVE_FAILURES
+
+    def test_manager_with_custom_config(self):
+        """Manager uses provided config values."""
+        cfg = MultiTVConfig(grace_period=25, failure_backoff=10)
+        mgr = _make_manager(config=cfg)
+        assert mgr._config.grace_period == 25
+        assert mgr._config.failure_backoff == 10
+
+    def test_custom_failure_backoff_from_config(self):
+        """Custom failure_backoff from config is respected in distribute."""
+        cfg = MultiTVConfig(failure_backoff=5)
+        items = [_make_queue_item(1), _make_queue_item(2)]
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        mgr = _make_manager(fleet=fleet, pending=items, config=cfg)
+        mgr._enabled = True
+
+        # Recent failure (within 5s backoff)
+        mgr._device_failures["z1"] = (1, time.monotonic())
+        mgr.distribute()
+        assert "z1" not in mgr._assignments
+
+        # Old failure (past 5s backoff) — would pass default 30s too,
+        # but use tight timing to prove config is consulted
+        mgr._device_failures["z1"] = (1, time.monotonic() - 6)
+        mgr._assignments.clear()
+        mgr._queue.get_pending.return_value = [_make_queue_item(1), _make_queue_item(2)]
+        mgr.distribute()
+        assert _assigned_item(mgr, "z1") is not None
+
+
+# --- Per-Device Grace Period (S2) ---
+
+
+class TestPerDeviceGrace:
+    def test_per_device_grace_override(self):
+        """Fleet device with grace_period > 0 overrides global."""
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        # Set up device config with custom grace period
+        state = MagicMock()
+        state.config.grace_period = 30  # 30s per-device
+        fleet._devices = {"z1": state}
+        fleet._lock = threading.Lock()
+
+        cfg = MultiTVConfig(grace_period=15)
+        mgr = _make_manager(fleet=fleet, config=cfg)
+        mgr._enabled = True
+
+        # Assign 20s ago — would fail with global 15s, but within device 30s
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=10,
+            assigned_at=time.monotonic() - 20,
+        )
+
+        mgr._process_fleet_assignments()
+
+        # Still within per-device grace, should NOT have failed
+        assert _assigned_item(mgr, "z1") == 10
+        mgr._queue.mark_pending.assert_not_called()
+
+    def test_per_device_grace_zero_uses_global(self):
+        """Fleet device with grace_period=0 falls back to global."""
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        state = MagicMock()
+        state.config.grace_period = 0  # Means "use global"
+        fleet._devices = {"z1": state}
+        fleet._lock = threading.Lock()
+
+        cfg = MultiTVConfig(grace_period=15)
+        mgr = _make_manager(fleet=fleet, config=cfg)
+        mgr._enabled = True
+
+        # Assign 20s ago — beyond global 15s grace
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=10,
+            assigned_at=time.monotonic() - 20,
+        )
+
+        mgr._process_fleet_assignments()
+
+        # Should have failed (past global 15s)
+        assert "z1" not in mgr._assignments
+        mgr._queue.mark_pending.assert_called_once_with(10)
+
+
+# --- Cache Eviction (S2) ---
+
+
+class TestCacheEviction:
+    def test_evict_removes_expired_entries(self):
+        """Entries older than TTL are evicted."""
+        cfg = MultiTVConfig(check_cache_ttl=60)
+        mgr = _make_manager(config=cfg)
+
+        now = time.monotonic()
+        mgr._check_cache = {
+            "https://old.url": (True, now - 120),  # Expired
+            "https://new.url": (True, now - 10),    # Fresh
+        }
+
+        mgr._evict_stale_cache()
+
+        assert "https://old.url" not in mgr._check_cache
+        assert "https://new.url" in mgr._check_cache
+
+    def test_evict_caps_at_max_size(self):
+        """Cache is trimmed to max_size, removing oldest entries."""
+        cfg = MultiTVConfig(check_cache_ttl=600, check_cache_max_size=2)
+        mgr = _make_manager(config=cfg)
+
+        now = time.monotonic()
+        mgr._check_cache = {
+            "https://oldest.url": (True, now - 30),
+            "https://middle.url": (True, now - 20),
+            "https://newest.url": (True, now - 10),
+        }
+
+        mgr._evict_stale_cache()
+
+        assert len(mgr._check_cache) == 2
+        assert "https://oldest.url" not in mgr._check_cache
+        assert "https://newest.url" in mgr._check_cache
+        assert "https://middle.url" in mgr._check_cache
+
+    def test_custom_watch_intervals_used(self):
+        """Config watch intervals are actually used by the manager."""
+        cfg = MultiTVConfig(watch_interval_playing=1, watch_interval_idle=2)
+        mgr = _make_manager(config=cfg)
+        assert mgr._config.watch_interval_playing == 1
+        assert mgr._config.watch_interval_idle == 2
+
+
+# --- Session 3: Grayout Recovery + Notifications ---
+
+
+class TestGrayoutNotification:
+    """Tests for grayout notifications when devices hit failure threshold."""
+
+    def test_grayout_triggers_notification(self):
+        """Notification fires when device crosses max_consecutive_failures threshold."""
+        notified = []
+        cfg = MultiTVConfig(max_consecutive_failures=3)
+        fleet = _make_fleet(["tv1"], idle_ids=set())
+        mgr = _make_manager(fleet=fleet, config=cfg)
+        mgr._notify_fn = lambda text: notified.append(text)
+        mgr._enabled = True
+
+        # Simulate 3 failures crossing threshold
+        for i in range(3):
+            with mgr._lock:
+                mgr._device_failures["tv1"] = (i + 1, time.monotonic())
+            if i + 1 == cfg.max_consecutive_failures:
+                mgr._grayout_times["tv1"] = time.monotonic()
+                mgr._notify(
+                    f"PiCast Multi-TV: Device 'tv1' grayed out after {i + 1} failed starts"
+                )
+
+        assert len(notified) == 1
+        assert "grayed out" in notified[0]
+        assert "tv1" in notified[0]
+
+    def test_grayout_notification_only_on_threshold_crossing(self):
+        """Notification fires exactly once at threshold, not on subsequent failures."""
+        notified = []
+        cfg = MultiTVConfig(max_consecutive_failures=2)
+        mgr = _make_manager(config=cfg)
+        mgr._notify_fn = lambda text: notified.append(text)
+
+        # At threshold (2) — should notify
+        new_count = 2
+        if new_count == cfg.max_consecutive_failures:
+            mgr._grayout_times["tv1"] = time.monotonic()
+            mgr._notify(f"PiCast Multi-TV: Device 'tv1' grayed out after {new_count} failed starts")
+
+        # Above threshold (3) — should NOT notify again
+        new_count = 3
+        if new_count == cfg.max_consecutive_failures:
+            mgr._notify(f"PiCast Multi-TV: Device 'tv1' grayed out after {new_count} failed starts")
+
+        assert len(notified) == 1
+
+    def test_no_notify_fn_no_crash(self):
+        """Manager without notify_fn doesn't crash when trying to notify."""
+        mgr = _make_manager()
+        assert mgr._notify_fn is None
+        # Should not raise
+        mgr._notify("test message")
+
+
+class TestGrayoutRecovery:
+    """Tests for _check_grayout_recovery() auto-recovery probe."""
+
+    def test_cooldown_probe_succeeds_clears_failures(self):
+        """Device that responds after cooldown is cleared from grayout."""
+        cfg = MultiTVConfig(grayout_cooldown=10)
+        fleet = _make_fleet(["tv1"], idle_ids={"tv1"})
+        mgr = _make_manager(fleet=fleet, config=cfg)
+        mgr._enabled = True
+
+        # Set grayout in the past (beyond cooldown)
+        mgr._grayout_times["tv1"] = time.monotonic() - 20
+        mgr._device_failures["tv1"] = (3, time.monotonic() - 20)
+
+        mgr._check_grayout_recovery()
+
+        assert "tv1" not in mgr._grayout_times
+        assert "tv1" not in mgr._device_failures
+
+    def test_cooldown_probe_fails_keeps_grayed(self):
+        """Device that raises exception during probe stays grayed out."""
+        cfg = MultiTVConfig(grayout_cooldown=10)
+        fleet = _make_fleet(["tv1"], idle_ids=set())
+        fleet.is_device_idle.side_effect = Exception("unreachable")
+        mgr = _make_manager(fleet=fleet, config=cfg)
+
+        mgr._grayout_times["tv1"] = time.monotonic() - 20
+        mgr._device_failures["tv1"] = (3, time.monotonic() - 20)
+
+        mgr._check_grayout_recovery()
+
+        assert "tv1" in mgr._grayout_times
+        assert "tv1" in mgr._device_failures
+
+    def test_no_probe_before_cooldown_expires(self):
+        """Devices within cooldown period are not probed."""
+        cfg = MultiTVConfig(grayout_cooldown=300)
+        fleet = _make_fleet(["tv1"], idle_ids={"tv1"})
+        mgr = _make_manager(fleet=fleet, config=cfg)
+
+        # Grayed out 10s ago, cooldown is 300s — should NOT probe
+        mgr._grayout_times["tv1"] = time.monotonic() - 10
+        mgr._device_failures["tv1"] = (3, time.monotonic() - 10)
+
+        mgr._check_grayout_recovery()
+
+        # Still grayed — was not probed
+        assert "tv1" in mgr._grayout_times
+        assert "tv1" in mgr._device_failures
+        # Verify is_device_idle was NOT called (no probe attempt)
+        fleet.is_device_idle.assert_not_called()
+
+    def test_recovery_sends_notification(self):
+        """Recovery triggers a notification."""
+        notified = []
+        cfg = MultiTVConfig(grayout_cooldown=10)
+        fleet = _make_fleet(["tv1"], idle_ids={"tv1"})
+        mgr = _make_manager(fleet=fleet, config=cfg)
+        mgr._notify_fn = lambda text: notified.append(text)
+        mgr._enabled = True
+
+        mgr._grayout_times["tv1"] = time.monotonic() - 20
+        mgr._device_failures["tv1"] = (3, time.monotonic() - 20)
+
+        mgr._check_grayout_recovery()
+
+        assert len(notified) == 1
+        assert "recovered" in notified[0]
+        assert "tv1" in notified[0]
+
+    def test_recovery_triggers_distribute(self):
+        """Recovery calls distribute() to assign queue items to recovered device."""
+        cfg = MultiTVConfig(grayout_cooldown=10)
+        fleet = _make_fleet(["tv1"], idle_ids={"tv1"})
+        items = [_make_queue_item(1)]
+        mgr = _make_manager(fleet=fleet, pending=items, config=cfg)
+        mgr._enabled = True
+
+        mgr._grayout_times["tv1"] = time.monotonic() - 20
+        mgr._device_failures["tv1"] = (3, time.monotonic() - 20)
+
+        with patch.object(mgr, "distribute") as mock_dist:
+            mgr._check_grayout_recovery()
+            mock_dist.assert_called_once()
+
+    def test_no_recovery_without_fleet(self):
+        """_check_grayout_recovery is a no-op without fleet."""
+        mgr = _make_manager(fleet=None)
+        mgr._grayout_times["tv1"] = time.monotonic() - 999
+
+        mgr._check_grayout_recovery()
+
+        # Still there — no fleet to probe
+        assert "tv1" in mgr._grayout_times
+
+    def test_disable_clears_grayout_times(self):
+        """disable() clears grayout tracking."""
+        mgr = _make_manager()
+        mgr._enabled = True
+        mgr._grayout_times["tv1"] = time.monotonic()
+
+        mgr.disable()
+
+        assert len(mgr._grayout_times) == 0
+
+    def test_enable_clears_grayout_times(self):
+        """enable() clears grayout tracking."""
+        fleet = _make_fleet(["tv1"], idle_ids={"tv1"})
+        mgr = _make_manager(fleet=fleet)
+        mgr._grayout_times["tv1"] = time.monotonic()
+
+        # First enable
+        mgr.enable()
+        # Give background thread a moment to start
+        time.sleep(0.1)
+
+        assert len(mgr._grayout_times) == 0
+
+        mgr.disable()
+
+    def test_enable_reset_clears_grayout_times(self):
+        """enable() when already enabled (reset path) clears grayout tracking."""
+        fleet = _make_fleet(["tv1"], idle_ids={"tv1"})
+        mgr = _make_manager(fleet=fleet)
+
+        # First enable
+        mgr.enable()
+        time.sleep(0.1)
+
+        # Add grayout
+        mgr._grayout_times["tv1"] = time.monotonic()
+
+        # Second enable (reset path)
+        mgr.enable()
+
+        assert len(mgr._grayout_times) == 0
+
+        mgr.disable()
+
+
+# --- Watcher Non-Blocking Distribute (S4) ---
+
+
+class TestWatcherDistribute:
+    """Tests for _watcher_distribute() non-blocking threading."""
+
+    def test_watcher_distribute_runs_in_background_thread(self):
+        """_watcher_distribute() spawns a named daemon thread."""
+        items = [_make_queue_item(1)]
+        mgr = _make_manager(pending=items)
+        mgr._enabled = True
+
+        mgr._watcher_distribute()
+
+        # Wait for the thread to complete
+        for t in threading.enumerate():
+            if t.name == "multi-tv-watcher-distribute":
+                assert t.daemon is True
+                t.join(timeout=2)
+                break
+
+        # distribute() was called via the thread
+        assert _assigned_item(mgr, "main") == 1
+
+    def test_on_video_finished_from_watcher_non_blocking(self):
+        """on_video_finished with _from_watcher=True uses non-blocking distribute."""
+        items = [_make_queue_item(2)]
+        mgr = _make_manager(pending=items)
+        mgr._enabled = True
+        _set_assignment(mgr, "z1", 5)
+
+        mgr._queue.get_pending.return_value = items
+        mgr.on_video_finished("z1", _from_watcher=True)
+
+        # Wait for background thread
+        for t in threading.enumerate():
+            if t.name == "multi-tv-watcher-distribute":
+                t.join(timeout=2)
+
+        mgr._queue.mark_played.assert_called_once_with(5)
+        # distribute ran in background thread
+        assert _assigned_item(mgr, "main") == 2
+
+    def test_on_video_finished_from_http_blocking(self):
+        """on_video_finished without _from_watcher uses synchronous distribute."""
+        items = [_make_queue_item(2)]
+        mgr = _make_manager(pending=items)
+        mgr._enabled = True
+        _set_assignment(mgr, "main", 5)
+
+        mgr._queue.get_pending.return_value = items
+        mgr.on_video_finished("main", item_id=5)
+
+        # Synchronous — result is immediately available (no thread wait needed)
+        mgr._queue.mark_played.assert_called_once_with(5)
+        assert _assigned_item(mgr, "main") == 2
+
+    def test_branch4_failure_uses_watcher_distribute(self):
+        """Branch 4 (grace expired) uses non-blocking _watcher_distribute."""
+        fleet = _make_fleet(device_ids=["z1"], idle_ids={"z1"})
+        items = [_make_queue_item(1)]
+        mgr = _make_manager(fleet=fleet, pending=items)
+        mgr._enabled = True
+        mgr._assignments["z1"] = AssignmentInfo(
+            item_id=10,
+            assigned_at=time.monotonic() - _GRACE_PERIOD_SECONDS - 1,
+        )
+
+        with patch.object(mgr, "_watcher_distribute") as mock_wd:
+            mgr._process_fleet_assignments()
+            mock_wd.assert_called_once()
+
+    def test_grayout_recovery_uses_watcher_distribute(self):
+        """_check_grayout_recovery uses non-blocking _watcher_distribute."""
+        cfg = MultiTVConfig(grayout_cooldown=10)
+        fleet = _make_fleet(["tv1"], idle_ids={"tv1"})
+        mgr = _make_manager(fleet=fleet, config=cfg)
+        mgr._enabled = True
+        mgr._grayout_times["tv1"] = time.monotonic() - 20
+        mgr._device_failures["tv1"] = (3, time.monotonic() - 20)
+
+        with patch.object(mgr, "_watcher_distribute") as mock_wd:
+            mgr._check_grayout_recovery()
+            mock_wd.assert_called_once()
+
+
+# --- Metrics (S4) ---
+
+
+class TestGetMetrics:
+    """Tests for get_metrics() operational metrics."""
+
+    def test_metrics_returns_expected_keys(self):
+        """get_metrics() returns all documented keys."""
+        mgr = _make_manager()
+        mgr._enabled = True
+        metrics = mgr.get_metrics()
+
+        expected_keys = {
+            "enabled", "assignments", "device_failures",
+            "grayed_out_devices", "grayout_cooldown_remaining",
+            "check_cache_size", "watcher_alive",
+        }
+        assert set(metrics.keys()) == expected_keys
+
+    def test_metrics_assignment_ages(self):
+        """Assignment ages are computed correctly."""
+        mgr = _make_manager()
+        mgr._enabled = True
+        # Assign 10 seconds ago
+        mgr._assignments["main"] = AssignmentInfo(
+            item_id=1,
+            assigned_at=time.monotonic() - 10,
+            confirmed_playing=True,
+        )
+
+        metrics = mgr.get_metrics()
+
+        assert "main" in metrics["assignments"]
+        main_info = metrics["assignments"]["main"]
+        assert main_info["item_id"] == 1
+        assert main_info["confirmed_playing"] is True
+        assert main_info["age_seconds"] >= 10.0
+        assert main_info["age_seconds"] < 12.0  # Allow small timing slack
+
+    def test_metrics_watcher_alive_false_when_stopped(self):
+        """watcher_alive is False when no watcher thread."""
+        mgr = _make_manager()
+        metrics = mgr.get_metrics()
+        assert metrics["watcher_alive"] is False
+
+    def test_metrics_watcher_alive_true(self):
+        """watcher_alive is True when watcher is running."""
+        fleet = _make_fleet(["z1"])
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+        mgr._stop_event.clear()
+        mgr._start_watcher()
+        time.sleep(0.05)
+
+        metrics = mgr.get_metrics()
+        assert metrics["watcher_alive"] is True
+
+        mgr.disable()
+
+    def test_metrics_grayout_cooldown_remaining(self):
+        """Grayout cooldown remaining is computed from _grayout_times."""
+        cfg = MultiTVConfig(grayout_cooldown=300)
+        mgr = _make_manager(config=cfg)
+        mgr._enabled = True
+
+        # Grayed out 100s ago with 300s cooldown -> ~200s remaining
+        mgr._grayout_times["z1"] = time.monotonic() - 100
+        mgr._device_failures["z1"] = (3, time.monotonic() - 100)
+
+        metrics = mgr.get_metrics()
+
+        assert "z1" in metrics["grayout_cooldown_remaining"]
+        remaining = metrics["grayout_cooldown_remaining"]["z1"]
+        assert 198 <= remaining <= 202  # ~200s remaining
+
+        assert "z1" in metrics["grayed_out_devices"]
+
+    def test_metrics_device_failures_backoff(self):
+        """Device failures include backoff_remaining."""
+        cfg = MultiTVConfig(failure_backoff=30)
+        mgr = _make_manager(config=cfg)
+
+        # Failed 10s ago with 30s backoff -> ~20s remaining
+        mgr._device_failures["z1"] = (1, time.monotonic() - 10)
+
+        metrics = mgr.get_metrics()
+
+        assert "z1" in metrics["device_failures"]
+        z1 = metrics["device_failures"]["z1"]
+        assert z1["count"] == 1
+        assert 18 <= z1["backoff_remaining"] <= 22
+
+    def test_metrics_cache_size(self):
+        """check_cache_size reflects actual cache contents."""
+        mgr = _make_manager()
+        mgr._check_cache = {
+            "https://a.url": (True, time.monotonic()),
+            "https://b.url": (False, time.monotonic()),
+        }
+
+        metrics = mgr.get_metrics()
+        assert metrics["check_cache_size"] == 2
+
+
+# --- Network Failure During Watcher (S4) ---
+
+
+class TestNetworkFailureDuringWatcher:
+    """Tests for network failures in is_device_idle during watcher processing."""
+
+    def test_network_failure_during_is_device_idle(self):
+        """Network error during is_device_idle leaves assignment intact."""
+        fleet = _make_fleet(device_ids=["z1"])
+        fleet.is_device_idle.side_effect = OSError("Connection refused")
+
+        mgr = _make_manager(fleet=fleet)
+        mgr._enabled = True
+        _set_assignment(mgr, "z1", 10)
+
+        mgr._process_fleet_assignments()
+
+        # Assignment preserved — error was caught
+        assert _assigned_item(mgr, "z1") == 10
+        mgr._queue.mark_played.assert_not_called()
+        mgr._queue.mark_pending.assert_not_called()
