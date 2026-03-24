@@ -119,7 +119,7 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-20 | 41 active memories, 624 total_
+_Last updated: 2026-03-24 | 42 active memories, 641 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -143,11 +143,11 @@ _Last updated: 2026-03-20 | 41 active memories, 624 total_
 - Block-to-mood mapping in refresh-taste-profile.sh uses static bash associative array (morning-foundation→chill, creat... [picast, autopilot, taste-profile, block-mapping]
 - iOS Safari PWA double-tap confirm pattern: instead of confirm() dialogs (which silently return false in PWA mode), us... [picast, ios-safari, pwa, ui-pattern, mobile]
 - PiCast receiver (picast-z1) deployment pattern: Source is at /home/jopi/picast-receiver/picast_receiver.py on z1. Edi... [picast, receiver, deployment, picast-z1, pattern]
-- Multi-TV on_queue_changed() runs distribute() in a background thread (name="multi-tv-queue-changed") so HTTP endpoint... [picast, multi-tv, async, threading, testing]
 - PiCast Multi-TV notification integration uses MultiTVConfig dataclass with optional notify_fn: Optional[Callable[[str... [picast, multi-tv, config, notifications, architecture, pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling, pattern]
-- PiCast queue refresh and loop operations: /api/queue/loop-reset endpoint calls queue.loop_reset() to reset all played... [picast, queue, api, ui, multi-tv, pattern]
-- PiCast Multi-TV failure recovery and grayout pattern: _device_failures dict stores (count, timestamp) tuples tracking... [picast, multi-tv, failure-tracking, grayout-recovery, deployment, rsync, pip, systemd, pattern]
+- PiCast Multi-TV queue and distribution patterns: (1) Queue refresh and loop operations: /api/queue/loop-reset calls q... [picast, multi-tv, queue, distribution, failure-recovery, grayout, deployment, rsync, pip, systemd, pattern, async, threading, testing]
+- picast-z1 receiver sync pattern: Mac maintains canonical copy at `receiver/picast_receiver.py` in git repo. Pi stores... [picast-z1, receiver, deployment, git-workflow, sync]
+- picast-receiver.py yt-dlp format selection pattern: try primary format_spec first, fall back to '/best' if selection ... [picast, receiver, yt-dlp, error-handling, pattern]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
@@ -156,20 +156,21 @@ _Last updated: 2026-03-20 | 41 active memories, 624 total_
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
 - iPhone 5 (320px viewport width) presents extreme mobile constraint: 44px minimum touch target + 8px margins per contr... [picast, mobile-ui, responsive-design, ios]
 - sqlite3 CLI tool not installed on Pi 4B; WAL checkpoint for zero-data-loss DB migration requires using Python venv `s... [pipulse, database, migration, sqlite, gotcha]
-- Watcher on_video_finished(dev_id) doesn't validate item_id before calling queue.on_video_finished() — safe today beca... [picast, multi-tv, watcher, race-condition, callback-safety]
 - MagicMock comparisons in pytest fail with 'not supported between instances' error (e.g., `mock_grace_period > 0` rais... [picast, testing, mocking, pytest]
-- PiCast deployment gotchas on Pi: (1) __about__.py version changes require pip reinstall with --break-system-packages ... [picast, deployment, python-import-caching, pip, gotcha, ipv6, networking, mdns, safari, starscreen, fleet, port, autopilot, validation, testing, taste-profile]
-- `confirmed_playing` flag for 'main' device in MultiTV watcher is never set to true because line 805-808 explicitly sk... [picast, multi-tv, metrics, watcher, main-device]
 - PiCast yt-dlp metadata fetch timeouts for some YouTube URLs (e.g., kJQP7kiw5Fk, RgKAFK5djSk) cause title resolution t... [picast, yt-dlp, metadata, api, timeout]
+- PiCast deployment gotchas on Pi: (1) __about__.py version changes require pip reinstall with --break-system-packages ... [picast, deployment, python-import-caching, pip, gotcha, ipv6, networking, mdns, safari, starscreen, fleet, port, autopilot, validation, testing, taste-profile, multi-tv, metrics, watcher, main-device, confirmed-playing, race-condition, callback-safety, v1.1.0a42]
+- picast-z1 receiver yt-dlp version mismatch: /usr/bin/yt-dlp (2025.04.30) is ~1 year outdated and broken for Twitch (K... [picast-z1, receiver, twitch, yt-dlp, debugging]
+- picast-z1 receiver stderr redirection to /dev/null hides mpv playback failures silently: when yt-dlp format selector ... [picast-z1, receiver, logging, debugging, mpv]
+- picast-z1 Twitch casting failed silently due to yt-dlp version 2025.04.30 having broken Twitch extractor; updated to ... [picast-z1, yt-dlp, receiver, twitch, streaming, deployment]
+- yt-dlp 2025.04.30 has broken Twitch extractor (extraction fails silently, returns empty format list); upgrade to 2026... [picast, twitch, yt-dlp, receiver, deployment]
 
 ## Current Progress
-- PiCast Multi-TV v1.1.0a42 manual testing and deployment COMPLETE (2026-03-20): v1.1.0a42 deployed to Pi and verified ... [picast, multi-tv, v1.1.0a42, testing, deployment, manual-verification, complete]
+- PiCast Multi-TV v1.1.0a37-a42 COMPLETE (2026-03-20): Grace period implementation (5s minimum, monotonic_time() tracki... [picast, multi-tv, v1.1.0a37, v1.1.0a42, testing, manual-verification, queue-drain-fix, deployment, complete]
 - PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
 - PiCast Mobile UI Overhaul S1-S3 COMPLETE (2026-03-12): S1 (v1.1.0a18) - CSS design system (--accent: #00D9FF, --succe... [picast, mobile-ui, s1-complete, s2-complete, s3-complete, deployment, css-design-system, responsive-design, progress]
 
 ## Context
-- PiCast Multi-TV stability soak test (manual 2026-03-20): All 3 devices (main, picast-z1, starscreen) healthy and oper... [picast, multi-tv, testing, stability-soak, v1.1.0a41]
-- PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, pihub, migration, deployment, fleet-infrastructure, picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, multi-tv, fleet, starscreen]
+- PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, pihub, migration, deployment, fleet-infrastructure, picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, multi-tv, fleet, starscreen, testing, stability-soak, v1.1.0a41]
 - Taste profile learning feedback sources: (1) explicit thumbs up/down via queue UI (rating ±1), (2) skip button (skip_... [picast, autopilot, taste-profile, learning-loop, feedback]
 - User's actual PiCast viewing preferences (for taste profile seeding): PRIMARY is Boston and Maine Live webcam (always... [picast, autopilot, taste-profile, user-preferences]
 

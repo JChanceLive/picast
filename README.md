@@ -1,19 +1,29 @@
+<div align="center">
+
 # PiCast
 
-Turn any Raspberry Pi into a media center. Install on the Pi, control from your phone.
+**Turn any Raspberry Pi into a media center. Install on the Pi, control from your phone.**
 
-```
-pip install picast
-```
+[![Version](https://img.shields.io/badge/version-1.1.0a42-blue?style=flat-square)](https://github.com/JChanceLive/picast)
+[![Tests](https://img.shields.io/badge/tests-1%2C068-brightgreen?style=flat-square)](#development)
+[![Python](https://img.shields.io/badge/python-3.9+-3776ab?style=flat-square)](https://python.org)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](LICENSE)
+
+[Installation](#quick-start) | [Features](#features) | [API Reference](#api-reference) | [Configuration](#configuration)
+
+</div>
+
+<!-- TODO: Add screenshot of web UI on mobile device -->
+<!-- ![PiCast Web UI](docs/assets/screenshot-mobile.png) -->
 
 ## What It Does
 
 PiCast runs on a Raspberry Pi connected to your TV via HDMI. You control it from anywhere on your network:
 
-- **Phone** - Dark mode web UI, works instantly on any device
-- **Telegram** - Send YouTube URLs or commands from anywhere
-- **Terminal** - Full TUI dashboard with keyboard shortcuts
-- **API** - curl, scripts, or any HTTP client
+- **Phone** -- Dark mode web UI, works instantly on any device
+- **Telegram** -- Send YouTube URLs or commands from anywhere
+- **Terminal** -- Full TUI dashboard with keyboard shortcuts
+- **API** -- curl, scripts, or any HTTP client
 
 ## Architecture
 
@@ -31,6 +41,8 @@ PiCast runs on a Raspberry Pi connected to your TV via HDMI. You control it from
 |     +-- yt-dlp (YouTube)     |
 |     +-- SQLite (library)     |
 |     +-- Autoplay pools       |
+|     +-- AI Autopilot         |
+|     +-- Multi-TV routing     |
 |     +-- Pushover alerts      |
 |     +-- Telegram bot         |
 +--------------^---------------+
@@ -39,7 +51,7 @@ PiCast runs on a Raspberry Pi connected to your TV via HDMI. You control it from
 |  Phone: Web UI               |
 |  Anywhere: Telegram          |
 |  Mac: picast (TUI)           |
-|  Multi-Pi: Tab to switch     |
+|  Multi-TV: Tab to switch     |
 +------------------------------+
 ```
 
@@ -66,9 +78,9 @@ picast-setup
 ```
 
 The wizard walks you through:
-- **Pushover** - Push notifications to your phone for SD card alerts
-- **YouTube Auth** - Sign in via Chromium cookies for age-restricted videos
-- **PiPulse** - Connect to PiPulse for rich autoplay block metadata
+- **Pushover** -- Push notifications to your phone for SD card alerts
+- **YouTube Auth** -- Sign in via Chromium cookies for age-restricted videos
+- **PiPulse** -- Connect to PiPulse for rich autoplay block metadata
 
 All steps are optional. PiCast works without any of them.
 
@@ -106,12 +118,16 @@ Add URLs, reorder items with up/down arrows, play any video immediately, import 
 
 Create per-block video pools that play automatically on a schedule. Videos are weighted by ratings and play history:
 
-- **Thumbs up/down** - Explicit rating adjusts weight (3x for liked, 0.1x for disliked)
-- **Skip penalty** - Each skip reduces weight (0.7x cumulative, auto-shelve at 5 skips)
-- **Completion boost** - Finishing a video naturally boosts its weight
-- **Cross-block learning** - Videos you love in one block get suggested for others
+- **Thumbs up/down** -- Explicit rating adjusts weight (3x for liked, 0.1x for disliked)
+- **Skip penalty** -- Each skip reduces weight (0.7x cumulative, auto-shelve at 5 skips)
+- **Completion boost** -- Finishing a video naturally boosts its weight
+- **Cross-block learning** -- Videos you love in one block get suggested for others
 
 Manage pools from the web UI Pool page or via `picast-pool` CLI.
+
+### AI Autopilot
+
+Learns your taste over time and discovers new content automatically. Builds a profile from your thumbs, skips, and completions, then searches for videos matching your preferences. Five-phase pipeline: taste extraction, mood mapping, discovery search, pool integration, and fleet coordination across devices.
 
 ### Block Metadata
 
@@ -135,11 +151,14 @@ Create named collections from your history. Import YouTube playlists as collecti
 |--------|-----|---------|
 | YouTube | Auto-detected | `https://youtube.com/watch?v=...` |
 | Twitch | Auto-detected | `https://twitch.tv/username` |
+| Archive.org | Catalog browse | Public domain movies and shows |
 | Local files | Path or browse | `/media/usb/movie.mp4` |
 
-### Multi-Pi
+### Multi-TV
 
-Control multiple PiCast devices from one TUI or web session. Devices are found via:
+Control multiple PiCast devices from one TUI or web session. Queue distribution automatically routes videos to available TVs with grayout recovery when a device comes back online.
+
+Devices are found via:
 
 - Config file: `[devices.living-room]` sections in `picast.toml`
 - mDNS: auto-discovers other PiCast instances on your network
@@ -173,7 +192,8 @@ Press **Tab** in the TUI or use the dropdown in the web UI to switch.
 | `picast-pool` | Manage autoplay pools |
 | `picast-export` | Export pools to YAML/JSON |
 
-## API Reference
+<details>
+<summary><h2>API Reference</h2></summary>
 
 ### Player
 
@@ -284,6 +304,8 @@ Press **Tab** in the TUI or use the dropdown in the web UI to switch.
 | GET | `/api/sources/browse?path=...` | - |
 | GET | `/api/sources/drives` | - |
 
+</details>
+
 ## Configuration
 
 Config file: `~/.config/picast/picast.toml` (or `./picast.toml`)
@@ -334,8 +356,14 @@ pip install "picast[tui,telegram,discovery]"  # Everything
 
 ## Requirements
 
-**Pi:** Raspberry Pi 3B+ or newer, Raspberry Pi OS, HDMI to TV, network
-**YouTube:** Chromium cookies or PO token ([setup guide](docs/youtube-setup.md))
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| Board | Raspberry Pi 3B+ | Raspberry Pi 4B |
+| OS | Raspberry Pi OS (Bookworm) | Latest |
+| Display | Any HDMI TV/monitor | -- |
+| Network | WiFi or Ethernet | Ethernet |
+| Storage | 8GB SD card | 32GB+ SD card |
+
 **Mac (TUI):** Python 3.9+, network access to Pi
 
 ## Development
@@ -345,9 +373,17 @@ git clone https://github.com/JChanceLive/picast.git
 cd picast
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,tui,telegram]"
-pytest tests/ -v
+pytest tests/ -v  # 1,068 tests
 ```
+
+## Acknowledgments
+
+- [mpv](https://mpv.io) -- The video player that makes this possible
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) -- YouTube and multi-source video extraction
+- [Flask](https://flask.palletsprojects.com) -- Lightweight REST API framework
+- [Textual](https://textual.textualize.io) -- Terminal UI framework
+- [Pushover](https://pushover.net) -- Push notification delivery
 
 ## License
 
-MIT
+[MIT](LICENSE) -- Copyright (c) 2026 Josiah LaChance

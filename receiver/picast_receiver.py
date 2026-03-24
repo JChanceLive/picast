@@ -64,7 +64,7 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
         "--hwdec=auto",
         "--fullscreen",
         f"--input-ipc-server={_mpv_socket}",
-        "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]",
+        "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]/best",
     ]
 
     if mute:
