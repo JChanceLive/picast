@@ -78,11 +78,10 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
         "--hwdec=auto",
         "--fullscreen",
         f"--input-ipc-server={_mpv_socket}",
-        "--ytdl-format=best[height<=480]/best",
-        "--demuxer-max-bytes=50M",
-        "--demuxer-max-back-bytes=20M",
-        "--cache=yes",
-        "--cache-secs=30",
+        "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "--demuxer-max-bytes=100M",
+        "--demuxer-max-back-bytes=30M",
+        "--framedrop=decoder+vo",
     ]
 
     if mute:
@@ -105,7 +104,7 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
             _player_proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=open("/tmp/mpv-stderr.log", "w"),
                 env=_WAYLAND_ENV,
             )
             _current_video = {
