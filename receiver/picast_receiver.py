@@ -19,7 +19,7 @@ import time
 
 from flask import Flask, jsonify, request
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 logger = logging.getLogger("picast-receiver")
 
@@ -32,6 +32,20 @@ _player_proc: subprocess.Popen | None = None
 _current_video: dict = {}  # {url, title, started_at}
 _autoplay_enabled: bool = True  # Always true for fleet receivers
 _mpv_socket = "/tmp/picast-receiver-socket"
+
+# --- Watchdog State ---
+
+_watchdog_enabled = True
+_intentional_stop = False
+_last_known_url = ""
+_last_known_title = ""
+_last_known_volume = 100
+_retry_count = 0
+_last_stable_since = 0.0
+_MAX_RETRIES = 5
+_BACKOFF = [5, 15, 30, 60, 120]
+_CHECK_INTERVAL = 10
+_STABLE_RESET = 300  # Reset retry count after 5 min stable
 
 # Wayland environment for systemd services
 _WAYLAND_ENV = {
@@ -64,7 +78,11 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
         "--hwdec=auto",
         "--fullscreen",
         f"--input-ipc-server={_mpv_socket}",
-        "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "--ytdl-format=best[height<=480]/best",
+        "--demuxer-max-bytes=50M",
+        "--demuxer-max-back-bytes=20M",
+        "--cache=yes",
+        "--cache-secs=30",
     ]
 
     if mute:
@@ -95,6 +113,13 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
                 "title": title,
                 "started_at": time.time(),
             }
+        global _last_known_url, _last_known_title, _intentional_stop
+        global _last_stable_since, _retry_count
+        _last_known_url = url
+        _last_known_title = title
+        _intentional_stop = False
+        _last_stable_since = time.time()
+        _retry_count = 0
         logger.info("Playing: %s (%s)", title or "untitled", url)
         return True
     except FileNotFoundError:
@@ -107,7 +132,8 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
 
 def _stop_playback():
     """Stop current mpv playback if any."""
-    global _player_proc, _current_video
+    global _player_proc, _current_video, _intentional_stop
+    _intentional_stop = True
     with _player_lock:
         if _player_proc is not None and _player_proc.poll() is None:
             _player_proc.terminate()
@@ -253,6 +279,8 @@ def api_volume():
 
     result = _mpv_command(["set_property", "volume", level])
     if result is not None:
+        global _last_known_volume
+        _last_known_volume = level
         return jsonify({"ok": True, "level": level})
     return jsonify({"ok": False, "error": "mpv IPC failed"})
 
@@ -262,6 +290,101 @@ def api_stop():
     """Stop current playback."""
     _stop_playback()
     return jsonify({"ok": True})
+
+
+# --- Watchdog ---
+
+
+_last_drop_time = 0.0
+
+
+def _watchdog_loop():
+    """Background thread: detect mpv death from OOM and auto-reconnect."""
+    global _retry_count, _last_stable_since, _last_drop_time
+
+    while True:
+        time.sleep(_CHECK_INTERVAL)
+        try:
+            if not _watchdog_enabled:
+                continue
+            if not _last_known_url:
+                continue
+            if _intentional_stop:
+                continue
+
+            with _player_lock:
+                alive = (
+                    _player_proc is not None
+                    and _player_proc.poll() is None
+                )
+
+            if alive:
+                # Track stability — reset retries after 5 min stable
+                if _last_stable_since > 0:
+                    stable_secs = time.time() - _last_stable_since
+                    if stable_secs >= _STABLE_RESET and _retry_count > 0:
+                        logger.info(
+                            "Watchdog: stable %.0fs, resetting retry count",
+                            stable_secs,
+                        )
+                        _retry_count = 0
+                continue
+
+            # mpv is dead — attempt reconnect
+            _last_drop_time = time.time()
+            if _retry_count >= _MAX_RETRIES:
+                logger.warning(
+                    "Watchdog: max retries (%d) reached, giving up on %s",
+                    _MAX_RETRIES, _last_known_url,
+                )
+                continue
+
+            backoff = _BACKOFF[min(_retry_count, len(_BACKOFF) - 1)]
+            _retry_count += 1
+            logger.warning(
+                "Watchdog: mpv died, retry %d/%d in %ds — %s",
+                _retry_count, _MAX_RETRIES, backoff,
+                _last_known_title or _last_known_url,
+            )
+            time.sleep(backoff)
+
+            # Re-check — might have been intentionally stopped during backoff
+            if _intentional_stop or not _watchdog_enabled:
+                continue
+
+            success = _play_url(_last_known_url, _last_known_title)
+            if success and _last_known_volume != 100:
+                # Wait for mpv IPC socket to come up
+                time.sleep(2)
+                _mpv_command(["set_property", "volume", _last_known_volume])
+                logger.info(
+                    "Watchdog: restored volume to %d", _last_known_volume
+                )
+
+        except Exception:
+            logger.exception("Watchdog: unexpected error (continuing)")
+
+
+@app.route("/api/watchdog", methods=["GET"])
+def api_watchdog_status():
+    """Watchdog status for monitoring."""
+    return jsonify({
+        "enabled": _watchdog_enabled,
+        "retry_count": _retry_count,
+        "max_retries": _MAX_RETRIES,
+        "last_url": _last_known_url,
+        "last_drop_time": _last_drop_time,
+    })
+
+
+@app.route("/api/watchdog", methods=["POST"])
+def api_watchdog_toggle():
+    """Enable or disable watchdog."""
+    global _watchdog_enabled
+    data = request.get_json(silent=True) or {}
+    _watchdog_enabled = bool(data.get("enabled", True))
+    logger.info("Watchdog %s", "enabled" if _watchdog_enabled else "disabled")
+    return jsonify({"ok": True, "enabled": _watchdog_enabled})
 
 
 # --- Main ---
@@ -293,6 +416,12 @@ def main():
         "PiCast Receiver v%s starting on %s:%d",
         __version__, args.host, args.port,
     )
+
+    # Start watchdog thread
+    wd = threading.Thread(target=_watchdog_loop, daemon=True, name="watchdog")
+    wd.start()
+    logger.info("Watchdog thread started (interval=%ds)", _CHECK_INTERVAL)
+
     app.run(host=args.host, port=args.port, debug=args.debug)
 
 
