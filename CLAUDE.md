@@ -119,7 +119,7 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-24 | 42 active memories, 641 total_
+_Last updated: 2026-03-29 | 38 active memories, 645 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -145,9 +145,8 @@ _Last updated: 2026-03-24 | 42 active memories, 641 total_
 - PiCast receiver (picast-z1) deployment pattern: Source is at /home/jopi/picast-receiver/picast_receiver.py on z1. Edi... [picast, receiver, deployment, picast-z1, pattern]
 - PiCast Multi-TV notification integration uses MultiTVConfig dataclass with optional notify_fn: Optional[Callable[[str... [picast, multi-tv, config, notifications, architecture, pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling, pattern]
-- PiCast Multi-TV queue and distribution patterns: (1) Queue refresh and loop operations: /api/queue/loop-reset calls q... [picast, multi-tv, queue, distribution, failure-recovery, grayout, deployment, rsync, pip, systemd, pattern, async, threading, testing]
-- picast-z1 receiver sync pattern: Mac maintains canonical copy at `receiver/picast_receiver.py` in git repo. Pi stores... [picast-z1, receiver, deployment, git-workflow, sync]
-- picast-receiver.py yt-dlp format selection pattern: try primary format_spec first, fall back to '/best' if selection ... [picast, receiver, yt-dlp, error-handling, pattern]
+- PiCast Multi-TV queue and distribution patterns: (1) Queue refresh and loop operations: /api/queue/loop-reset calls q... [picast, multi-tv, queue, distribution, failure-recovery, grayout, deployment, rsync, pip, systemd, pattern, async, threading, testing, picast-z1, receiver, sync, git-workflow]
+- picast-receiver.py format selection and mpv configuration for live streams: (1) Twitch format selector uses cascading... [picast-z1, receiver, yt-dlp, format-selection, twitch, mpv, live-streams, streaming, resilience, pattern, debugging, logging]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
@@ -158,16 +157,11 @@ _Last updated: 2026-03-24 | 42 active memories, 641 total_
 - sqlite3 CLI tool not installed on Pi 4B; WAL checkpoint for zero-data-loss DB migration requires using Python venv `s... [pipulse, database, migration, sqlite, gotcha]
 - MagicMock comparisons in pytest fail with 'not supported between instances' error (e.g., `mock_grace_period > 0` rais... [picast, testing, mocking, pytest]
 - PiCast yt-dlp metadata fetch timeouts for some YouTube URLs (e.g., kJQP7kiw5Fk, RgKAFK5djSk) cause title resolution t... [picast, yt-dlp, metadata, api, timeout]
-- PiCast deployment gotchas on Pi: (1) __about__.py version changes require pip reinstall with --break-system-packages ... [picast, deployment, python-import-caching, pip, gotcha, ipv6, networking, mdns, safari, starscreen, fleet, port, autopilot, validation, testing, taste-profile, multi-tv, metrics, watcher, main-device, confirmed-playing, race-condition, callback-safety, v1.1.0a42]
-- picast-z1 receiver yt-dlp version mismatch: /usr/bin/yt-dlp (2025.04.30) is ~1 year outdated and broken for Twitch (K... [picast-z1, receiver, twitch, yt-dlp, debugging]
-- picast-z1 receiver stderr redirection to /dev/null hides mpv playback failures silently: when yt-dlp format selector ... [picast-z1, receiver, logging, debugging, mpv]
-- picast-z1 Twitch casting failed silently due to yt-dlp version 2025.04.30 having broken Twitch extractor; updated to ... [picast-z1, yt-dlp, receiver, twitch, streaming, deployment]
-- yt-dlp 2025.04.30 has broken Twitch extractor (extraction fails silently, returns empty format list); upgrade to 2026... [picast, twitch, yt-dlp, receiver, deployment]
+- picast-z1 receiver deployment and streaming gotchas: (1) stderr redirection to /dev/null hides mpv failures — use per... [picast-z1, receiver, yt-dlp, format-selection, twitch, mpv, live-streams, streaming, resilience, logging, debugging, video-output, wayland, blocker]
 
 ## Current Progress
-- PiCast Multi-TV v1.1.0a37-a42 COMPLETE (2026-03-20): Grace period implementation (5s minimum, monotonic_time() tracki... [picast, multi-tv, v1.1.0a37, v1.1.0a42, testing, manual-verification, queue-drain-fix, deployment, complete]
-- PiCast AI Autopilot Phases 1-5 COMPLETE (2026-03-09 to 2026-03-12): Phase 1 (S1.3) - 5 API endpoints for engine lifec... [picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, deployment, progress]
-- PiCast Mobile UI Overhaul S1-S3 COMPLETE (2026-03-12): S1 (v1.1.0a18) - CSS design system (--accent: #00D9FF, --succe... [picast, mobile-ui, s1-complete, s2-complete, s3-complete, deployment, css-design-system, responsive-design, progress]
+- picast v1.1.0a43 circuit breaker implementation COMPLETE (2026-03-29): circuit breaker class in database.py (3 method... [picast, progress, reliability]
+- PiCast Z1 receiver v0.7.0 DEPLOYED (2026-03-29): Watchdog stall detection fixed (global bug), live_start_index=-1 fo... [picast-z1, receiver, v0.7.0, watchdog, twitch, deployment, progress]
 
 ## Context
 - PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, pihub, migration, deployment, fleet-infrastructure, picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, multi-tv, fleet, starscreen, testing, stability-soak, v1.1.0a41]

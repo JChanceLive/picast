@@ -1,10 +1,71 @@
 # ARCH-Z1-WATCHDOG: Auto-Reconnect for picast-z1
 
-**Status:** IN PROGRESS — watchdog code deployed, playback broken (black screen)
+**Status:** DEPLOYED v0.7.0 — YouTube working, Twitch watchdog auto-recovery deployed (testing)
 **Created:** 2026-03-29
 **Hardware:** Raspberry Pi Zero 2 W (416MB RAM, zram swap)
 
-## SESSION LOG (2026-03-29) — READ THIS FIRST
+## SESSION LOG #2 (2026-03-29, second session) — READ THIS FIRST
+
+### YouTube: SOLVED (v0.4.2)
+YouTube playback fully working. Three root causes found and fixed:
+
+1. **`--hwdec=auto` doesn't find v4l2m2m on Wayland** → Fixed: `--hwdec=v4l2m2m-copy`
+2. **YouTube serves AV1 by default** — Pi Zero 2 W has NO AV1 hw decode → Fixed: `vcodec^=avc` in format string forces H.264
+3. **`--hwdec=v4l2m2m` (zero-copy) causes black screen** — DRM overlay plane atomic commits fail (`Error 22 EINVAL`) due to `panel_orientation=upside_down` in kernel cmdline → Fixed: use `v4l2m2m-copy` instead (copies frames to CPU, renders through compositor which handles rotation)
+4. **stderr fd leak** — `open("/tmp/mpv-stderr.log", "w")` leaked fd per play → Fixed: `subprocess.DEVNULL` + `--log-file=/tmp/mpv.log`
+
+**YouTube performance (v0.4.2, Big Buck Bunny 720p24 H.264):** 28% CPU, 137MB RAM. User confirmed video + audio working.
+
+### Twitch: UNSOLVED — Black screen after ad
+
+**Core problem:** Twitch injects pre-roll ads into HLS manifest. When ad ends and live stream starts, there's a timestamp discontinuity AND possibly a codec reset that breaks playback.
+
+**What was tried (all failed for Twitch):**
+
+| Version | Approach | Result |
+|---------|----------|--------|
+| v0.5.0 | `--no-correct-pts` for Twitch | Black screen after ad; timestamp deadlock (audio 3965s vs video 90s) |
+| v0.5.1 | + `--vf=fps=30` | Still slow/laggy frames |
+| v0.5.2 | + `--vf=lavfi=[fps=30,scale=854:480]` | Even worse — software scale adds CPU overhead on top of copy |
+| v0.5.3 | Software decode (`--hwdec=no --vd-lavc-threads=4`) | 105% CPU, no audio, way too slow |
+| v0.6.0 | Back to v4l2m2m-copy + `--initial-audio-sync=no` + `--profile=fast` | Black screen after ad (but audio starts!) |
+| v0.6.1 | + Stall detection watchdog | **Bug:** `UnboundLocalError` on `_intentional_stop` — watchdog never ran |
+
+**Key diagnostic findings (Twitch):**
+- Twitch HLS has only 2 formats: `audio_only` + `720p60__source_` (avc1.4D0420) — no lower quality option for non-partners
+- Ad segments have timestamps ~0-90s, live stream audio jumps to ~3965s — 3875s gap
+- `--initial-audio-sync=no` fixes the audio deadlock (audio starts immediately)
+- v4l2m2m-copy at 720p60 uses ~40% CPU — technically manageable
+- The black screen occurs specifically at the ad-to-stream TRANSITION, not from CPU overload
+- mpv reports "starting video playback" and "starting audio playback" but screen stays black
+- HLS segments continue to be fetched successfully after the transition
+
+### What's Currently Deployed (v0.7.0)
+```python
+# YouTube (non-Twitch):
+--hwdec=v4l2m2m-copy  # WORKING
+
+# Twitch:
+--hwdec=v4l2m2m-copy
+--profile=fast
+--initial-audio-sync=no
+--demuxer-lavf-o=live_start_index=-1  # start at live edge, may skip ad
+# Watchdog stall detection: 3 consecutive stalls (30s) → auto-restart mpv
+```
+
+### Fixes Applied in v0.7.0 (Session #3)
+1. **Watchdog `global` bug fixed** — `_intentional_stop` added to `global` declaration in `_watchdog_loop()`. Was creating a local variable, causing `UnboundLocalError` every 10s.
+2. **`live_start_index=-1`** — Tells ffmpeg/lavf to start from the latest HLS segment rather than the beginning. May skip part of the pre-roll ad, reducing black screen duration.
+3. **Stall detection** — Watchdog queries `time-pos` via IPC every 10s. If position doesn't advance for 3 consecutive checks (30s), kills and restarts mpv.
+
+### Remaining Questions
+1. **Does `live_start_index=-1` fully skip the ad?** Or does it start mid-ad and still hit the transition?
+2. **Would streamlink instead of yt-dlp fix Twitch ads?** Streamlink has Twitch-specific ad handling
+3. **Can we detect "ad playing" state and only start mpv AFTER ad ends?**
+
+---
+
+## SESSION LOG #1 (2026-03-29, first session)
 
 ### What Was Done
 - Watchdog thread IMPLEMENTED and DEPLOYED (v0.4.0) — code is solid, endpoints work
@@ -13,51 +74,12 @@
 - `--framedrop=decoder+vo` added for graceful degradation
 - stderr now logged to `/tmp/mpv-stderr.log` (was /dev/null — hid all errors)
 
-### BLOCKER: Black Screen on All Streams
-After deploying, ALL playback shows black screen with OSD title text but no video/audio.
-mpv process runs (78-106% CPU) but video never renders. Tested with Twitch stream `thirdsbetter`.
-
-### Format Strings Tried (ALL failed with black screen)
-| Format | Result |
-|--------|--------|
-| `best[height<=480]/best` | Black screen — Twitch has no 480p, fell through to `best` = 1080p source |
-| `best[height<=480]/best[height<=720]/best` | Black screen — same, all fall through to 1080p |
-| `best[height<=720]/best` | Black screen — yt-dlp says 720p but actual decode is 1920x1080 |
-| `best[height<=720][fps<=30]/best[height<=720]/best` + `--vf=fps=30` | Black screen — fps filter runs after decode, doesn't help CPU bottleneck |
-| `bestvideo[height<=720]+bestaudio/best[height<=720]/best` (ORIGINAL) | **ALSO black screen** — reverted to exact original format, still broken |
-
-### Critical Diagnostic Findings
-1. **yt-dlp -F** shows only 2 formats for this Twitch stream: `audio_only` and `720p60__source_` (1280x720)
+### Previous Diagnostic Findings
+1. **yt-dlp -F** shows only 2 formats for Twitch streams: `audio_only` and `720p60__source_` (1280x720)
 2. **mpv track-list via IPC** reveals actual decode resolution is **1920x1080** — Twitch source quality lies about resolution
 3. **mpv CPU**: 78-106% trying to decode 1080p60 H.264 — Pi Zero 2 W VideoCore IV maxes at 1080p30 hw decode
-4. **mpv stderr** (`/tmp/mpv-stderr.log`): Only `Cannot load libcuda.so.1` + PipeWire config warnings — NO video decode errors
-5. **mpv position via IPC**: Stuck at 90.234 seconds — never advances (frozen, not buffering)
-6. **`--cache=yes --cache-secs=30`**: Caused HLS live stream deadlock — REMOVED
-
-### What MIGHT Be Wrong (investigate next session)
-1. **hwdec not engaging**: `--hwdec=auto` might not find v4l2m2m on Wayland/labwc. Try `--hwdec=v4l2m2m` explicitly
-2. **Wayland compositor issue**: Multiple restarts during this session may have broken labwc display state. Try `ssh picast-z1 "sudo systemctl restart labwc"` or full reboot
-3. **This specific Twitch stream**: thirdsbetter source is genuinely 1080p60 despite 720p label — try a YouTube video or different Twitch stream to isolate
-4. **stderr=open() file handle leak**: Changed from DEVNULL to `open("/tmp/mpv-stderr.log", "w")` — file handle stays open, may cause issues. Consider using subprocess.DEVNULL for stderr and a separate mpv `--log-file` flag instead
-5. **Multiple rapid restarts corrupted mpv IPC socket**: Restarted service ~6 times in 30 minutes — `/tmp/picast-receiver-socket` may be stale
-
-### What's Currently Deployed (v0.4.0)
-```
---ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]/best  (original)
---demuxer-max-bytes=100M
---demuxer-max-back-bytes=30M
---framedrop=decoder+vo
-stderr -> /tmp/mpv-stderr.log
-watchdog thread running (10s interval, 5 retries, linear backoff)
-```
-
-### Next Steps for Fresh Session
-1. **Reboot the Pi** — `ssh picast-z1 "sudo reboot"` — clean slate for display/compositor
-2. **Test with a known-good YouTube video** (not Twitch) to isolate stream vs system issue
-3. **Check hwdec**: `ssh picast-z1 "python3 -c \"...\"` query mpv `hwdec-current` property via IPC
-4. **If hwdec is `no`**: Try `--hwdec=v4l2m2m` or `--hwdec=drm` explicitly
-5. **Fix stderr**: Use `--log-file=/tmp/mpv.log` instead of `stderr=open(...)` to avoid fd leak
-6. **If YouTube works but Twitch doesn't**: The Twitch source stream is genuinely too heavy for this hardware — need to investigate `--vd-lavc-threads=2` or accept limitation
+4. **mpv position via IPC**: Stuck at 90.234 seconds — never advances (frozen, not buffering)
+5. **`--cache=yes --cache-secs=30`**: Caused HLS live stream deadlock — REMOVED
 
 ---
 

@@ -19,7 +19,7 @@ import time
 
 from flask import Flask, jsonify, request
 
-__version__ = "0.4.0"
+__version__ = "0.7.0"
 
 logger = logging.getLogger("picast-receiver")
 
@@ -71,18 +71,35 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
 
     _stop_playback()
 
+    _is_live = "twitch.tv/" in url
+
     cmd = [
         "mpv",
         "--no-terminal",
         "--video-sync=display-desync",
-        "--hwdec=auto",
         "--fullscreen",
         f"--input-ipc-server={_mpv_socket}",
-        "--ytdl-format=bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+        "--ytdl-format=bestvideo[height<=720][vcodec^=avc]+bestaudio/best[height<=720][vcodec^=avc]/best[height<=720]/best",
         "--demuxer-max-bytes=100M",
         "--demuxer-max-back-bytes=30M",
         "--framedrop=decoder+vo",
+        "--log-file=/tmp/mpv.log",
     ]
+
+    if _is_live:
+        # Twitch 720p60: hw decode + skip initial A/V sync (ads inject
+        # huge timestamp jumps that deadlock audio start). --profile=fast
+        # strips expensive rendering. framedrop handles 60fps overload.
+        # live_start_index=-1: start at live edge (may skip part of ad).
+        cmd.extend([
+            "--hwdec=v4l2m2m-copy",
+            "--profile=fast",
+            "--initial-audio-sync=no",
+            "--demuxer-lavf-o=live_start_index=-1",
+        ])
+    else:
+        # YouTube/VOD: v4l2m2m-copy works great at 720p24-30
+        cmd.append("--hwdec=v4l2m2m-copy")
 
     if mute:
         cmd.append("--volume=0")
@@ -104,7 +121,7 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
             _player_proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=open("/tmp/mpv-stderr.log", "w"),
+                stderr=subprocess.DEVNULL,
                 env=_WAYLAND_ENV,
             )
             _current_video = {
@@ -295,11 +312,23 @@ def api_stop():
 
 
 _last_drop_time = 0.0
+_last_time_pos = -1.0
+_stall_count = 0
+_STALL_THRESHOLD = 3  # consecutive stalls before restart
+
+
+def _get_time_pos() -> float | None:
+    """Query mpv time-pos via IPC. Returns position or None."""
+    result = _mpv_command(["get_property", "time-pos"])
+    if result and result.get("error") == "success":
+        return result.get("data")
+    return None
 
 
 def _watchdog_loop():
-    """Background thread: detect mpv death from OOM and auto-reconnect."""
+    """Background thread: detect mpv death or stall and auto-reconnect."""
     global _retry_count, _last_stable_since, _last_drop_time
+    global _last_time_pos, _stall_count, _intentional_stop
 
     while True:
         time.sleep(_CHECK_INTERVAL)
@@ -318,18 +347,39 @@ def _watchdog_loop():
                 )
 
             if alive:
-                # Track stability — reset retries after 5 min stable
-                if _last_stable_since > 0:
-                    stable_secs = time.time() - _last_stable_since
-                    if stable_secs >= _STABLE_RESET and _retry_count > 0:
-                        logger.info(
-                            "Watchdog: stable %.0fs, resetting retry count",
-                            stable_secs,
-                        )
-                        _retry_count = 0
-                continue
+                # Check for stalled playback (alive but frozen)
+                pos = _get_time_pos()
+                if pos is not None:
+                    if _last_time_pos >= 0 and abs(pos - _last_time_pos) < 0.5:
+                        _stall_count += 1
+                        if _stall_count >= _STALL_THRESHOLD:
+                            logger.warning(
+                                "Watchdog: playback stalled at %.1fs for %d checks, restarting — %s",
+                                pos, _stall_count, _last_known_title or _last_known_url,
+                            )
+                            _stall_count = 0
+                            _last_time_pos = -1.0
+                            _stop_playback()
+                            _intentional_stop = False  # allow restart
+                            # fall through to reconnect logic below
+                            alive = False
+                    else:
+                        _stall_count = 0
+                    _last_time_pos = pos
 
-            # mpv is dead — attempt reconnect
+                if alive:
+                    # Track stability — reset retries after 5 min stable
+                    if _last_stable_since > 0:
+                        stable_secs = time.time() - _last_stable_since
+                        if stable_secs >= _STABLE_RESET and _retry_count > 0:
+                            logger.info(
+                                "Watchdog: stable %.0fs, resetting retry count",
+                                stable_secs,
+                            )
+                            _retry_count = 0
+                    continue
+
+            # mpv is dead or stalled — attempt reconnect
             _last_drop_time = time.time()
             if _retry_count >= _MAX_RETRIES:
                 logger.warning(
@@ -373,6 +423,7 @@ def api_watchdog_status():
         "max_retries": _MAX_RETRIES,
         "last_url": _last_known_url,
         "last_drop_time": _last_drop_time,
+        "stall_count": _stall_count,
     })
 
 
