@@ -459,7 +459,17 @@ def create_app(
         s = player.get_status()
         s["autoplay_enabled"] = _autoplay_enabled
         s["autoplay_current"] = _autoplay_current
-        s["multi_tv"] = _multi_tv.get_status()
+        try:
+            s["multi_tv"] = _multi_tv.get_status()
+        except Exception:
+            s["multi_tv"] = {
+                "enabled": False,
+                "devices": [],
+                "queue_remaining": 0,
+                "skipped_urls": 0,
+                "checking": False,
+                "grayed_out_devices": [],
+            }
         return jsonify(s)
 
     @app.route("/api/play", methods=["POST"])

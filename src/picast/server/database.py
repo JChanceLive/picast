@@ -231,16 +231,28 @@ CREATE TABLE IF NOT EXISTS autopilot_devices (
 class Database:
     """Thread-safe SQLite database manager for PiCast."""
 
+    # Circuit breaker: skip retries after repeated I/O failures
+    _CIRCUIT_THRESHOLD = 3    # open after N consecutive failures
+    _CIRCUIT_COOLDOWN = 30.0  # seconds before re-testing
+
     def __init__(self, db_path: str):
         self.db_path = db_path
         self._local = threading.local()
         self._notification_manager = None
+        self._circuit_open_until: float = 0.0
+        self._consecutive_io_failures: int = 0
+        self._circuit_lock = threading.Lock()
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         self._init_schema()
 
     def set_notification_manager(self, manager):
         """Set the notification manager for SD error alerts."""
         self._notification_manager = manager
+
+    @property
+    def db_healthy(self) -> bool:
+        """True when the circuit breaker is closed (DB presumed healthy)."""
+        return time.monotonic() >= self._circuit_open_until
 
     def _get_conn(self) -> sqlite3.Connection:
         """Get a thread-local connection."""
@@ -505,9 +517,23 @@ class Database:
     _RETRY_DELAYS = [0.5, 1.0, 2.0, 4.0, 8.0]
 
     def _retry_on_io_error(self, operation, description: str = "DB operation"):
-        """Run a DB operation with retry+backoff for SD card I/O errors."""
+        """Run a DB operation with retry+backoff for SD card I/O errors.
+
+        Uses a circuit breaker: after _CIRCUIT_THRESHOLD consecutive I/O
+        failures, skip the 15.5s retry loop and fail immediately for
+        _CIRCUIT_COOLDOWN seconds.  Any success resets the breaker.
+        """
+        # Circuit breaker: fail fast when DB is known-bad
+        if time.monotonic() < self._circuit_open_until:
+            raise sqlite3.OperationalError(
+                f"disk I/O error (circuit breaker open, retries skipped for {description})"
+            )
+
         try:
-            return operation(self._get_conn())
+            result = operation(self._get_conn())
+            # Success — reset breaker
+            self._reset_circuit()
+            return result
         except sqlite3.OperationalError as e:
             err = str(e)
             if "disk I/O error" not in err and "database is locked" not in err:
@@ -531,10 +557,33 @@ class Database:
                 self.close()
                 time.sleep(delay)
                 try:
-                    return operation(self._get_conn())
+                    result = operation(self._get_conn())
+                    self._reset_circuit()
+                    return result
                 except sqlite3.OperationalError as retry_e:
                     last_exc = retry_e
+            # All retries exhausted — trip the breaker
+            self._trip_circuit()
             raise last_exc
+
+    def _reset_circuit(self):
+        """Reset circuit breaker on successful DB operation."""
+        with self._circuit_lock:
+            self._consecutive_io_failures = 0
+            self._circuit_open_until = 0.0
+
+    def _trip_circuit(self):
+        """Increment failure count; open breaker if threshold reached."""
+        with self._circuit_lock:
+            self._consecutive_io_failures += 1
+            if self._consecutive_io_failures >= self._CIRCUIT_THRESHOLD:
+                self._circuit_open_until = time.monotonic() + self._CIRCUIT_COOLDOWN
+                logger.error(
+                    "Circuit breaker OPEN: %d consecutive I/O failures, "
+                    "skipping retries for %.0fs",
+                    self._consecutive_io_failures,
+                    self._CIRCUIT_COOLDOWN,
+                )
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """Execute a SQL statement. Retries on I/O error with backoff."""

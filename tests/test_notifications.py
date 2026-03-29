@@ -68,6 +68,40 @@ class TestNotificationManager:
         assert mgr.get_sd_errors(hours=1) == 2
 
 
+class TestInMemorySDFallback:
+    """Test in-memory SD error counting when DB is unavailable."""
+
+    def test_inmemory_counter_increments_on_db_failure(self, db):
+        mgr = NotificationManager(db=db)
+        # Force DB writes to fail by using a broken execute
+        original_execute = db.execute
+        db.execute = MagicMock(side_effect=Exception("disk I/O error"))
+        db.commit = MagicMock(side_effect=Exception("disk I/O error"))
+
+        mgr.record_sd_error("disk_io", "test error")
+        assert mgr._inmemory_sd_errors == 1
+
+        db.execute = original_execute
+
+    def test_inmemory_threshold_triggers_alert(self, db):
+        sent = []
+        mgr = NotificationManager(
+            db=db,
+            send_fn=lambda cid, txt: sent.append(txt),
+            chat_id=123,
+        )
+        # Force DB writes to fail
+        db.execute = MagicMock(side_effect=Exception("disk I/O error"))
+        db.commit = MagicMock(side_effect=Exception("disk I/O error"))
+
+        for i in range(SD_ERROR_THRESHOLD):
+            mgr.record_sd_error("disk_io", f"error {i}")
+
+        assert mgr._inmemory_sd_errors == SD_ERROR_THRESHOLD
+        assert len(sent) == 1
+        assert "DB unavailable" in sent[0]
+
+
 class TestWatchAnalytics:
     """Test watch analytics computation."""
 

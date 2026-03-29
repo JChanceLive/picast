@@ -54,6 +54,7 @@ class NotificationManager:
         self._thread: threading.Thread | None = None
         self._running = False
         self._last_daily_date: str = ""
+        self._inmemory_sd_errors: int = 0
 
     def start(self):
         """Start the background notification thread."""
@@ -80,6 +81,7 @@ class NotificationManager:
         """Record an SD card error and check threshold.
 
         Called by database._retry_on_io_error() on disk I/O errors.
+        Falls back to in-memory counting when the DB itself is failing.
         """
         now = time.time()
         try:
@@ -89,10 +91,13 @@ class NotificationManager:
             )
             self._db.commit()
         except Exception as e:
-            logger.warning("Failed to record SD error: %s", e)
+            logger.warning("Failed to record SD error in DB: %s", e)
+            self._inmemory_sd_errors += 1
+            if self._inmemory_sd_errors >= SD_ERROR_THRESHOLD:
+                self._send_inmemory_sd_alert()
             return
 
-        # Check if threshold exceeded
+        # Check if threshold exceeded (DB path)
         self._check_sd_threshold()
 
     def _check_sd_threshold(self):
@@ -122,6 +127,21 @@ class NotificationManager:
                 f"  ssh picast \"sudo dmesg | grep -i mmc\""
             )
             self._send(msg)
+
+    def _send_inmemory_sd_alert(self):
+        """Send SD alert based on in-memory error count (DB unavailable)."""
+        now = time.time()
+        if now - self._last_alert_time < ALERT_COOLDOWN:
+            return
+        self._last_alert_time = now
+        msg = (
+            f"⚠️ PiCast SD Card Alert (DB unavailable)\n\n"
+            f"{self._inmemory_sd_errors} disk I/O errors (in-memory count).\n"
+            f"Database writes are also failing.\n"
+            f"Check SD card health:\n"
+            f"  ssh picast \"sudo dmesg | grep -i mmc\""
+        )
+        self._send(msg)
 
     def _send(self, text: str):
         """Send a Telegram notification."""
