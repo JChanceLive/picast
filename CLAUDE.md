@@ -119,7 +119,7 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-03-29 | 38 active memories, 645 total_
+_Last updated: 2026-03-30 | 35 active memories, 649 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
@@ -145,8 +145,7 @@ _Last updated: 2026-03-29 | 38 active memories, 645 total_
 - PiCast receiver (picast-z1) deployment pattern: Source is at /home/jopi/picast-receiver/picast_receiver.py on z1. Edi... [picast, receiver, deployment, picast-z1, pattern]
 - PiCast Multi-TV notification integration uses MultiTVConfig dataclass with optional notify_fn: Optional[Callable[[str... [picast, multi-tv, config, notifications, architecture, pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling, pattern]
-- PiCast Multi-TV queue and distribution patterns: (1) Queue refresh and loop operations: /api/queue/loop-reset calls q... [picast, multi-tv, queue, distribution, failure-recovery, grayout, deployment, rsync, pip, systemd, pattern, async, threading, testing, picast-z1, receiver, sync, git-workflow]
-- picast-receiver.py format selection and mpv configuration for live streams: (1) Twitch format selector uses cascading... [picast-z1, receiver, yt-dlp, format-selection, twitch, mpv, live-streams, streaming, resilience, pattern, debugging, logging]
+- PiCast Multi-TV queue and distribution patterns: (1) Queue refresh and loop operations: /api/queue/loop-reset calls q... [picast, multi-tv, queue, distribution, failure-recovery, grayout, deployment, rsync, pip, systemd, pattern, async, threading, testing, picast-z1, receiver, sync, git-workflow, yt-dlp, format-selection, twitch, mpv, live-streams, streaming, resilience, logging, debugging]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
@@ -157,11 +156,11 @@ _Last updated: 2026-03-29 | 38 active memories, 645 total_
 - sqlite3 CLI tool not installed on Pi 4B; WAL checkpoint for zero-data-loss DB migration requires using Python venv `s... [pipulse, database, migration, sqlite, gotcha]
 - MagicMock comparisons in pytest fail with 'not supported between instances' error (e.g., `mock_grace_period > 0` rais... [picast, testing, mocking, pytest]
 - PiCast yt-dlp metadata fetch timeouts for some YouTube URLs (e.g., kJQP7kiw5Fk, RgKAFK5djSk) cause title resolution t... [picast, yt-dlp, metadata, api, timeout]
-- picast-z1 receiver deployment and streaming gotchas: (1) stderr redirection to /dev/null hides mpv failures — use per... [picast-z1, receiver, yt-dlp, format-selection, twitch, mpv, live-streams, streaming, resilience, logging, debugging, video-output, wayland, blocker]
 
 ## Current Progress
-- picast v1.1.0a43 circuit breaker implementation COMPLETE (2026-03-29): circuit breaker class in database.py (3 method... [picast, progress, reliability]
-- PiCast Z1 receiver v0.7.0 DEPLOYED (2026-03-29): Watchdog stall detection fixed (global bug), live_start_index=-1 fo... [picast-z1, receiver, v0.7.0, watchdog, twitch, deployment, progress]
+- PiCast receiver v0.7.0 deployed to picast-z1 (2026-03-29): watchdog stall detection bug fixed (line 331 scope correct... [picast, receiver, deployment, z1, watchdog, twitch, progress]
+- PiCast AI Autopilot (Phases 1-5), Multi-TV, and Mobile UI shipped (2026-03-09 to 2026-03-20): Autopilot includes 5 AP... [picast, autopilot, multi-tv, mobile-ui, deployment, progress]
+- PiCast project status (2026-03-29): All active work COMPLETE. Server at v1.1.0a43 (multi-TV, autopilot fleet, remote ... [picast, project-status, cleanup, archival]
 
 ## Context
 - PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, pihub, migration, deployment, fleet-infrastructure, picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, multi-tv, fleet, starscreen, testing, stability-soak, v1.1.0a41]
