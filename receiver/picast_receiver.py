@@ -19,7 +19,7 @@ import time
 
 from flask import Flask, jsonify, request
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"
 
 logger = logging.getLogger("picast-receiver")
 
@@ -29,6 +29,7 @@ app = Flask(__name__)
 
 _player_lock = threading.Lock()
 _player_proc: subprocess.Popen | None = None
+_streamlink_proc: subprocess.Popen | None = None
 _current_video: dict = {}  # {url, title, started_at}
 _autoplay_enabled: bool = True  # Always true for fleet receivers
 _mpv_socket = "/tmp/picast-receiver-socket"
@@ -65,41 +66,117 @@ def _is_idle() -> bool:
     return False
 
 
+def _play_twitch(url: str, title: str = "", mute: bool = False) -> bool:
+    """Play a Twitch stream via streamlink pipe to mpv.
+
+    Two-process pipeline: streamlink --stdout URL quality | mpv -
+    Keeps stream within Pi Zero 2 W hardware decoder limits (480p).
+    """
+    global _player_proc, _streamlink_proc, _current_video
+    global _last_known_url, _last_known_title, _intentional_stop
+    global _last_stable_since, _retry_count
+
+    sl_cmd = [
+        "streamlink",
+        "--stdout",
+        "--twitch-disable-ads",
+        url,
+        "480p,360p,720p30,720p,160p,best",
+    ]
+
+    mpv_cmd = [
+        "mpv",
+        "--no-terminal",
+        "--video-sync=display-desync",
+        "--fullscreen",
+        f"--input-ipc-server={_mpv_socket}",
+        "--hwdec=v4l2m2m-copy",
+        "--profile=fast",
+        "--framedrop=decoder+vo",
+        "--demuxer-max-bytes=30M",
+        "--demuxer-max-back-bytes=10M",
+        "--cache=no",
+        "--log-file=/tmp/mpv.log",
+    ]
+
+    if mute:
+        mpv_cmd.append("--volume=0")
+
+    if title:
+        mpv_cmd.extend([
+            "--osd-level=3",
+            f"--osd-status-msg={title}",
+            "--osd-align-x=left",
+            "--osd-align-y=bottom",
+            "--osd-margin-x=20",
+            "--osd-margin-y=20",
+        ])
+
+    mpv_cmd.append("-")  # read from stdin
+
+    try:
+        with _player_lock:
+            _streamlink_proc = subprocess.Popen(
+                sl_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                env=_WAYLAND_ENV,
+            )
+            _player_proc = subprocess.Popen(
+                mpv_cmd,
+                stdin=_streamlink_proc.stdout,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=_WAYLAND_ENV,
+            )
+            # Close streamlink's stdout in parent so SIGPIPE propagates
+            # when mpv exits (streamlink gets broken pipe and dies)
+            _streamlink_proc.stdout.close()
+            _current_video = {
+                "url": url,
+                "title": title,
+                "started_at": time.time(),
+            }
+        _last_known_url = url
+        _last_known_title = title
+        _intentional_stop = False
+        _last_stable_since = time.time()
+        _retry_count = 0
+        logger.info("Playing (twitch): %s (%s)", title or "untitled", url)
+        return True
+    except FileNotFoundError as e:
+        logger.error("streamlink or mpv not found: %s", e)
+        return False
+    except OSError as e:
+        logger.error("Failed to start twitch pipe: %s", e)
+        return False
+
+
 def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
     """Play a URL via mpv. Stops any current playback first."""
     global _player_proc, _current_video
 
     _stop_playback()
 
-    _is_live = "twitch.tv/" in url
+    if "twitch.tv/" in url:
+        return _play_twitch(url, title, mute)
 
+    # YouTube/VOD path only — Twitch handled by _play_twitch()
+    # Prefer 30fps AVC streams to stay within hardware decoder budget; fall back
+    # to any-fps AVC, then best 720p, then best overall.
     cmd = [
         "mpv",
         "--no-terminal",
         "--video-sync=display-desync",
         "--fullscreen",
         f"--input-ipc-server={_mpv_socket}",
-        "--ytdl-format=bestvideo[height<=720][vcodec^=avc]+bestaudio/best[height<=720][vcodec^=avc]/best[height<=720]/best",
+        "--ytdl-format=bestvideo[height<=720][vcodec^=avc][fps<=30]+bestaudio/bestvideo[height<=720][vcodec^=avc]+bestaudio/best[height<=720][vcodec^=avc]/best[height<=720]/best",
         "--demuxer-max-bytes=100M",
         "--demuxer-max-back-bytes=30M",
         "--framedrop=decoder+vo",
+        "--hwdec=v4l2m2m-copy",
         "--log-file=/tmp/mpv.log",
     ]
-
-    if _is_live:
-        # Twitch 720p60: hw decode + skip initial A/V sync (ads inject
-        # huge timestamp jumps that deadlock audio start). --profile=fast
-        # strips expensive rendering. framedrop handles 60fps overload.
-        # live_start_index=-1: start at live edge (may skip part of ad).
-        cmd.extend([
-            "--hwdec=v4l2m2m-copy",
-            "--profile=fast",
-            "--initial-audio-sync=no",
-            "--demuxer-lavf-o=live_start_index=-1",
-        ])
-    else:
-        # YouTube/VOD: v4l2m2m-copy works great at 720p24-30
-        cmd.append("--hwdec=v4l2m2m-copy")
 
     if mute:
         cmd.append("--volume=0")
@@ -147,10 +224,11 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
 
 
 def _stop_playback():
-    """Stop current mpv playback if any."""
-    global _player_proc, _current_video, _intentional_stop
+    """Stop current playback (mpv + streamlink if active)."""
+    global _player_proc, _streamlink_proc, _current_video, _intentional_stop
     _intentional_stop = True
     with _player_lock:
+        # Kill mpv first (stops consuming pipe)
         if _player_proc is not None and _player_proc.poll() is None:
             _player_proc.terminate()
             try:
@@ -158,7 +236,15 @@ def _stop_playback():
             except subprocess.TimeoutExpired:
                 _player_proc.kill()
             _player_proc = None
-            _current_video = {}
+        # Then kill streamlink (stops producing pipe)
+        if _streamlink_proc is not None and _streamlink_proc.poll() is None:
+            _streamlink_proc.terminate()
+            try:
+                _streamlink_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                _streamlink_proc.kill()
+            _streamlink_proc = None
+        _current_video = {}
 
 
 def _mpv_command(command: list) -> dict | None:
@@ -211,6 +297,7 @@ def api_status():
         "autoplay_enabled": _autoplay_enabled,
     }
     if not idle:
+        result["source_type"] = "twitch" if "twitch.tv/" in result.get("url", "") else "youtube"
         pos = _mpv_command(["get_property", "time-pos"])
         dur = _mpv_command(["get_property", "duration"])
         paused = _mpv_command(["get_property", "pause"])
@@ -345,6 +432,14 @@ def _watchdog_loop():
                     _player_proc is not None
                     and _player_proc.poll() is None
                 )
+
+            # Pipe health: if mpv alive but streamlink died, pipe is broken
+            if alive and _streamlink_proc is not None:
+                if _streamlink_proc.poll() is not None:
+                    logger.warning("Watchdog: streamlink died, restarting pipe")
+                    _stop_playback()
+                    _intentional_stop = False
+                    alive = False
 
             if alive:
                 # Check for stalled playback (alive but frozen)
