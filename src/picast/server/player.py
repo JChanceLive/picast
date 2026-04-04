@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import logging
 import os
-import shutil
 import signal
 import subprocess
 import threading
@@ -159,6 +158,9 @@ class Player:
         self._consecutive_failures = 0
         self._rapid_successes = 0
 
+        # Fallback screensaver resilience
+        self._fallback_consecutive_failures = 0
+
         # Hardware detection (cached at init)
         self._audio_device = detect_hdmi_audio()
         self._wayland_display = detect_wayland()
@@ -240,7 +242,13 @@ class Player:
                 pass
 
     def _backup_loop(self, interval_hours: int):
-        """Periodically back up the SQLite database."""
+        """Periodically back up the SQLite database.
+
+        Uses sqlite3's Online Backup API instead of file copy to guarantee
+        a consistent snapshot even while other threads are writing.
+        """
+        import sqlite3
+
         interval_secs = interval_hours * 3600
         while self._running:
             time.sleep(interval_secs)
@@ -250,52 +258,86 @@ class Player:
             if db_path and os.path.exists(db_path):
                 bak_path = db_path + ".bak"
                 try:
-                    shutil.copy2(db_path, bak_path)
-                    logger.info("Database backed up to %s", bak_path)
-                except OSError as e:
+                    src = sqlite3.connect(db_path)
+                    dst = sqlite3.connect(bak_path)
+                    src.backup(dst)
+                    dst.close()
+                    src.close()
+                    logger.info("Database backed up to %s (sqlite3 backup API)", bak_path)
+                except (sqlite3.Error, OSError) as e:
                     logger.warning("Database backup failed: %s", e)
 
     def _loop(self):
-        """Main player loop."""
+        """Main player loop.
+
+        Wraps the entire loop body in exception handling so the player
+        thread never dies. Database corruption, transient I/O errors, and
+        other unexpected exceptions are caught, logged, and backed off.
+        """
+        consecutive_errors = 0
+        max_backoff = 60
+
         while self._running:
-            # Check timed stop deadline
-            if self._stop_at_time is not None and time.monotonic() >= self._stop_at_time:
-                logger.info("Sleep timer expired, stopping playback")
-                self._stop_at_time = None
-                self._stop_after_current = False
-                self._kill_mpv()
-                continue
-
-            # Check stop-after-current (between videos)
-            if self._stop_after_current and self._current_item is None:
-                time.sleep(2)
-                continue
-
-            # If stop was requested, don't pick up next item
-            if self._stop_requested:
-                time.sleep(2)
-                continue
-
-            next_item = self.queue.get_next()
-            if next_item is None:
-                if self._loop_enabled and self.queue.has_loopable():
-                    count = self.queue.reset_for_loop()
-                    self._loop_count += 1
-                    self._emit(
-                        "playback",
-                        f"Queue looped (pass #{self._loop_count})",
-                        f"Reset {count} videos",
-                    )
-                    self._show_osd(f"Queue looped - pass #{self._loop_count}")
-                    continue  # Re-check immediately
-                # Play fallback screensaver if configured
-                if self._fallback_url and not self._stop_requested:
-                    self._play_fallback()
+            try:
+                # Check timed stop deadline
+                if self._stop_at_time is not None and time.monotonic() >= self._stop_at_time:
+                    logger.info("Sleep timer expired, stopping playback")
+                    self._stop_at_time = None
+                    self._stop_after_current = False
+                    self._kill_mpv()
                     continue
-                time.sleep(2)
-                continue
 
-            self._play_item(next_item)
+                # Check stop-after-current (between videos)
+                if self._stop_after_current and self._current_item is None:
+                    time.sleep(2)
+                    continue
+
+                # If stop was requested, don't pick up next item
+                if self._stop_requested:
+                    time.sleep(2)
+                    continue
+
+                next_item = self.queue.get_next()
+
+                # Successful DB access — reset error counter
+                consecutive_errors = 0
+
+                if next_item is None:
+                    if self._loop_enabled and self.queue.has_loopable():
+                        count = self.queue.reset_for_loop()
+                        self._loop_count += 1
+                        self._emit(
+                            "playback",
+                            f"Queue looped (pass #{self._loop_count})",
+                            f"Reset {count} videos",
+                        )
+                        self._show_osd(f"Queue looped - pass #{self._loop_count}")
+                        continue  # Re-check immediately
+                    # Play fallback screensaver if configured
+                    if self._fallback_url and not self._stop_requested:
+                        self._play_fallback()
+                        continue
+                    time.sleep(2)
+                    continue
+
+                self._play_item(next_item)
+
+            except Exception as e:
+                consecutive_errors += 1
+                backoff = min(2 ** consecutive_errors, max_backoff)
+                logger.error(
+                    "Player loop error (streak=%d, backoff=%ds): %s: %s",
+                    consecutive_errors,
+                    backoff,
+                    type(e).__name__,
+                    e,
+                )
+                self._emit(
+                    "error",
+                    f"Player loop error (retry in {backoff}s)",
+                    f"{type(e).__name__}: {e}",
+                )
+                time.sleep(backoff)
 
     def _play_fallback(self):
         """Play the fallback screensaver URL in a loop until interrupted.
@@ -304,7 +346,11 @@ class Player:
         - A new item appears in the queue (user queued or play_now)
         - skip is requested (play_now sets this)
         - stop is requested
+
+        Includes failure backoff: if mpv exits within 15 seconds (stream
+        failure), backs off with increasing delay to prevent tight loops.
         """
+        fallback_start = time.monotonic()
         logger.info("Starting fallback screensaver: %s", self._fallback_url)
         self._fallback_active = True
         self._skip_requested = False
@@ -389,9 +435,12 @@ class Player:
                     break  # mpv exited (stream ended, error, etc.)
                 if self._skip_requested or self._stop_requested:
                     break
-                # Check if a real queue item appeared
-                if self.queue.get_next() is not None:
-                    break
+                # Check if a real queue item appeared (wrap in try/except for DB errors)
+                try:
+                    if self.queue.get_next() is not None:
+                        break
+                except Exception:
+                    break  # DB error — exit fallback, let main loop handle it
                 time.sleep(1)
 
             # Kill mpv
@@ -402,15 +451,33 @@ class Player:
                 except subprocess.TimeoutExpired:
                     self._mpv_process.kill()
 
-        except (FileNotFoundError, OSError) as e:
+        except Exception as e:
             logger.error("Fallback playback failed: %s", e)
         finally:
+            play_duration = time.monotonic() - fallback_start
             self.mpv.disconnect()
             self._mpv_process = None
             self._fallback_active = False
             # Clear skip flag so it doesn't interfere with normal playback
             if not self._stop_requested:
                 self._skip_requested = False
+
+            # Failure backoff: if mpv exited too quickly, sleep before retrying
+            # to prevent tight restart loops (e.g. stream URL failing repeatedly)
+            if play_duration < 15 and not self._skip_requested and not self._stop_requested:
+                self._fallback_consecutive_failures += 1
+                backoff = min(5 * self._fallback_consecutive_failures, 120)
+                logger.warning(
+                    "Fallback exited quickly (%.0fs, streak=%d) — backing off %ds",
+                    play_duration,
+                    self._fallback_consecutive_failures,
+                    backoff,
+                )
+                time.sleep(backoff)
+            else:
+                # Successful play (>15s) — reset failure counter
+                self._fallback_consecutive_failures = 0
+
             logger.info("Fallback screensaver stopped")
 
     def _emit(

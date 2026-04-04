@@ -6,6 +6,7 @@ Auto-migrates schema on startup.
 
 import logging
 import os
+import shutil
 import sqlite3
 import threading
 import time
@@ -264,8 +265,74 @@ class Database:
             self._local.conn.execute("PRAGMA busy_timeout=5000")
         return self._local.conn
 
+    def _check_integrity(self) -> bool:
+        """Run PRAGMA integrity_check on the database.
+
+        Returns True if the database passes integrity checks.
+        """
+        try:
+            conn = self._get_conn()
+            result = conn.execute("PRAGMA integrity_check").fetchone()
+            if result and result[0] == "ok":
+                logger.info("Database integrity check passed")
+                return True
+            logger.error("Database integrity check FAILED: %s", result[0] if result else "no result")
+            return False
+        except sqlite3.DatabaseError as e:
+            logger.error("Database integrity check error: %s", e)
+            return False
+
+    def _recover_from_backup(self) -> bool:
+        """Attempt to recover from .bak file when primary DB is corrupt.
+
+        Archives the corrupt DB as .corrupt, removes WAL/SHM files,
+        and copies .bak to the primary path. Returns True on success.
+        """
+        bak_path = self.db_path + ".bak"
+        if not os.path.exists(bak_path):
+            logger.warning("No backup file found at %s — cannot recover", bak_path)
+            return False
+
+        # Close current connection to release file handles
+        self.close()
+
+        corrupt_path = self.db_path + ".corrupt"
+        try:
+            # Archive corrupt DB
+            shutil.move(self.db_path, corrupt_path)
+            logger.info("Archived corrupt DB to %s", corrupt_path)
+
+            # Remove WAL/SHM files (stale after corruption)
+            for suffix in (".db-wal", ".db-shm"):
+                wal_path = self.db_path + suffix.replace(".db", "")
+                if os.path.exists(wal_path):
+                    os.remove(wal_path)
+                    logger.info("Removed stale %s", wal_path)
+
+            # Copy backup to primary
+            shutil.copy2(bak_path, self.db_path)
+            logger.info("Restored database from backup: %s", bak_path)
+            return True
+        except OSError as e:
+            logger.error("Recovery from backup failed: %s", e)
+            # Try to restore the corrupt file if the copy failed
+            if not os.path.exists(self.db_path) and os.path.exists(corrupt_path):
+                try:
+                    shutil.move(corrupt_path, self.db_path)
+                except OSError:
+                    pass
+            return False
+
     def _init_schema(self):
         """Create tables if they don't exist and run migrations."""
+        # Check integrity before schema init — recover from backup if corrupt
+        if os.path.exists(self.db_path):
+            if not self._check_integrity():
+                if self._recover_from_backup():
+                    logger.info("Recovery successful, proceeding with restored database")
+                else:
+                    logger.warning("Recovery failed — proceeding with potentially corrupt database")
+
         conn = self._get_conn()
         conn.executescript(SCHEMA_SQL)
 
@@ -525,7 +592,7 @@ class Database:
         """
         # Circuit breaker: fail fast when DB is known-bad
         if time.monotonic() < self._circuit_open_until:
-            raise sqlite3.OperationalError(
+            raise sqlite3.DatabaseError(
                 f"disk I/O error (circuit breaker open, retries skipped for {description})"
             )
 
@@ -534,9 +601,12 @@ class Database:
             # Success — reset breaker
             self._reset_circuit()
             return result
-        except sqlite3.OperationalError as e:
+        except sqlite3.DatabaseError as e:
             err = str(e)
-            if "disk I/O error" not in err and "database is locked" not in err:
+            if not any(
+                s in err
+                for s in ("disk I/O error", "database is locked", "malformed", "corrupt")
+            ):
                 raise
             # Record SD error for notification manager
             if self._notification_manager and "disk I/O error" in err:
@@ -560,7 +630,7 @@ class Database:
                     result = operation(self._get_conn())
                     self._reset_circuit()
                     return result
-                except sqlite3.OperationalError as retry_e:
+                except sqlite3.DatabaseError as retry_e:
                     last_exc = retry_e
             # All retries exhausted — trip the breaker
             self._trip_circuit()

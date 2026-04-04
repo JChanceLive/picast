@@ -171,10 +171,12 @@ def _play_url(url: str, title: str = "", mute: bool = False) -> bool:
         "--fullscreen",
         f"--input-ipc-server={_mpv_socket}",
         "--ytdl-format=bestvideo[height<=720][vcodec^=avc][fps<=30]+bestaudio/bestvideo[height<=720][vcodec^=avc]+bestaudio/best[height<=720][vcodec^=avc]/best[height<=720]/best",
-        "--demuxer-max-bytes=100M",
-        "--demuxer-max-back-bytes=30M",
+        "--demuxer-max-bytes=30M",
+        "--demuxer-max-back-bytes=10M",
         "--framedrop=decoder+vo",
         "--hwdec=v4l2m2m-copy",
+        "--profile=fast",
+        "--initial-audio-sync=no",
         "--log-file=/tmp/mpv.log",
     ]
 

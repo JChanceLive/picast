@@ -1,5 +1,6 @@
 """Tests for fallback screensaver feature."""
 
+import sqlite3
 import threading
 import time
 from unittest.mock import MagicMock, patch
@@ -232,3 +233,167 @@ class TestFallbackApiStatus:
         app.player.stop()
         app.config["TESTING"] = True
         return app.test_client()
+
+
+class TestPlayerLoopCrashProtection:
+    """Test that the player loop survives exceptions."""
+
+    @patch("picast.server.player.time.sleep")
+    def test_player_loop_survives_db_error(self, mock_sleep):
+        """Player loop should catch DB errors and keep running."""
+        mpv = MagicMock(spec=MPVClient)
+        queue = MagicMock(spec=QueueManager)
+
+        # get_next raises DatabaseError on first call, returns None on second
+        call_count = 0
+        def get_next_side_effect():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise sqlite3.DatabaseError("database disk image is malformed")
+            # Stop the loop on second call
+            player._running = False
+            return None
+
+        queue.get_next.side_effect = get_next_side_effect
+        queue.has_loopable.return_value = False
+
+        player = Player(mpv, queue, fallback_url="")
+        player._running = True
+        player._loop()
+
+        # Loop should have survived the first error and made a second call
+        assert call_count == 2
+        # sleep should have been called for backoff after the error
+        assert mock_sleep.called
+
+    @patch("picast.server.player.time.sleep")
+    def test_player_loop_exponential_backoff(self, mock_sleep):
+        """Consecutive errors should increase backoff time."""
+        mpv = MagicMock(spec=MPVClient)
+        queue = MagicMock(spec=QueueManager)
+
+        call_count = 0
+        def get_next_errors():
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                raise RuntimeError("test error")
+            player._running = False
+            return None
+
+        queue.get_next.side_effect = get_next_errors
+        queue.has_loopable.return_value = False
+
+        player = Player(mpv, queue, fallback_url="")
+        player.event_bus = MagicMock()
+        player._running = True
+        player._loop()
+
+        # Error backoff delays: 2^1=2, 2^2=4, 2^3=8 (then final sleep(2) from normal path)
+        # Filter to only error-backoff sleeps (>= 2 and strictly increasing)
+        all_sleep_vals = [call.args[0] for call in mock_sleep.call_args_list if call.args]
+        # First 3 should be backoff: 2, 4, 8
+        backoff_sleeps = all_sleep_vals[:3]
+        assert backoff_sleeps == [2, 4, 8]
+
+
+class TestFallbackBackoff:
+    """Test fallback screensaver failure backoff."""
+
+    def test_fallback_consecutive_failures_init(self):
+        """Player should initialize fallback failure counter."""
+        mpv = MagicMock(spec=MPVClient)
+        queue = MagicMock(spec=QueueManager)
+        player = Player(mpv, queue)
+        assert player._fallback_consecutive_failures == 0
+
+    @patch("picast.server.player.detect_hdmi_audio", return_value=None)
+    @patch("picast.server.player.detect_wayland", return_value=None)
+    @patch("picast.server.player.time.sleep")
+    @patch("picast.server.player.subprocess.Popen")
+    def test_fallback_backoff_on_rapid_exit(self, mock_popen, mock_sleep,
+                                            mock_wayland, mock_hdmi):
+        """If fallback exits quickly, should back off before retrying."""
+        mpv = MagicMock(spec=MPVClient)
+        mpv.socket_path = "/tmp/test-socket"
+        mpv.connect.return_value = False
+        queue = MagicMock(spec=QueueManager)
+        queue._db = MagicMock()
+
+        player = Player(
+            mpv, queue,
+            fallback_url="https://example.com/vid",
+            fallback_title="Test",
+        )
+        player._running = True
+        player._config = None
+
+        # Mock mpv process that exits immediately (simulates stream failure)
+        mock_proc = MagicMock()
+        mock_proc.poll.return_value = 1  # Already exited
+        mock_popen.return_value = mock_proc
+
+        # Run fallback — it should detect rapid exit and backoff
+        player._play_fallback()
+
+        assert player._fallback_consecutive_failures == 1
+        # The backoff sleep should have been called (5s for first failure)
+        backoff_calls = [c for c in mock_sleep.call_args_list if c.args and c.args[0] >= 5]
+        assert len(backoff_calls) >= 1
+
+    @patch("picast.server.player.detect_hdmi_audio", return_value=None)
+    @patch("picast.server.player.detect_wayland", return_value=None)
+    @patch("picast.server.player.time.sleep")
+    @patch("picast.server.player.subprocess.Popen")
+    def test_fallback_resets_on_successful_play(self, mock_popen, mock_sleep,
+                                                mock_wayland, mock_hdmi):
+        """A successful long play should reset the failure counter."""
+        mpv = MagicMock(spec=MPVClient)
+        mpv.socket_path = "/tmp/test-socket"
+        mpv.connect.return_value = False
+        queue = MagicMock(spec=QueueManager)
+        queue._db = MagicMock()
+
+        player = Player(
+            mpv, queue,
+            fallback_url="https://example.com/vid",
+            fallback_title="Test",
+        )
+        player._running = True
+        player._config = None
+        player._fallback_consecutive_failures = 3  # Pre-set failures
+
+        # Mock mpv process that runs for a while then gets skip-interrupted
+        mock_proc = MagicMock()
+        # poll returns None first (running), then exits
+        poll_count = 0
+        def poll_side_effect():
+            nonlocal poll_count
+            poll_count += 1
+            if poll_count <= 1:
+                return None
+            return 0
+
+        mock_proc.poll.side_effect = poll_side_effect
+        mock_popen.return_value = mock_proc
+
+        # Simulate skip after "long" play by mocking time.monotonic
+        # to make play_duration > 15s
+        real_monotonic = time.monotonic
+        call_idx = 0
+        start = real_monotonic()
+        def fake_monotonic():
+            nonlocal call_idx
+            call_idx += 1
+            # First call (start) returns real time
+            # Subsequent calls return start + 20s to simulate long play
+            if call_idx <= 1:
+                return start
+            return start + 20
+
+        with patch("picast.server.player.time.monotonic", side_effect=fake_monotonic):
+            player._play_fallback()
+
+        # Failures should be reset after successful play (>15s)
+        assert player._fallback_consecutive_failures == 0
