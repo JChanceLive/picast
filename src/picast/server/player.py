@@ -44,6 +44,8 @@ logger = logging.getLogger(__name__)
 MIN_PLAY_SECONDS = 5  # Under this = "didn't really play"
 MAX_RAPID_FAILURES = 3  # After this many rapid failures, mark failed
 FAILURE_BACKOFF = [1, 5, 30]  # Exponential backoff delays per retry attempt
+FALLBACK_MAX_FAILURES = 10       # Trip circuit breaker after this many
+FALLBACK_COOLDOWN_SECS = 1800   # 30-minute cooldown when tripped
 
 
 def detect_wayland() -> str | None:
@@ -160,6 +162,8 @@ class Player:
 
         # Fallback screensaver resilience
         self._fallback_consecutive_failures = 0
+        self._fallback_disabled_until: float | None = None
+        self._wakeup = threading.Event()
 
         # Hardware detection (cached at init)
         self._audio_device = detect_hdmi_audio()
@@ -315,6 +319,15 @@ class Player:
                         continue  # Re-check immediately
                     # Play fallback screensaver if configured
                     if self._fallback_url and not self._stop_requested:
+                        # Circuit breaker: skip fallback during cooldown
+                        if self._fallback_disabled_until is not None:
+                            if time.monotonic() < self._fallback_disabled_until:
+                                time.sleep(2)
+                                continue
+                            # Cooldown expired — reset and probe
+                            logger.info("Fallback circuit breaker: cooldown expired, probing...")
+                            self._fallback_disabled_until = None
+                            self._fallback_consecutive_failures = 0
                         self._play_fallback()
                         continue
                     time.sleep(2)
@@ -466,17 +479,34 @@ class Player:
             # to prevent tight restart loops (e.g. stream URL failing repeatedly)
             if play_duration < 15 and not self._skip_requested and not self._stop_requested:
                 self._fallback_consecutive_failures += 1
-                backoff = min(5 * self._fallback_consecutive_failures, 120)
-                logger.warning(
-                    "Fallback exited quickly (%.0fs, streak=%d) — backing off %ds",
-                    play_duration,
-                    self._fallback_consecutive_failures,
-                    backoff,
-                )
-                time.sleep(backoff)
+                # Circuit breaker: disable fallback after too many consecutive failures
+                if self._fallback_consecutive_failures >= FALLBACK_MAX_FAILURES:
+                    self._fallback_disabled_until = time.monotonic() + FALLBACK_COOLDOWN_SECS
+                    logger.error(
+                        "Fallback circuit breaker: disabled for %ds after %d consecutive failures",
+                        FALLBACK_COOLDOWN_SECS,
+                        self._fallback_consecutive_failures,
+                    )
+                    self._emit(
+                        "error",
+                        "Fallback screensaver disabled",
+                        f"{self._fallback_consecutive_failures} consecutive failures — "
+                        f"cooldown {FALLBACK_COOLDOWN_SECS // 60}m",
+                    )
+                else:
+                    backoff = min(5 * self._fallback_consecutive_failures, 120)
+                    logger.warning(
+                        "Fallback exited quickly (%.0fs, streak=%d) — backing off %ds",
+                        play_duration,
+                        self._fallback_consecutive_failures,
+                        backoff,
+                    )
+                    self._wakeup.wait(timeout=backoff)
+                    self._wakeup.clear()
             else:
                 # Successful play (>15s) — reset failure counter
                 self._fallback_consecutive_failures = 0
+                self._fallback_disabled_until = None
 
             logger.info("Fallback screensaver stopped")
 
@@ -685,6 +715,7 @@ class Player:
                     "--demuxer-lavf-o=live_start_index=-1,fflags=+discardcorrupt",
                     "--vd-lavc-threads=4",
                     "--audio-stream-silence",
+                    "--initial-audio-sync=no",
                 ]
             )
 
@@ -1192,6 +1223,7 @@ class Player:
         Adds the URL to the front of the queue and skips the current video.
         Also interrupts fallback screensaver if active.
         """
+        self._wakeup.set()  # Wake any fallback backoff sleep
         # Clear stop state so new playback can start
         self._stop_requested = False
         self._next_start_time = start_time
@@ -1272,6 +1304,7 @@ class Player:
         status["player_running"] = self._running
         status["stopped"] = self._stop_requested
         status["fallback_active"] = self._fallback_active
+        status["fallback_disabled"] = self._fallback_disabled_until is not None
 
         if self._current_item:
             # Override idle if we have an active item - mpv may briefly

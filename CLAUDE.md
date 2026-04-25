@@ -119,14 +119,12 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-04-03 | 43 active memories, 662 total_
+_Last updated: 2026-04-21 | 40 active memories, 669 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
-- PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, autopilot, architecture, taste-profile, discovery, api-design, selection-algorithm, fleet, feedback-loop, multi-tv, mute, starscreen]
-- PiCast Multi-TV Remote Control architecture (ARCH-MULTI-TV-REMOTE.md) defines 4-tier device control: (1) Local device... [picast, multi-tv, remote-control, architecture, s1-backend, fleet, api-design, web-ui, s2-implementation]
-- PiCast database resilience layer: DatabaseManager._verify_integrity() runs PRAGMA integrity_check on every open (cach... [picast, database, resilience, backup, error-handling]
-- PiCast player loop crash protection uses try-except wrapping main playback loop to catch unhandled exceptions (includ... [picast, player, resilience, crash-recovery, diagnostics]
+- PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, autopilot, architecture, multi-tv, fleet, remote-control, api-design]
+- PiCast database resilience architecture: DatabaseManager._verify_integrity() runs PRAGMA integrity_check on every ope... [picast, database, resilience, crash-recovery, circuit-breaker, error-handling]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -134,9 +132,8 @@ _Last updated: 2026-04-03 | 43 active memories, 662 total_
 - Kernel-level `panel_orientation=upside_down` in /boot/firmware/cmdline.txt chosen for display rotation over firmware ... [picast, display, rotation, kms, performance]
 - PiCast v1.0.0 release marked 'Hand it to anyone release' in git tag message — represents production-ready feature com... [picast, v1.0.0, release, decision]
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
-- 30-day trial guard added to refresh-taste-profile.sh: creates ~/.picast/trial-start on first run, stores expiry date ... [picast, autopilot, cost-control, trial-system]
-- PiCast Multi-TV architecture and fleet integration decisions: (1) Queue distribution prioritizes visual simplicity ov... [picast, multi-tv, fleet, architecture, starscreen, pushover, notifications, ipv6, grayout-recovery, pipulse, pihub, migration]
 - PiCast database backup uses sqlite3.backup API (db.backup(backup_db)) instead of shutil.copy2 to guarantee hot backup... [picast, database, backup, api-design]
+- Circuit breaker for fallback screensaver uses fixed threshold of 10 consecutive failures before disabling fallback fo... [picast, fallback, resilience, circuit-breaker]
 
 ## Patterns & Conventions
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
@@ -147,31 +144,25 @@ _Last updated: 2026-04-03 | 43 active memories, 662 total_
 - iOS Safari PWA double-tap confirm pattern: instead of confirm() dialogs (which silently return false in PWA mode), us... [picast, ios-safari, pwa, ui-pattern, mobile]
 - PiCast Multi-TV notification integration uses MultiTVConfig dataclass with optional notify_fn: Optional[Callable[[str... [picast, multi-tv, config, notifications, architecture, pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling, pattern]
-- PiCast receiver deployment verification cycle: After scp picast_receiver.py and systemctl restart, always check healt... [picast-receiver, deployment, testing, verification]
-- PiCast receiver (picast-z1) deployment and sync patterns: (1) Source canonical copy at `receiver/picast_receiver.py` ... [picast, receiver, deployment, picast-z1, pattern, sync, git-workflow, testing, verification]
-- PiCast fallback screensaver backoff strategy uses _fallback_consecutive_failures counter (incremented per failed fetc... [picast, fallback, resilience, backoff, error-handling]
 - PiCast fallback test mocking pattern: subprocess-calling functions (detect_hdmi_audio, detect_wayland) must be patche... [picast, testing, mocking, fallback]
+- PiCast rsync deployment excludes: .venv, __pycache__, .git, dist, *.egg-info directories to avoid syncing build artif... [picast, deployment, workflow]
+- PiCast post-deployment verification uses three checks: (1) grep config fields to confirm sed edits applied, (2) journ... [picast, deployment, testing, verification]
+- PiCast receiver (picast-z1) deployment and sync patterns: (1) Source canonical copy at `receiver/picast_receiver.py` ... [picast-receiver, deployment, testing, verification, sync, git-workflow]
+- PiCast fallback screensaver uses exponential backoff with threading.Event-based interruption: _fallback_consecutive_f... [picast, fallback, resilience, backoff, error-handling, threading, player-loop, wakeup-event, circuit-breaker]
 
 ## Gotchas & Pitfalls
 - iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
-- Mock patches in pytest must target the module where import occurs: @patch('picast.server.youtube_discovery.shutil.whi... [testing, mocking, pytest]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
 - iPhone 5 (320px viewport width) presents extreme mobile constraint: 44px minimum touch target + 8px margins per contr... [picast, mobile-ui, responsive-design, ios]
 - sqlite3 CLI tool not installed on Pi 4B; WAL checkpoint for zero-data-loss DB migration requires using Python venv `s... [pipulse, database, migration, sqlite, gotcha]
-- MagicMock comparisons in pytest fail with 'not supported between instances' error (e.g., `mock_grace_period > 0` rais... [picast, testing, mocking, pytest]
 - PiCast yt-dlp metadata fetch timeouts for some YouTube URLs (e.g., kJQP7kiw5Fk, RgKAFK5djSk) cause title resolution t... [picast, yt-dlp, metadata, api, timeout]
 - Receiver code path conditional logic (Twitch vs YouTube) must track which flags apply to which provider: v0.8.0 accid... [picast-receiver, twitch, youtube, mpv-flags, bug-prevention]
 - SQLite corruption detection in tests requires aggressive byte overwriting (512+ bytes) rather than small offset write... [picast, sqlite, testing, database, corruption]
-
-## Current Progress
-- Circuit breaker + in-memory SD error fallback for PiCast database I/O failure resilience COMPLETE (2026-04-03): Imple... [picast, database, resilience, error-handling, testing]
-- PiCast receiver v0.8.0 deployed to picast-z1 (2026-03-30): Twitch streaming fix with streamlink pipe integration COMP... [picast, twitch, z1, deployment, v0.8.0, receiver, youtube-regression-fix]
-- PiCast AI Autopilot (Phases 1-5), Multi-TV, and Mobile UI shipped (2026-03-09 to 2026-03-20): Autopilot includes 5 AP... [picast, autopilot, multi-tv, mobile-ui, deployment, progress]
-- PiCast project status (2026-03-29): All active work COMPLETE. Server at v1.1.0a43 (multi-TV, autopilot fleet, remote ... [picast, project-status, cleanup, archival]
+- PiCast pytest mocking gotchas: (1) Mock patches must target the module where import occurs (@patch('picast.server.you... [picast, testing, mocking, pytest, threading]
 
 ## Context
-- PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, pihub, migration, deployment, fleet-infrastructure, picast, ai-autopilot, phase-1-complete, phase-3-complete, phase-4-complete, phase-5-complete, multi-tv, fleet, starscreen, testing, stability-soak, v1.1.0a41]
+- PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, picast, autopilot, multi-tv, fleet, migration, deployment, complete]
 
 _For deeper context, use memory_search, memory_related, or memory_ask tools._
 <!-- MEMORY:END -->
