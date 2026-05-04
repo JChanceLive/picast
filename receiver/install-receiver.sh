@@ -29,8 +29,13 @@ mkdir -p "$INSTALL_DIR"
 # Copy files if running from the receiver directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 if [ -f "$SCRIPT_DIR/picast_receiver.py" ]; then
-    cp "$SCRIPT_DIR/picast_receiver.py" "$INSTALL_DIR/"
-    echo "Copied picast_receiver.py to $INSTALL_DIR"
+    # Copy CLI wrapper + the modular components introduced in v0.9.0.
+    for f in picast_receiver.py blueprint.py player.py watchdog.py __init__.py; do
+        if [ -f "$SCRIPT_DIR/$f" ]; then
+            cp "$SCRIPT_DIR/$f" "$INSTALL_DIR/"
+        fi
+    done
+    echo "Copied receiver modules to $INSTALL_DIR"
 else
     echo "Error: picast_receiver.py not found in $SCRIPT_DIR"
     echo "Copy it manually: scp picast_receiver.py $(hostname):$INSTALL_DIR/"

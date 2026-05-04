@@ -119,12 +119,15 @@ Pi's SD card occasionally has transient `disk I/O error` on SQLite operations. D
 <!-- MEMORY:START -->
 # picast
 
-_Last updated: 2026-04-21 | 40 active memories, 669 total_
+_Last updated: 2026-05-02 | 52 active memories, 704 total_
 
 ## Architecture
 - PiCast database access pattern: `self.queue._db` provides database access from player via queue_manager reference, en... [picast, database, player, architecture]
 - PiCast AI Autopilot uses tiered selection architecture: (1) TasteProfile rates candidate videos from block pool, (2) ... [picast, autopilot, architecture, multi-tv, fleet, remote-control, api-design]
 - PiCast database resilience architecture: DatabaseManager._verify_integrity() runs PRAGMA integrity_check on every ope... [picast, database, resilience, crash-recovery, circuit-breaker, error-handling]
+- PiCast receiver refactored from monolithic `picast_receiver.py` into modular Blueprint package structure: `player.py`... [picast, receiver, blueprint, refactoring, modularity, reusability]
+- StarScreen integrates with PiCast via two bridge modules: (1) `sync_profiles.py` loads PiCast taste profiles to share... [starscreen, picast, integration, taste-profile, blueprint, architecture]
+- Video casting to StarScreen uses three distinct paths — each with a different initiator and use case: (1) **StarGod M... [starscreen, casting, architecture, stargod, mcp-tools, pipulse, fleet, extension]
 
 ## Key Decisions
 - Catalog uses Archive.org public domain shows (Space 1999, Twilight Zone) instead of copyrighted content (Stargate SG-... [picast, catalog, archive-org]
@@ -134,6 +137,7 @@ _Last updated: 2026-04-21 | 40 active memories, 669 total_
 - AutoPlay and Autopilot are two separate features: AutoPlay assigns videos to time blocks (block = playlist), while Au... [picast, autopilot, architecture, design-philosophy]
 - PiCast database backup uses sqlite3.backup API (db.backup(backup_db)) instead of shutil.copy2 to guarantee hot backup... [picast, database, backup, api-design]
 - Circuit breaker for fallback screensaver uses fixed threshold of 10 consecutive failures before disabling fallback fo... [picast, fallback, resilience, circuit-breaker]
+- StarScreen PiCast integration uses three key architectural decisions: (1) Integration strategy: leverage existing Vid... [starscreen, opi5plus, integration, architecture, deployment, twitch, pipulse, auth, videoManager]
 
 ## Patterns & Conventions
 - Autoplay trigger validation pattern: extract video_id from QueueItem.url using extract_video_id() utility before savi... [picast, autoplay, queue, pattern]
@@ -145,23 +149,35 @@ _Last updated: 2026-04-21 | 40 active memories, 669 total_
 - PiCast Multi-TV notification integration uses MultiTVConfig dataclass with optional notify_fn: Optional[Callable[[str... [picast, multi-tv, config, notifications, architecture, pattern]
 - PiPulse /api/pitim/blocks endpoint response includes optional schedule data structure: {block_name, display_name, emo... [pipulse, picast, api-design, error-handling, pattern]
 - PiCast fallback test mocking pattern: subprocess-calling functions (detect_hdmi_audio, detect_wayland) must be patche... [picast, testing, mocking, fallback]
-- PiCast rsync deployment excludes: .venv, __pycache__, .git, dist, *.egg-info directories to avoid syncing build artif... [picast, deployment, workflow]
-- PiCast post-deployment verification uses three checks: (1) grep config fields to confirm sed edits applied, (2) journ... [picast, deployment, testing, verification]
 - PiCast receiver (picast-z1) deployment and sync patterns: (1) Source canonical copy at `receiver/picast_receiver.py` ... [picast-receiver, deployment, testing, verification, sync, git-workflow]
 - PiCast fallback screensaver uses exponential backoff with threading.Event-based interruption: _fallback_consecutive_f... [picast, fallback, resilience, backoff, error-handling, threading, player-loop, wakeup-event, circuit-breaker]
+- Twitch streamlink lifecycle management in video.py: added _kill_streamlink() method called by both stop() (public shu... [starscreen, twitch, streamlink, cleanup, process-management]
+- OPi5+ mpv software decode configuration uses MPV_FORCE_SW=1 environment variable dropped into systemd unit drop-in (s... [starscreen, opi5plus, mpv, video-decode, systemd]
+- PiPulse resolver multi-device casting pattern: `needs_resolution` property determines if device type (e.g., starscree... [pipulse, casting, receiver, authentication, architecture]
+- PiCast main deployment workflow (rsync → install → restart → verify): (1) rsync excludes .venv, __pycache__, .git, di... [picast, deployment, workflow, verification, rsync]
+- Receiver Blueprint flexibility patterns — three design choices that make the Blueprint reusable across PiCast and Sta... [receiver, blueprint, picast, starscreen, architecture, api-design, cross-platform]
+- YouTube split-stream casting via mpv --audio-file argument — PiPulse resolver returns {video_url, audio_url} payload ... [pipulse, casting, youtube, mpv, split-stream, audio, format-selection]
 
 ## Gotchas & Pitfalls
-- iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displaying them; PiCast settings page r... [picast, web-ui, ios-safari, mobile, debugging]
 - TOML table scoping: keys appended after a `[table.subtable]` header are parsed as belonging to that table, not the pa... [picast, toml, config, deployment]
 - Bash return codes don't propagate through stderr capture when using pipe redirection (e.g., `cmd 2>&1 | cat` loses ex... [bash, error-handling, return-codes, debugging]
-- iPhone 5 (320px viewport width) presents extreme mobile constraint: 44px minimum touch target + 8px margins per contr... [picast, mobile-ui, responsive-design, ios]
 - sqlite3 CLI tool not installed on Pi 4B; WAL checkpoint for zero-data-loss DB migration requires using Python venv `s... [pipulse, database, migration, sqlite, gotcha]
 - PiCast yt-dlp metadata fetch timeouts for some YouTube URLs (e.g., kJQP7kiw5Fk, RgKAFK5djSk) cause title resolution t... [picast, yt-dlp, metadata, api, timeout]
 - Receiver code path conditional logic (Twitch vs YouTube) must track which flags apply to which provider: v0.8.0 accid... [picast-receiver, twitch, youtube, mpv-flags, bug-prevention]
 - SQLite corruption detection in tests requires aggressive byte overwriting (512+ bytes) rather than small offset write... [picast, sqlite, testing, database, corruption]
 - PiCast pytest mocking gotchas: (1) Mock patches must target the module where import occurs (@patch('picast.server.you... [picast, testing, mocking, pytest, threading]
+- YouTube returns 403 Forbidden when StarScreen (and other cast devices without cookies) access video URLs directly; Pi... [starscreen, casting, youtube, authentication, pipulse, receiver]
+- PiCast mobile/iOS UI gotchas: (1) iOS Safari PWA mode silently returns `false` from `confirm()` dialogs without displ... [picast, ios-safari, mobile-ui, pwa, responsive-design]
+- OPi5+ StarScreen deployment blockers — three categories to resolve before playback works: (1) video.py hardware misma... [starscreen, opi5plus, deployment, video-playback, mpv, sudoers, installation, blocking]
+- librockchip-mpp-dev (multimedia processing platform) is not available in Armbian's standard apt repos for Ubuntu nobl... [opi5plus, armbian, apt, rkmpp, hardware-decode, package-availability]
+
+## Current Progress
+- RKMPP hardware decode build initiated on OPi5+ StarScreen (2026-05-01) — kicked off build-mpv-rkmpp.sh via nohup in b... [starscreen, opi5plus, hardware-decode, rkmpp]
+- PiPulse cast audio URL fix deployed and tested (2026-05-01) — modified cast/routes.py to populate audio_url field in ... [pipulse, casting, audio, deployment, testing, starscreen]
+- StarScreen OPi5+ deployment COMPLETE (2026-05-01): Resolved installation blocker by running setup-cast-prereqs.sh — i... [starscreen, opi5plus, deployment, fleet, complete, mpv, sudoers]
 
 ## Context
+- StarScreen Blueprint receiver deployment pending on OPi5+. StarScreen (10.0.0.170:5072, type='starscreen') is already... [starscreen, receiver, deployment, blueprint, opi5plus, pipulse, casting]
 - PiPulse migration from Pi 4B (10.0.0.103) to PiHub (10.0.0.110) completed across 4 sessions: S1 hardware validation, ... [pipulse, picast, autopilot, multi-tv, fleet, migration, deployment, complete]
 
 _For deeper context, use memory_search, memory_related, or memory_ask tools._

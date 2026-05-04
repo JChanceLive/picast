@@ -111,6 +111,12 @@ mpv_socket = "/tmp/mpv-socket"
 # port = 5050
 # room = "office"
 # mood = "focus"
+#
+# [autopilot.fleet.devices.starscreen]
+# host = "10.0.0.170"
+# port = 5072
+# room = "wall display"
+# mood = "ambient"
 
 # --- Device Registry (multi-Pi support) ---
 # Devices appear in TUI (Tab key) and Web UI device selector
@@ -124,3 +130,13 @@ mpv_socket = "/tmp/mpv-socket"
 # [devices.bedroom]
 # host = "picast-bedroom.local"
 # port = 5050
+
+# StarScreen wall display on OPi5+ — high-quality cast target with
+# RKMPP hardware decode (4K HEVC/AV1) and per-content-type sync profiles.
+# Replaces the old Pi 3 B+ at 10.0.0.31 (decommissioned 2026-04-30).
+#
+# [devices.starscreen]
+# host = "10.0.0.170"
+# port = 5072
+# room = "wall display"
+# default = false

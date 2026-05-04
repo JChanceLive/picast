@@ -394,9 +394,9 @@ class Player:
             "--idle=no",
             "--no-terminal",
             "--loop-file=inf",
-            # OSD: show fallback title
+            # OSD: show actual video title (mpv resolves ${media-title} from yt-dlp metadata)
             "--osd-level=3",
-            f"--osd-status-msg={self._fallback_title}",
+            "--osd-status-msg=${media-title}",
             "--osd-align-x=left",
             "--osd-align-y=bottom",
             "--osd-margin-x=20",
